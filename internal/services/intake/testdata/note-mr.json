@@ -1,0 +1,9 @@
+{
+  "object_kind": "note",
+  "event_type": "note",
+  "user": {"id": 6, "name": "N", "username": "dev1", "email": "[REDACTED]"},
+  "project_id": 12,
+  "project": {"id": 12, "name": "test-go-app", "path_with_namespace": "krci/test-go-app", "web_url": "https://gitlab.127.0.0.1.nip.io/krci/test-go-app"},
+  "object_attributes": {"id": 1201, "note": "please also add a test", "noteable_type": "MergeRequest", "author_id": 6, "system": false, "noteable_id": 901},
+  "merge_request": {"id": 77, "iid": 3, "title": "Add healthz", "state": "opened"}
+}

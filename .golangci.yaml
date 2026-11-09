@@ -28,6 +28,10 @@ linters:
     revive:
       rules:
         - name: comment-spacings
+    misspell:
+      # GitLab API field names (noteable_type, noteable_id).
+      ignore-rules:
+        - noteable
 formatters:
   enable:
     - gofmt
