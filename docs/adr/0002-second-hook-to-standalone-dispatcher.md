@@ -1,0 +1,3 @@
+# A second project hook to a standalone dispatcher, not the KRCI EventListener
+
+KRCI already delivers GitLab events to the Tekton EventListener `edp-gitlab`. We chose a second project hook to a separate `krci-agent-dispatcher` service instead of a new trigger and interceptor there. The EventListener path needs issue events on the KRCI hook (a codebase-operator change), the Tekton interceptor protocol, and works only for `ciTool: tekton`; the `edp` interceptor drops issue comments. A separate service costs one hook per project (GitLab CE has no group hooks) and a hook registration that the codebase-operator takes over later. Reversing it means folding a long resume-wait-suspend loop into the Tekton pipeline model, which does not fit it.
