@@ -1,0 +1,24 @@
+# Golden: scripts/dispatcher/egress-policy.yaml.tmpl (isolation repo) rendered with envsubst.
+metadata:
+  atespace: krci-agents
+  name: default
+rules:
+- https:
+    hostnames: ["api.anthropic.com"]
+    effects:
+      replaceHeaders:
+      - header: x-api-key
+        credentialUri: ate-secret://k8s.io/default/krci-agents/anthropic/api-key
+- https:
+    hostnames: ["gitlab.127.0.0.1.nip.io"]
+    effects:
+      replaceHeaders:
+      - header: Authorization
+        prefix: "Basic "
+        credentialUri: ate-secret://k8s.io/default/krci-agents/gitlab/basic
+      - header: PRIVATE-TOKEN
+        credentialUri: ate-secret://k8s.io/default/krci-agents/gitlab/token
+- tlsPassthrough:
+    hostnames: ["proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+    ports:
+      numbers: [443]

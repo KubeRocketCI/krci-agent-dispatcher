@@ -1,0 +1,77 @@
+# Per-issue ActorTemplate (protojson ateapi.ActorTemplate), Go text/template.
+# Values are JSON-quoted (`json`): project path and bot name come from event payloads and config.
+# Reference copy: scripts/dispatcher/template.yaml.tmpl in the isolation repo.
+metadata:
+  atespace: {{ json .Atespace }}
+  name: {{ json .Name }}
+workerSelector:
+  matchLabels:
+    workload: {{ json .Pool }}
+containers:
+- name: claude
+  image: {{ json .Image }}
+  command: ["/usr/local/bin/agent-loop.sh"]
+  env:
+  - name: GITLAB_URL
+    value: {{ json .GitLabURL }}
+  - name: PROJECT_PATH
+    value: {{ json .ProjectPath }}
+  - name: ISSUE_IID
+    value: {{ json (print .IID) }}
+  - name: BOT_USERNAME
+    value: {{ json .BotUsername }}
+  - name: SESSION_ID
+    value: {{ json .SessionID }}
+  - name: POLL_SECONDS
+    value: "15"
+  - name: GOPROXY
+    value: https://proxy.golang.org
+  - name: GOSUMDB
+    value: sum.golang.org
+  - name: ANTHROPIC_API_KEY
+    value: placeholder
+  - name: ANTHROPIC_MODEL
+    value: claude-haiku-5-5
+  - name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+    value: "1"
+  - name: SSL_CERT_FILE
+    value: /run/ate/egress-trust-bundle/trust-bundle.pem
+  - name: NODE_EXTRA_CA_CERTS
+    value: /run/ate/egress-trust-bundle/trust-bundle.pem
+  - name: GIT_SSL_CAINFO
+    value: /run/ate/egress-trust-bundle/trust-bundle.pem
+  - name: GIT_AUTHOR_NAME
+    value: KRCI Agent
+  - name: GIT_AUTHOR_EMAIL
+    value: krci-agent@example.invalid
+  - name: GIT_COMMITTER_NAME
+    value: KRCI Agent
+  - name: GIT_COMMITTER_EMAIL
+    value: krci-agent@example.invalid
+  - name: GIT_CONFIG_COUNT
+    value: "1"
+  - name: GIT_CONFIG_KEY_0
+    value: {{ json (print "http." .GitLabURL "/.extraHeader") }}
+  - name: GIT_CONFIG_VALUE_0
+    value: "Authorization: Basic placeholder"
+  volumeMounts:
+  - name: system-info
+    mountPath: /run/ate
+volumes:
+- name: system-info
+  systemInfo:
+    dataSources:
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: egress-trust-bundle/trust-bundle.pem
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 2147483648 # 2Gi
+snapshotConfig:
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
+  # The golden actor runs the command at template creation, with no egress.
+  goldenSnapshotConfig:
+    mode: GOLDEN_SNAPSHOT_MODE_DISABLED

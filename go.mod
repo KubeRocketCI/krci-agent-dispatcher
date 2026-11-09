@@ -8,9 +8,17 @@ require (
 	github.com/go-chi/httplog/v2 v2.1.1
 	github.com/go-resty/resty/v2 v2.17.1
 	github.com/stretchr/testify v1.12.1
+	go.ate.dev/substrate v0.6.1-0.20261105224544-94e0a26ac901
+	google.golang.org/grpc v1.83.2
+	google.golang.org/protobuf v1.36.12
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
+	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.43.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
 )

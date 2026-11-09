@@ -1,0 +1,27 @@
+# Per-issue egress policy (protojson ateapi.EgressPolicy), Go text/template: Anthropic API, GitLab, Go module proxy.
+# All other hosts denied. Singleton of the actor: name default.
+# proxy.golang.org redirects module zips to storage.googleapis.com. A Go mirror (Nexus) replaces the three Go hosts.
+# Reference copy: scripts/dispatcher/egress-policy.yaml.tmpl in the isolation repo.
+metadata:
+  atespace: {{ json .Atespace }}
+  name: default
+rules:
+- https:
+    hostnames: ["api.anthropic.com"]
+    effects:
+      replaceHeaders:
+      - header: x-api-key
+        credentialUri: {{ json (secret "anthropic/api-key") }}
+- https:
+    hostnames: [{{ json .GitLabHost }}]
+    effects:
+      replaceHeaders:
+      - header: Authorization
+        prefix: "Basic "
+        credentialUri: {{ json (secret "gitlab/basic") }}
+      - header: PRIVATE-TOKEN
+        credentialUri: {{ json (secret "gitlab/token") }}
+- tlsPassthrough:
+    hostnames: ["proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+    ports:
+      numbers: [443]
