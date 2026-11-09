@@ -19,6 +19,13 @@ make changelog
 
 Run one package: `go test -race ./internal/services/decide/... -run TestDecideTable`.
 
+Script and chart tests (bash, need `helm`, `yq`, `jq`):
+
+```
+bash hack/tests/test-register-hook.sh
+bash hack/tests/test-chart.sh
+```
+
 ## Architecture
 
 ```

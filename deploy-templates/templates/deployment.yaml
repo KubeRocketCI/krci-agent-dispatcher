@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "krci-agent-dispatcher.fullname" . }}
+  labels:
+    {{- include "krci-agent-dispatcher.labels" . | nindent 4 }}
+spec:
+  # One dispatcher at a time: two would run two activations for one issue.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "krci-agent-dispatcher.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "krci-agent-dispatcher.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "krci-agent-dispatcher.fullname" . }}
+      automountServiceAccountToken: false
+      # Above HTTP shutdown (30 s) + GitLab write timeout (30 s).
+      terminationGracePeriodSeconds: 75
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dispatcher
+          image: {{ include "krci-agent-dispatcher.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: GITLAB_URL
+              value: {{ required "gitlab.url is required" .Values.gitlab.url | quote }}
+            # Read on each request: a rotated Secret takes effect without a restart.
+            - name: GITLAB_TOKEN_FILE
+              value: /var/run/gitlab/token
+            {{- if .Values.gitlab.caConfigMap }}
+            - name: GITLAB_CA_FILE
+              value: /etc/gitlab-ca/ca.crt
+            {{- end }}
+            - name: HOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.hook }}
+                  key: token
+            - name: BOT_USERNAME
+              value: {{ .Values.config.botUsername | quote }}
+            - name: TRIGGER_LABEL
+              value: {{ .Values.config.triggerLabel | quote }}
+            - name: ATE_API_ADDR
+              value: {{ .Values.substrate.addr | quote }}
+            - name: ATE_TOKEN_FILE
+              value: /var/run/ate/token
+            - name: ATE_CA_FILE
+              value: /var/run/ate/ca.crt
+            - name: ATESPACE
+              value: {{ default .Release.Namespace .Values.substrate.atespace | quote }}
+            - name: POOL
+              value: {{ .Values.substrate.pool | quote }}
+            - name: SECRETS_NAMESPACE
+              value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
+            - name: AGENT_IMAGE
+              value: {{ required "agentImage is required" .Values.agentImage | quote }}
+            - name: TURN_TIMEOUT
+              value: {{ .Values.config.turnTimeout | quote }}
+            - name: POLL_INTERVAL
+              value: {{ .Values.config.pollInterval | quote }}
+            - name: MAX_TURNS_PER_ISSUE
+              value: {{ .Values.config.maxTurnsPerIssue | quote }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: ate
+              mountPath: /var/run/ate
+              readOnly: true
+            - name: gitlab-token
+              mountPath: /var/run/gitlab
+              readOnly: true
+            {{- if .Values.gitlab.caConfigMap }}
+            - name: gitlab-ca
+              mountPath: /etc/gitlab-ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: ate
+          projected:
+            sources:
+              - clusterTrustBundle:
+                  signerName: {{ .Values.substrate.trustBundleSigner }}
+                  labelSelector:
+                    matchLabels:
+                      {{- toYaml .Values.substrate.trustBundleLabels | nindent 22 }}
+                  path: ca.crt
+              - serviceAccountToken:
+                  audience: {{ .Values.substrate.tokenAudience }}
+                  expirationSeconds: 3600
+                  path: token
+        - name: gitlab-token
+          secret:
+            secretName: {{ .Values.secrets.gitlab }}
+            items:
+              - key: token
+                path: token
+        {{- if .Values.gitlab.caConfigMap }}
+        - name: gitlab-ca
+          configMap:
+            name: {{ .Values.gitlab.caConfigMap }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

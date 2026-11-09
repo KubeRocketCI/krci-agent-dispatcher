@@ -1,0 +1,105 @@
+# -- Overrides the chart name.
+nameOverride: ""
+# -- Overrides the full name.
+fullnameOverride: ""
+
+image:
+  # -- Dispatcher image repository. Required.
+  repository: ""
+  # -- Image tag. Set image.tag or image.digest.
+  tag: ""
+  # -- Image digest (sha256:...); takes precedence over image.tag.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets.
+imagePullSecrets: []
+
+# -- Agent image (digest reference) of the issue actors. Required.
+agentImage: ""
+
+gitlab:
+  # -- GitLab base URL, for example https://gitlab.example.com. Required.
+  url: ""
+  # -- ConfigMap with key ca.crt: extra CA bundle for GitLab TLS. Empty: system roots.
+  caConfigMap: ""
+
+secrets:
+  # -- Secret with key token: GitLab token of the bot user, mounted as a file and read on each request.
+  gitlab: gitlab
+  # -- Secret with key token: GitLab hook secret token.
+  hook: hook
+
+substrate:
+  # -- Substrate API address.
+  addr: api.ate-system.svc:443
+  # -- ServiceAccount token audience of the Substrate API.
+  tokenAudience: api.ate-system.svc
+  # -- ClusterTrustBundle signer of the Substrate API serving certificate.
+  trustBundleSigner: servicedns.podcert.ate.dev/identity
+  # -- ClusterTrustBundle label selector.
+  trustBundleLabels:
+    podcert.ate.dev/canarying: live
+  # -- Atespace of the issue actors. Empty: the release namespace.
+  atespace: ""
+  # -- Worker pool of the actor template.
+  pool: workers
+  # -- Namespace in the ate-secret:// URIs of the egress policy. Empty: the release namespace.
+  secretsNamespace: ""
+
+config:
+  # -- Dispatcher wait for one turn's marker.
+  turnTimeout: 15m
+  # -- Marker poll interval.
+  pollInterval: 10s
+  # -- Turn limit per issue.
+  maxTurnsPerIssue: 20
+  # -- Bot user: ignored note author, marker author.
+  botUsername: krci-agent
+  # -- Label that enables the agent.
+  triggerLabel: agent
+
+ingress:
+  # -- Expose POST /hook through an Ingress with a cert-manager Certificate.
+  enabled: true
+  # -- Ingress class.
+  className: nginx
+  # -- Hook host name. Required when ingress.enabled.
+  host: ""
+  # -- Extra Ingress annotations.
+  annotations: {}
+  tls:
+    # -- Secret of the Ingress certificate.
+    secretName: krci-agent-dispatcher-tls
+    issuerRef:
+      # -- cert-manager issuer kind (Issuer or ClusterIssuer).
+      kind: ClusterIssuer
+      # -- cert-manager issuer name. Required when ingress.enabled.
+      name: ""
+
+serviceAccount:
+  # -- Annotations of the ServiceAccount. Its name is the full name: the Substrate access policy member.
+  annotations: {}
+
+service:
+  # -- Service port.
+  port: 8080
+
+# -- Pod annotations.
+podAnnotations: {}
+
+# -- Container resources.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity.
+affinity: {}

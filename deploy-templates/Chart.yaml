@@ -1,0 +1,21 @@
+apiVersion: v2
+description: A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue agents
+home: https://docs.kuberocketci.io/
+name: krci-agent-dispatcher
+type: application
+version: 0.1.0-SNAPSHOT
+appVersion: 0.1.0-SNAPSHOT
+icon: https://docs.kuberocketci.io/img/logo.svg
+keywords:
+  - edp
+  - kubernetes
+  - kuberocketci
+  - agents
+maintainers:
+  - name: epmd-edp
+    email: SupportEPMD-EDP@epam.com
+    url: https://solutionshub.epam.com/solution/kuberocketci
+sources:
+  - https://github.com/KubeRocketCI/krci-agent-dispatcher
+annotations:
+  artifacthub.io/license: Apache-2.0
