@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-chi/httplog/v2 v2.1.1
 	github.com/go-resty/resty/v2 v2.17.1
+	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.12.1
 	go.ate.dev/substrate v0.6.1-0.20261105224544-94e0a26ac901
 	google.golang.org/grpc v1.83.2
