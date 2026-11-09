@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/httplog/v2 v2.1.1
 	github.com/go-resty/resty/v2 v2.17.1
 	github.com/google/uuid v1.6.0
+	github.com/oapi-codegen/runtime v1.2.0
 	github.com/stretchr/testify v1.12.1
 	go.ate.dev/substrate v0.6.1-0.20261105224544-94e0a26ac901
 	google.golang.org/grpc v1.83.2
@@ -16,6 +17,7 @@ require (
 )
 
 require (
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.60.0 // indirect

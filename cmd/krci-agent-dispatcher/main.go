@@ -11,51 +11,106 @@ import (
 	"time"
 
 	buildInfo "github.com/epam/edp-common/pkg/config"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v2"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/api"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/config"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
 )
 
-const (
-	healthPath      = "/healthz"
-	shutdownTimeout = 30 * time.Second
-)
+const shutdownTimeout = 30 * time.Second
+
+// clock is the real time source of the dispatcher.
+type clock struct{}
+
+func (clock) Now() time.Time { return time.Now() }
+
+func (clock) Sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
 func main() {
-	logger := initLogger()
+	logger := api.NewLogger(os.Stdout)
+	slog.SetDefault(logger.Logger)
 
+	if err := run(logger.Logger, logger); err != nil {
+		logger.Error("krci-agent-dispatcher stopped with an error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
-		logger.Error("Configuration is not valid", "error", err)
-		os.Exit(1)
+		return err
 	}
 
 	info := buildInfo.Get()
-	logger.Info("Starting krci-agent-dispatcher",
-		"version", info.Version,
-		"git-commit", info.GitCommit,
-		"git-tag", info.GitTag,
-		"build-date", info.BuildDate,
-		"go-version", info.Go,
-		"platform", info.Platform,
+	log.Info("Starting krci-agent-dispatcher",
+		"version", info.Version, "git-commit", info.GitCommit, "git-tag", info.GitTag,
+		"build-date", info.BuildDate, "go-version", info.Go, "platform", info.Platform,
+		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL,
 	)
+
+	var glOpts []gitlab.Option
+	if cfg.GitLabTokenFile != "" {
+		glOpts = append(glOpts, gitlab.WithTokenFile(cfg.GitLabTokenFile))
+	}
+
+	gl, err := gitlab.NewREST(cfg.GitLabURL, cfg.GitLabToken, cfg.GitLabCAFile, cfg.BotUsername, glOpts...)
+	if err != nil {
+		return err
+	}
+
+	sb, err := substrate.NewGRPC(cfg.ATEAPIAddr, cfg.ATETokenFile, cfg.ATECAFile, cfg.Atespace)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = sb.Close() }()
+
+	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
+		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace, Image: cfg.AgentImage,
+		GitLabURL: cfg.GitLabURL, Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel,
+		MaxTurns: cfg.MaxTurnsPerIssue, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
+		Logger: log,
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer stop()
 
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           newRouter(logger),
+		Addr: ":" + cfg.Port,
+		Handler: api.NewRouter(d, api.RouterConfig{
+			HookToken: cfg.HookToken, Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel, Logger: httpLogger,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	if err := serve(ctx, server); err != nil {
-		logger.Error("Server stopped with an error", "error", err)
-		os.Exit(1)
+	runDone := make(chan error, 1)
+
+	go func() { runDone <- d.Run(ctx) }()
+
+	serveErr := serve(ctx, server)
+
+	stop()
+
+	if err := <-runDone; err != nil {
+		return err
 	}
+
+	return serveErr
 }
 
 // serve runs the server until ctx ends, then shuts it down within shutdownTimeout.
@@ -80,27 +135,4 @@ func serve(ctx context.Context, server *http.Server) error {
 	defer cancel()
 
 	return server.Shutdown(shutdownCtx)
-}
-
-func newRouter(logger *httplog.Logger) *chi.Mux {
-	r := chi.NewMux()
-	r.Use(httplog.RequestLogger(logger, []string{healthPath}))
-	r.Use(middleware.Timeout(60 * time.Second))
-	r.Use(middleware.Heartbeat(healthPath))
-
-	return r
-}
-
-func initLogger() *httplog.Logger {
-	l := httplog.NewLogger("krci-agent-dispatcher", httplog.Options{
-		JSON:            true,
-		LogLevel:        slog.LevelInfo,
-		Concise:         true,
-		RequestHeaders:  false,
-		TimeFieldFormat: time.RFC3339,
-	})
-
-	slog.SetDefault(l.Logger)
-
-	return l
 }

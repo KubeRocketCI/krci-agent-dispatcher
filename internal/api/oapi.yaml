@@ -1,0 +1,97 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: krci-agent-dispatcher API
+  description: GitLab project hook endpoint of the dispatcher for issue agents.
+paths:
+  /hook:
+    post:
+      summary: Receive one GitLab Issue Hook or Note Hook event
+      description: >-
+        The event selects the issue and the request; the action runs in the background on the issue lane.
+        The reply is sent before the action. Events other than Issue Hook and Note Hook are accepted and ignored.
+      operationId: postHook
+      security:
+        - gitlabToken: []
+      parameters:
+        - name: X-Gitlab-Event
+          in: header
+          required: false
+          description: GitLab event name, for example `Issue Hook` or `Note Hook`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        description: GitLab event payload, at most 1 MiB.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventPayload'
+      responses:
+        '202':
+          description: Event accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Accepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    gitlabToken:
+      type: apiKey
+      in: header
+      name: X-Gitlab-Token
+      description: Hook secret token; compared in constant time.
+  schemas:
+    EventPayload:
+      type: object
+      description: GitLab webhook payload, kept as raw JSON.
+      x-go-type: json.RawMessage
+    Accepted:
+      type: object
+      properties:
+        kind:
+          type: string
+          description: Request kind for the issue lane.
+          enum: [ignore, start, activate, stop, clear-error]
+      required:
+        - kind
+    Problem:
+      type: object
+      description: RFC 9457 problem details. `detail` never carries the error cause; look it up in the server log.
+      properties:
+        type:
+          type: string
+          description: Problem type URI. Always `about:blank`.
+        title:
+          type: string
+          description: HTTP status phrase.
+        status:
+          type: integer
+          description: HTTP status code.
+        detail:
+          type: string
+          description: Fixed, human-readable explanation.
+        requestId:
+          type: string
+          description: Request ID; equals the X-Request-Id response header.
+      required:
+        - type
+        - title
+        - status
+  responses:
+    BadRequest:
+      description: Body empty, not a JSON object, or over 1 MiB.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: X-Gitlab-Token missing or wrong.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
