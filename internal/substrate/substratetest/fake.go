@@ -39,6 +39,7 @@ type Fake struct {
 	failures  map[string][]error
 	states    map[string][]ateapi.ActorState
 	onResume  func(name string)
+	onSuspend func(name string)
 	authz     []string
 }
 
@@ -123,6 +124,14 @@ func (f *Fake) Fail(op string, errs ...error) {
 	defer f.mu.Unlock()
 
 	f.failures[op] = append(f.failures[op], errs...)
+}
+
+// OnSuspend calls fn after each successful Suspend, outside the fake's lock.
+func (f *Fake) OnSuspend(fn func(name string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.onSuspend = fn
 }
 
 // OnResume calls fn after each successful Resume, outside the fake's lock.
@@ -360,9 +369,16 @@ func (f *Fake) resumeLocked(name string) error {
 // Suspend implements the Substrate port.
 func (f *Fake) Suspend(_ context.Context, name string) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 
-	return f.settleLocked("suspend", name)
+	err := f.settleLocked("suspend", name)
+	fn := f.onSuspend
+	f.mu.Unlock()
+
+	if err == nil && fn != nil {
+		fn(name)
+	}
+
+	return err
 }
 
 // Revert implements the Substrate port.

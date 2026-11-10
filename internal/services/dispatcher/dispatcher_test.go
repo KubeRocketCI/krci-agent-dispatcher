@@ -1247,6 +1247,72 @@ func TestLoopTimesOutWhileReadsFail(t *testing.T) {
 	assert.Equal(t, 1, e.sb.Count("suspend", actor))
 }
 
+func TestLoopCancelLeavesActivationRunning(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == 10*time.Second {
+			e.cancel()
+		}
+	})
+	e.handle(intake.Activate, dev)
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(e.logs.String(), "Activation left running for restart recovery")
+	}, 5*time.Second, time.Millisecond)
+	assert.Equal(t, 1, e.sb.Count("resume", actor))
+	assert.Equal(t, 0, e.sb.Count("suspend", actor), "the next restart recovery continues the activation")
+	e.assertState(models.Working, "")
+}
+
+func TestLoopSuspendFailureRecordsSubstrateError(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.sb.Fail("suspend", errRP, errRP, errRP, errRP)
+		e.reply()
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("suspend", actor))
+	e.assertState(models.Error, models.ReasonSubstrateError)
+}
+
+func TestLoopIssueDeletedDeletesActor(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.OnResume(func(string) { e.gl.DeleteIssue(key) })
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor))
+}
+
+func TestSuspendedActorReadFailureKeepsStatusRows(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.agentRepliesOnResume()
+	e.sb.OnSuspend(func(string) { e.sb.Fail("inspect", errRP) })
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	rows := statusRows(e)
+
+	assert.Equal(t, 1, e.sb.Count("suspend", actor))
+	e.assertState(models.Waiting, "")
+	assert.NotEmpty(t, rows.ActorUID, "a failed read after the suspend keeps the status rows")
+	assert.NotEmpty(t, rows.Pod)
+}
+
 func TestRecoveryRetriesListUntilSuccess(t *testing.T) {
 	e := runningIssue(t)
 	e.reply()
