@@ -1,0 +1,1132 @@
+{
+  "entries": [
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/api/hook_handler.go",
+      "function": "*hookServer.PostHook"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/api/hook_handler.go",
+      "function": "NewLogger"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/api/hook_handler.go",
+      "function": "NewRouter"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/api/hook_handler.go",
+      "function": "limitBody"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/api/hook_handler.go",
+      "function": "requireToken"
+    },
+    {
+      "coverage": 100,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/api/problem.go",
+      "function": "isRequestError"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/api/problem.go",
+      "function": "writeProblem"
+    },
+    {
+      "coverage": 100,
+      "crap": 13,
+      "cyclomatic": 13,
+      "effective_crap": 13,
+      "file": "internal/config/config.go",
+      "function": "Load"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/config/config.go",
+      "function": "orDefault"
+    },
+    {
+      "coverage": 90.9,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.AccessLevel"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.CheckProject"
+    },
+    {
+      "coverage": 80,
+      "crap": 3.1,
+      "cyclomatic": 3,
+      "effective_crap": 3.1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.Load"
+    },
+    {
+      "coverage": 81,
+      "crap": 11.8,
+      "cyclomatic": 11,
+      "effective_crap": 11.8,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.NoteMergeRequest"
+    },
+    {
+      "coverage": 83.3,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.Refresh"
+    },
+    {
+      "coverage": 84.2,
+      "crap": 13.7,
+      "cyclomatic": 13,
+      "effective_crap": 13.7,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.Write"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.issue"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.notes"
+    },
+    {
+      "coverage": 81.8,
+      "crap": 4.1,
+      "cyclomatic": 4,
+      "effective_crap": 4.1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.notesAt"
+    },
+    {
+      "coverage": 83.3,
+      "crap": 5.1,
+      "cyclomatic": 5,
+      "effective_crap": 5.1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.notesSince"
+    },
+    {
+      "coverage": 80,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.postNote"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.setStateLabel"
+    },
+    {
+      "coverage": 81.3,
+      "crap": 9.5,
+      "cyclomatic": 9,
+      "effective_crap": 9.5,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.writeStatus"
+    },
+    {
+      "coverage": 92.9,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
+      "file": "internal/gitlab/rest.go",
+      "function": "NewREST"
+    },
+    {
+      "coverage": 87.5,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/gitlab/rest.go",
+      "function": "WithTokenFile"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "apiNote.note"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/gitlab/rest.go",
+      "function": "check"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "issuePath"
+    },
+    {
+      "coverage": 87.5,
+      "crap": 7.1,
+      "cyclomatic": 7,
+      "effective_crap": 7.1,
+      "file": "internal/gitlab/rest.go",
+      "function": "pages"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/actor.go",
+      "function": "ActorView.Complete"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/models/actor.go",
+      "function": "ActorView.Exists"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/models/actor.go",
+      "function": "ActorView.Partial"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/gitlaburl.go",
+      "function": "GitLabURL.GitConfigScope"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/gitlaburl.go",
+      "function": "GitLabURL.Host"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/gitlaburl.go",
+      "function": "GitLabURL.String"
+    },
+    {
+      "coverage": 100,
+      "crap": 12,
+      "cyclomatic": 12,
+      "effective_crap": 12,
+      "file": "internal/models/gitlaburl.go",
+      "function": "ParseGitLabURL"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/marker.go",
+      "function": "LastMarker"
+    },
+    {
+      "coverage": 100,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
+      "file": "internal/models/marker.go",
+      "function": "MarkerAfter"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/models/marker.go",
+      "function": "parseMarker"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "CommentAfter"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/models.go",
+      "function": "HasLabel"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "HasMarker"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/models.go",
+      "function": "IssueKey.ActorName"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/models.go",
+      "function": "IssueKey.IssueBranch"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/models.go",
+      "function": "IssueKey.String"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/models/models.go",
+      "function": "LastUpdate"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/models/models.go",
+      "function": "MergeNotes"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "NewIssueView"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/models/models.go",
+      "function": "StateFromLabels"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/models.go",
+      "function": "StateLabel"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "StateLabels"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/models/models.go",
+      "function": "StatusNote"
+    },
+    {
+      "coverage": 0,
+      "crap": 12,
+      "cyclomatic": 3,
+      "effective_crap": 12,
+      "file": "internal/models/models.go",
+      "function": "Writes.Empty"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "isBotNote"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "isComment"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/record.go",
+      "function": "MergeStatus"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/record.go",
+      "function": "ParseRecord"
+    },
+    {
+      "coverage": 100,
+      "crap": 10,
+      "cyclomatic": 10,
+      "effective_crap": 10,
+      "file": "internal/models/record.go",
+      "function": "ParseStatusView"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/record.go",
+      "function": "RecordLine"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/record.go",
+      "function": "StatusBody"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/decide/decide.go",
+      "function": "Action.String"
+    },
+    {
+      "coverage": 100,
+      "crap": 19,
+      "cyclomatic": 19,
+      "effective_crap": 19,
+      "file": "internal/services/decide/decide.go",
+      "function": "Decide"
+    },
+    {
+      "coverage": 100,
+      "crap": 19,
+      "cyclomatic": 19,
+      "effective_crap": 19,
+      "file": "internal/services/decide/decide.go",
+      "function": "Poll"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/decide/decide.go",
+      "function": "PollAction.String"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.activation"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.atTurnLimit"
+    },
+    {
+      "coverage": 100,
+      "crap": 17,
+      "cyclomatic": 17,
+      "effective_crap": 17,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.complete"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.create"
+    },
+    {
+      "coverage": 100,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.disabled"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.labelIs"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.noActor"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.partial"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.repair"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "labelRecord"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/decide/decide.go",
+      "function": "record"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/dispatcher.go",
+      "function": "*Dispatcher.Handle"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/dispatcher.go",
+      "function": "*Dispatcher.Idle"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/dispatcher.go",
+      "function": "*Dispatcher.Run"
+    },
+    {
+      "coverage": 60,
+      "crap": 3.6,
+      "cyclomatic": 3,
+      "effective_crap": 3.6,
+      "file": "internal/services/dispatcher/dispatcher.go",
+      "function": "New"
+    },
+    {
+      "coverage": 89.7,
+      "crap": 14.2,
+      "cyclomatic": 14,
+      "effective_crap": 14.2,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.act"
+    },
+    {
+      "coverage": 84.6,
+      "crap": 5.1,
+      "cyclomatic": 5,
+      "effective_crap": 5.1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.activate"
+    },
+    {
+      "coverage": 77.8,
+      "crap": 6.4,
+      "cyclomatic": 6,
+      "effective_crap": 6.4,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.create"
+    },
+    {
+      "coverage": 90,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.execute"
+    },
+    {
+      "coverage": 83.3,
+      "crap": 5.1,
+      "cyclomatic": 5,
+      "effective_crap": 5.1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.failInspect"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.failRPC"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.failRPCFresh"
+    },
+    {
+      "coverage": 88.9,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.isDeveloper"
+    },
+    {
+      "coverage": 75,
+      "crap": 7.8,
+      "cyclomatic": 7,
+      "effective_crap": 7.8,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.issueGone"
+    },
+    {
+      "coverage": 87.5,
+      "crap": 6.1,
+      "cyclomatic": 6,
+      "effective_crap": 6.1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.load"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.noteAgentMR"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.put"
+    },
+    {
+      "coverage": 100,
+      "crap": 9,
+      "cyclomatic": 9,
+      "effective_crap": 9,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.retry"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.stop"
+    },
+    {
+      "coverage": 100,
+      "crap": 9,
+      "cyclomatic": 9,
+      "effective_crap": 9,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.triggerAfterLast"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.write"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.writeFresh"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "lastMarkerID"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "stateWrites"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "substrateError"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/lane.go",
+      "function": "*Dispatcher.enqueueLocked"
+    },
+    {
+      "coverage": 91.7,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/services/dispatcher/lane.go",
+      "function": "*Dispatcher.runLane"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/dispatcher/lane.go",
+      "function": "*Dispatcher.startLocked"
+    },
+    {
+      "coverage": 80,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/lane.go",
+      "function": "*Dispatcher.stopPending"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/dispatcher/lane.go",
+      "function": "*lane.add"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/lane.go",
+      "function": "*lane.take"
+    },
+    {
+      "coverage": 100,
+      "crap": 10,
+      "cyclomatic": 10,
+      "effective_crap": 10,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "*Dispatcher.applyPoll"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "*Dispatcher.loop"
+    },
+    {
+      "coverage": 100,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "*Dispatcher.poll"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "*Dispatcher.read"
+    },
+    {
+      "coverage": 77.8,
+      "crap": 4.2,
+      "cyclomatic": 4,
+      "effective_crap": 4.2,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "*Dispatcher.timedOut"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "continueSince"
+    },
+    {
+      "coverage": 80,
+      "crap": 3.1,
+      "cyclomatic": 3,
+      "effective_crap": 3.1,
+      "file": "internal/services/dispatcher/recovery.go",
+      "function": "*Dispatcher.holdRecovery"
+    },
+    {
+      "coverage": 85.7,
+      "crap": 6.1,
+      "cyclomatic": 6,
+      "effective_crap": 6.1,
+      "file": "internal/services/dispatcher/recovery.go",
+      "function": "*Dispatcher.recover"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/recovery.go",
+      "function": "*Dispatcher.releaseRecovery"
+    },
+    {
+      "coverage": 75,
+      "crap": 6.6,
+      "cyclomatic": 6,
+      "effective_crap": 6.6,
+      "file": "internal/services/dispatcher/recovery.go",
+      "function": "parseActorName"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/intake/intake.go",
+      "function": "Kind.String"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/intake/intake.go",
+      "function": "Parse"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/services/intake/intake.go",
+      "function": "deref"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/intake/intake.go",
+      "function": "has"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/intake/intake.go",
+      "function": "hasTriggerOrStateLabel"
+    },
+    {
+      "coverage": 100,
+      "crap": 9,
+      "cyclomatic": 9,
+      "effective_crap": 9,
+      "file": "internal/services/intake/intake.go",
+      "function": "issueRequest"
+    },
+    {
+      "coverage": 100,
+      "crap": 9,
+      "cyclomatic": 9,
+      "effective_crap": 9,
+      "file": "internal/services/intake/intake.go",
+      "function": "noteRequest"
+    },
+    {
+      "coverage": 100,
+      "crap": 12,
+      "cyclomatic": 12,
+      "effective_crap": 12,
+      "file": "internal/services/intake/intake.go",
+      "function": "updateKind"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Close"
+    },
+    {
+      "coverage": 80,
+      "crap": 3.1,
+      "cyclomatic": 3,
+      "effective_crap": 3.1,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Create"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 8.8,
+      "cyclomatic": 7,
+      "effective_crap": 8.8,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Delete"
+    },
+    {
+      "coverage": 81.3,
+      "crap": 7.3,
+      "cyclomatic": 7,
+      "effective_crap": 7.3,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Inspect"
+    },
+    {
+      "coverage": 100,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.List"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Resume"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Revert"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.Suspend"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "*GRPC.ref"
+    },
+    {
+      "coverage": 75,
+      "crap": 6.6,
+      "cyclomatic": 6,
+      "effective_crap": 6.6,
+      "file": "internal/substrate/grpc.go",
+      "function": "NewGRPC"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/substrate/grpc.go",
+      "function": "StateOf"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/substrate/grpc.go",
+      "function": "callCtx"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/substrate/grpc.go",
+      "function": "created"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "isNotFound"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/substrate/grpc.go",
+      "function": "mapErr"
+    },
+    {
+      "coverage": 80,
+      "crap": 3.1,
+      "cyclomatic": 3,
+      "effective_crap": 3.1,
+      "file": "internal/substrate/grpc.go",
+      "function": "tokenFile.GetRequestMetadata"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/substrate/grpc.go",
+      "function": "tokenFile.RequireTransportSecurity"
+    },
+    {
+      "coverage": 80,
+      "crap": 4.1,
+      "cyclomatic": 4,
+      "effective_crap": 4.1,
+      "file": "internal/templates/templates.go",
+      "function": "Render"
+    },
+    {
+      "coverage": 55.6,
+      "crap": 7.2,
+      "cyclomatic": 5,
+      "effective_crap": 7.2,
+      "file": "internal/templates/templates.go",
+      "function": "render"
+    }
+  ]
+}
