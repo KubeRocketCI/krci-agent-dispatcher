@@ -54,7 +54,7 @@ type Accepted struct {
 // AcceptedKind Request kind for the issue lane.
 type AcceptedKind string
 
-// EventPayload GitLab webhook payload, kept as raw JSON.
+// EventPayload Event payload from GitLab, kept as raw JSON.
 type EventPayload = json.RawMessage
 
 // Problem RFC 9457 problem details. `detail` never carries the error cause; look it up in the server log.

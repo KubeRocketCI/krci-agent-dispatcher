@@ -14,9 +14,18 @@ import (
 )
 
 // act runs one request: gather facts, decide, execute. Transitional actors are re-read up to MaxRechecks.
+// A recover request holds a recovery slot until it ends or its activation loop starts.
 func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 	log := d.log.With("issue", r.Key.String(), "request", r.Kind.String())
 	name := r.Key.ActorName()
+
+	if r.Kind == intake.Recover {
+		if !d.holdRecovery(ctx, r.Key) {
+			return
+		}
+
+		defer d.releaseRecovery(r.Key)
+	}
 
 	for rechecks := 0; ; rechecks++ {
 		view, err := d.load(ctx, log, r)
@@ -35,28 +44,28 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 		var actor models.ActorView
 
 		if err := d.retry(ctx, func() error { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
-			_, labelled := models.StateFromLabels(view.Issue.Labels)
-			if !enabled || (!view.HasRecord && !labelled) {
-				log.Error("Cannot read the actor; the issue has no agent, nothing recorded", "error", err)
-				return
-			}
-
-			d.failRPC(ctx, log, r.Key, view, models.ActorView{}, "Cannot read the actor", err)
+			d.failInspect(ctx, log, view, err)
 
 			return
 		}
 
 		f := decide.Facts{View: view, Actor: actor, Request: r.Kind, Rechecks: rechecks}
+
 		if enabled {
 			f.TriggerAfterLast = d.triggerAfterLast(ctx, log, view)
 
-			if r.Kind == intake.Start {
-				f.AuthorOK = d.isDeveloper(ctx, log, r.Key.ProjectID, r.Author)
+			if r.Kind == intake.Start || r.Kind == intake.ClearError {
+				f.AuthorOK, err = d.isDeveloper(ctx, log, r.Key.ProjectID, r.Author)
+				if err != nil {
+					f.AuthorUnknown = true
+
+					log.Error("Cannot read the access level of the request author", "user", r.Author, "error", err)
+				}
 			}
 		}
 
 		dec := decide.Decide(f, d.limits)
-		log.Info("Decision", "row", dec.Row, "action", dec.Action.String(), "actor_state", string(actor.State))
+		log.Info("Decision", "rule", string(dec.Rule), "action", dec.Action.String(), "actor_state", string(actor.State))
 
 		if dec.Action == decide.Recheck {
 			if d.clk.Sleep(ctx, recheckPause) != nil {
@@ -190,18 +199,13 @@ func lastMarkerID(notes []models.Note, bot string) int64 {
 	return 0
 }
 
-// stop suspends a running actor, notes the agent's merge request, deletes the actor, then records done. The note
-// comes before the delete: a stop cut later runs again from restart recovery, and the marker keeps it to one note.
+// stop notes the agent's merge request, deletes the actor, then records done. A running actor is deleted as it
+// is: Substrate ends its workload and frees its worker. The note comes before the delete: a stop cut later runs
+// again from restart recovery, and the marker keeps it to one note.
 func (d *Dispatcher) stop(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
 	actor models.ActorView,
 ) {
 	name := key.ActorName()
-
-	if actor.State == models.Running {
-		if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
-			log.Warn("Cannot suspend before delete", "error", err)
-		}
-	}
 
 	d.noteAgentMR(ctx, log, key)
 
@@ -225,9 +229,9 @@ func (d *Dispatcher) noteAgentMR(ctx context.Context, log *slog.Logger, key mode
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 	defer cancel()
 
-	err := d.retry(wctx, func() error { return d.gl.NoteMergeRequest(wctx, key.ProjectID, key.AgentBranch(), n) })
+	err := d.retry(wctx, func() error { return d.gl.NoteMergeRequest(wctx, key.ProjectID, key.IssueBranch(), n) })
 	if err != nil {
-		log.Warn("Cannot note the agent's merge request", "branch", key.AgentBranch(), "error", err)
+		log.Warn("Cannot note the agent's merge request", "branch", key.IssueBranch(), "error", err)
 	}
 }
 
@@ -253,10 +257,6 @@ func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models
 		return
 	}
 
-	if actor.State == models.Running {
-		_ = d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) })
-	}
-
 	if err := d.retry(ctx, func() error { return d.sb.Delete(ctx, name) }); err != nil {
 		log.Error("Cannot delete the actor of a deleted issue", "error", err)
 		return
@@ -265,7 +265,8 @@ func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models
 	log.Info("Actor of a deleted issue deleted", "actor", name)
 }
 
-// triggerAfterLast reports whether a comment above the last marker's last= is by a Developer or higher.
+// triggerAfterLast reports whether a comment above the last marker's last= is by a Developer or higher. An
+// access level that cannot be read ends the check with false.
 func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, view models.IssueView) bool {
 	var last int64
 	if m, ok := models.LastMarker(view.Notes, d.cfg.Bot); ok {
@@ -281,7 +282,15 @@ func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, vie
 
 		checked[n.Author] = true
 
-		if d.isDeveloper(ctx, log, view.Issue.Key.ProjectID, n.Author) {
+		ok, err := d.isDeveloper(ctx, log, view.Issue.Key.ProjectID, n.Author)
+		if err != nil {
+			log.Error("Cannot read the access level of a comment author; no trigger comment found", "user", n.Author,
+				"error", err)
+
+			return false
+		}
+
+		if ok {
 			return true
 		}
 	}
@@ -289,33 +298,42 @@ func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, vie
 	return false
 }
 
-func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectID int64, username string) bool {
+// isDeveloper reports whether username has access level Developer or higher on the project. The lookup is
+// retried. ErrNotFound and ErrForbidden from GitLab mean no; any other lookup error is returned.
+func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectID int64, username string,
+) (bool, error) {
 	if username == "" {
-		return false
+		return false, nil
 	}
 
-	level, err := d.gl.AccessLevel(ctx, projectID, username)
-	if err != nil {
-		log.Warn("Access level lookup failed; not a trigger", "user", username, "error", err)
-		return false
+	var level int
+
+	err := d.retry(ctx, func() (err error) { level, err = d.gl.AccessLevel(ctx, projectID, username); return err })
+
+	switch {
+	case errors.Is(err, gitlab.ErrNotFound), errors.Is(err, gitlab.ErrForbidden):
+		log.Info("GitLab shows no access level; below Developer", "user", username, "error", err)
+		return false, nil
+	case err != nil:
+		return false, err
+	case level < Developer:
+		log.Info("Below Developer", "user", username, "level", level)
+		return false, nil
 	}
 
-	if level < Developer {
-		log.Info("Below Developer; not a trigger", "user", username, "level", level)
-		return false
-	}
-
-	return true
+	return true, nil
 }
 
-// retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom and the ErrNotFound errors.
+// retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom, the ErrNotFound errors
+// and ErrForbidden.
 func (d *Dispatcher) retry(ctx context.Context, fn func() error) error {
 	wait := retryFirstWait
 
 	for attempt := 0; ; attempt++ {
 		err := fn()
 		if err == nil || attempt == retryAttempts || errors.Is(err, substrate.ErrNoRoom) ||
-			errors.Is(err, substrate.ErrNotFound) || errors.Is(err, gitlab.ErrNotFound) {
+			errors.Is(err, substrate.ErrNotFound) || errors.Is(err, gitlab.ErrNotFound) ||
+			errors.Is(err, gitlab.ErrForbidden) {
 			return err
 		}
 
@@ -345,11 +363,14 @@ func (d *Dispatcher) write(ctx context.Context, log *slog.Logger, key models.Iss
 		w.Status = &v
 	}
 
-	d.put(ctx, log, key, w)
+	d.put(ctx, log, key, &view, w)
 }
 
-// put applies w as given; a record without status rows keeps the rows of the status note.
-func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.IssueKey, w models.Writes) {
+// put applies w as given; a record without status rows keeps the rows of the status note. known is the last
+// view of the issue, nil when none was read.
+func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.IssueKey, known *models.IssueView,
+	w models.Writes,
+) {
 	if w.Empty() {
 		return
 	}
@@ -357,7 +378,7 @@ func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.Issue
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 	defer cancel()
 
-	if err := d.retry(wctx, func() error { return d.gl.Write(wctx, key, w) }); err != nil {
+	if err := d.retry(wctx, func() error { return d.gl.Write(wctx, key, known, w) }); err != nil {
 		log.Error("Cannot write to GitLab", "error", err)
 		return
 	}
@@ -373,7 +394,7 @@ func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key model
 	view, err := d.gl.Load(ctx, key)
 	if err != nil {
 		log.Warn("Cannot read the issue for the status rows; rows kept", "error", err)
-		d.put(ctx, log, key, w)
+		d.put(ctx, log, key, nil, w)
 
 		return
 	}
@@ -381,7 +402,7 @@ func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key model
 	actor, err := d.sb.Inspect(ctx, key.ActorName())
 	if err != nil {
 		log.Warn("Cannot read the actor for the status rows; rows kept", "error", err)
-		d.put(ctx, log, key, w)
+		d.put(ctx, log, key, &view, w)
 
 		return
 	}
@@ -422,6 +443,26 @@ func (d *Dispatcher) failRPC(ctx context.Context, log *slog.Logger, key models.I
 
 	log.Error(msg, "error", err)
 	d.write(ctx, log, key, view, actor, substrateError())
+}
+
+// failInspect logs an actor read that failed past the retries. An issue whose record, or state label without a
+// record, is working, waiting or error gets substrate error and keeps its status rows; this covers a stop
+// request, which then runs on the next request for the issue. Any other issue gets no write.
+func (d *Dispatcher) failInspect(ctx context.Context, log *slog.Logger, view models.IssueView, err error) {
+	state, known := view.Record.State, view.HasRecord
+	if !known {
+		state, known = models.StateFromLabels(view.Issue.Labels)
+	}
+
+	switch {
+	case !known || state == models.Done:
+		log.Error("Cannot read the actor; no record or state label of a started agent, nothing written", "error", err)
+	case ctx.Err() != nil:
+		log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
+	default:
+		log.Error("Cannot read the actor", "error", err)
+		d.put(ctx, log, view.Issue.Key, &view, substrateError())
+	}
 }
 
 // failRPCFresh is failRPC with status rows from a fresh read.

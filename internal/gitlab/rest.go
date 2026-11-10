@@ -2,6 +2,7 @@
 package gitlab
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,8 +21,12 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-// ErrNotFound is returned when the issue or project does not exist.
-var ErrNotFound = errors.New("not found")
+var (
+	// ErrNotFound is returned when the issue or project does not exist.
+	ErrNotFound = errors.New("not found")
+	// ErrForbidden is returned when GitLab refuses the token for the resource.
+	ErrForbidden = errors.New("forbidden")
+)
 
 const (
 	perPage        = 100
@@ -107,12 +112,17 @@ type apiIssue struct {
 }
 
 type apiNote struct {
-	ID     int64  `json:"id"`
-	Body   string `json:"body"`
-	System bool   `json:"system"`
-	Author struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	System    bool      `json:"system"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Author    struct {
 		Username string `json:"username"`
 	} `json:"author"`
+}
+
+func (n apiNote) note() models.Note {
+	return models.Note{ID: n.ID, Body: n.Body, Author: n.Author.Username, System: n.System, UpdatedAt: n.UpdatedAt}
 }
 
 type apiMember struct {
@@ -124,7 +134,8 @@ func issuePath(key models.IssueKey) string {
 	return fmt.Sprintf("/projects/%d/issues/%d", key.ProjectID, key.IID)
 }
 
-// check turns a response into an error: ErrNotFound for 404, a status error for other non-2xx codes.
+// check turns a response into an error: ErrNotFound for 404, ErrForbidden for 403, a status error for other
+// non-2xx codes.
 func check(resp *resty.Response, err error, method, path string) error {
 	if err != nil {
 		return fmt.Errorf("gitlab %s %s: %w", method, path, err)
@@ -133,6 +144,8 @@ func check(resp *resty.Response, err error, method, path string) error {
 	switch {
 	case resp.StatusCode() == http.StatusNotFound:
 		return fmt.Errorf("gitlab %s %s: %w", method, path, ErrNotFound)
+	case resp.StatusCode() == http.StatusForbidden:
+		return fmt.Errorf("gitlab %s %s: %w", method, path, ErrForbidden)
 	case !resp.IsSuccess():
 		return fmt.Errorf("gitlab %s %s: status %s", method, path, resp.Status())
 	}
@@ -142,12 +155,8 @@ func check(resp *resty.Response, err error, method, path string) error {
 
 // Load reads the issue and all its notes (every page), and parses the record of the status note.
 func (c *REST) Load(ctx context.Context, key models.IssueKey) (models.IssueView, error) {
-	var is apiIssue
-
-	path := issuePath(key)
-
-	resp, err := c.client.R().SetContext(ctx).SetResult(&is).Get(path)
-	if err := check(resp, err, http.MethodGet, path); err != nil {
+	is, err := c.issue(ctx, key)
+	if err != nil {
 		return models.IssueView{}, err
 	}
 
@@ -156,22 +165,43 @@ func (c *REST) Load(ctx context.Context, key models.IssueKey) (models.IssueView,
 		return models.IssueView{}, err
 	}
 
-	v := models.IssueView{
-		Issue: models.Issue{
-			Key:         key,
-			ProjectPath: strings.TrimSuffix(is.References.Full, "#"+strconv.FormatInt(key.IID, 10)),
-			IssueState:  is.State,
-			Labels:      is.Labels,
-		},
-		Notes: notes,
+	return models.NewIssueView(is, notes, c.bot), nil
+}
+
+// Refresh reads the issue again and the notes created or edited since prev was read, newest first until a note
+// older than the latest of prev, and returns prev with them merged in. A note deleted since prev was read stays.
+func (c *REST) Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error) {
+	key := prev.Issue.Key
+
+	is, err := c.issue(ctx, key)
+	if err != nil {
+		return models.IssueView{}, err
 	}
 
-	if n, ok := models.StatusNote(notes, c.bot); ok {
-		v.Record, v.HasRecord = models.ParseRecord(n.Body)
-		v.Status, _ = models.ParseStatusView(n.Body)
+	changed, err := c.notesSince(ctx, key, models.LastUpdate(prev.Notes))
+	if err != nil {
+		return models.IssueView{}, err
 	}
 
-	return v, nil
+	return models.NewIssueView(is, models.MergeNotes(prev.Notes, changed), c.bot), nil
+}
+
+func (c *REST) issue(ctx context.Context, key models.IssueKey) (models.Issue, error) {
+	var is apiIssue
+
+	path := issuePath(key)
+
+	resp, err := c.client.R().SetContext(ctx).SetResult(&is).Get(path)
+	if err := check(resp, err, http.MethodGet, path); err != nil {
+		return models.Issue{}, err
+	}
+
+	return models.Issue{
+		Key:         key,
+		ProjectPath: strings.TrimSuffix(is.References.Full, "#"+strconv.FormatInt(key.IID, 10)),
+		IssueState:  is.State,
+		Labels:      is.Labels,
+	}, nil
 }
 
 func (c *REST) notes(ctx context.Context, key models.IssueKey) ([]models.Note, error) {
@@ -183,30 +213,60 @@ func (c *REST) notesAt(ctx context.Context, path string) ([]models.Note, error) 
 	var out []models.Note
 
 	err := pages(ctx, c.client, path, map[string]string{"sort": "asc", "order_by": "created_at"},
-		func(resp *resty.Response) (int, error) {
+		func(resp *resty.Response) (bool, error) {
 			var page []apiNote
 			if err := json.Unmarshal(resp.Body(), &page); err != nil {
-				return 0, err
+				return false, err
 			}
 
 			for _, n := range page {
-				out = append(out, models.Note{ID: n.ID, Body: n.Body, Author: n.Author.Username, System: n.System})
+				out = append(out, n.note())
 			}
 
-			return len(page), nil
+			return len(page) > 0, nil
 		})
 	if err != nil {
 		return nil, err
 	}
 
-	slices.SortFunc(out, func(a, b models.Note) int { return int(a.ID - b.ID) })
+	slices.SortFunc(out, func(a, b models.Note) int { return cmp.Compare(a.ID, b.ID) })
 
 	return out, nil
 }
 
-// pages walks GitLab offset pagination: it follows X-Next-Page and stops on an empty or short page.
+// notesSince reads the issue notes whose updated_at is since or later: pages ordered by updated_at, newest
+// first, up to the first older note. A note with updated_at equal to since is read again.
+func (c *REST) notesSince(ctx context.Context, key models.IssueKey, since time.Time) ([]models.Note, error) {
+	var out []models.Note
+
+	err := pages(ctx, c.client, issuePath(key)+"/notes", map[string]string{"sort": "desc", "order_by": "updated_at"},
+		func(resp *resty.Response) (bool, error) {
+			var page []apiNote
+			if err := json.Unmarshal(resp.Body(), &page); err != nil {
+				return false, err
+			}
+
+			for _, n := range page {
+				if n.UpdatedAt.Before(since) {
+					return false, nil
+				}
+
+				out = append(out, n.note())
+			}
+
+			return len(page) > 0, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// pages walks GitLab offset pagination: it follows X-Next-Page and stops after the last page or when each
+// returns false.
 func pages(ctx context.Context, client *resty.Client, path string, query map[string]string,
-	each func(resp *resty.Response) (int, error),
+	each func(resp *resty.Response) (bool, error),
 ) error {
 	for page := 1; ; {
 		resp, err := client.R().SetContext(ctx).SetQueryParams(query).
@@ -216,13 +276,13 @@ func pages(ctx context.Context, client *resty.Client, path string, query map[str
 			return err
 		}
 
-		n, err := each(resp)
+		more, err := each(resp)
 		if err != nil {
 			return fmt.Errorf("gitlab GET %s: decode page %d: %w", path, page, err)
 		}
 
 		next, err := strconv.Atoi(resp.Header().Get("X-Next-Page"))
-		if err != nil || next <= page || n == 0 {
+		if err != nil || next <= page || !more {
 			return nil
 		}
 
@@ -231,11 +291,16 @@ func pages(ctx context.Context, client *resty.Client, path string, query map[str
 }
 
 // Write applies w in order: record and status note, then the state label (the other state labels removed),
-// then the notes. A note whose marker is already on the issue from the bot user is skipped.
-func (c *REST) Write(ctx context.Context, key models.IssueKey, w models.Writes) error {
+// then the notes. A note whose marker is already on the issue from the bot user is skipped. The status note and
+// the marker notes are found in known; the notes are read when known is nil, or holds no status note for a
+// record, or names a status note that GitLab no longer has.
+func (c *REST) Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error {
 	var notes []models.Note
 
-	if w.Record != nil || len(w.Notes) > 0 {
+	switch {
+	case known != nil:
+		notes = known.Notes
+	case w.Record != nil || slices.ContainsFunc(w.Notes, func(n models.NewNote) bool { return n.Marker != "" }):
 		var err error
 		if notes, err = c.notes(ctx, key); err != nil {
 			return err
@@ -243,7 +308,8 @@ func (c *REST) Write(ctx context.Context, key models.IssueKey, w models.Writes) 
 	}
 
 	if w.Record != nil {
-		if err := c.writeStatus(ctx, key, notes, *w.Record, w.Status); err != nil {
+		var err error
+		if notes, err = c.writeStatus(ctx, key, notes, known != nil, *w.Record, w.Status); err != nil {
 			return err
 		}
 	}
@@ -270,22 +336,48 @@ func (c *REST) Write(ctx context.Context, key models.IssueKey, w models.Writes) 
 	return nil
 }
 
-func (c *REST) writeStatus(ctx context.Context, key models.IssueKey, notes []models.Note, r models.Record,
+// writeStatus edits the status note of notes, or posts one. With stale notes (not read for this write) it reads
+// the notes first when they hold no status note, and again when the edit returns 404. It returns the notes used.
+func (c *REST) writeStatus(ctx context.Context, key models.IssueKey, notes []models.Note, stale bool, r models.Record,
 	next *models.StatusView,
-) error {
+) ([]models.Note, error) {
 	prev, ok := models.StatusNote(notes, c.bot)
+
+	if !ok && stale {
+		var err error
+		if notes, err = c.notes(ctx, key); err != nil {
+			return nil, err
+		}
+
+		prev, ok = models.StatusNote(notes, c.bot)
+		stale = false
+	}
+
 	view, _ := models.ParseStatusView(prev.Body)
 	body := models.StatusBody(r, models.MergeStatus(view, r, next))
 
 	if !ok {
-		_, err := c.postNote(ctx, key, body)
-		return err
+		posted, err := c.postNote(ctx, key, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return append(slices.Clone(notes), posted), nil
 	}
 
 	path := fmt.Sprintf("%s/notes/%d", issuePath(key), prev.ID)
 	resp, err := c.client.R().SetContext(ctx).SetBody(map[string]string{bodyKey: body}).Put(path)
 
-	return check(resp, err, http.MethodPut, path)
+	err = check(resp, err, http.MethodPut, path)
+	if errors.Is(err, ErrNotFound) && stale {
+		if notes, err = c.notes(ctx, key); err != nil {
+			return nil, err
+		}
+
+		return c.writeStatus(ctx, key, notes, false, r, next)
+	}
+
+	return notes, err
 }
 
 func (c *REST) postNote(ctx context.Context, key models.IssueKey, body string) (models.Note, error) {
@@ -312,15 +404,15 @@ func (c *REST) setStateLabel(ctx context.Context, key models.IssueKey, label str
 }
 
 // AccessLevel returns the access level of username on the project, including inherited membership; 0 when
-// the user is not a member.
+// the user is not a member. ErrNotFound and ErrForbidden mean GitLab does not show the project members to the token.
 func (c *REST) AccessLevel(ctx context.Context, projectID int64, username string) (int, error) {
 	level := 0
 	path := fmt.Sprintf("/projects/%d/members/all", projectID)
 
-	err := pages(ctx, c.client, path, map[string]string{"query": username}, func(resp *resty.Response) (int, error) {
+	err := pages(ctx, c.client, path, map[string]string{"query": username}, func(resp *resty.Response) (bool, error) {
 		var page []apiMember
 		if err := json.Unmarshal(resp.Body(), &page); err != nil {
-			return 0, err
+			return false, err
 		}
 
 		for _, m := range page {
@@ -329,7 +421,7 @@ func (c *REST) AccessLevel(ctx context.Context, projectID int64, username string
 			}
 		}
 
-		return len(page), nil
+		return len(page) > 0, nil
 	})
 	if err != nil {
 		return 0, err
@@ -347,7 +439,7 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 	path := fmt.Sprintf("/projects/%d/merge_requests", projectID)
 
 	err := pages(ctx, c.client, path, map[string]string{"state": "opened", "source_branch": sourceBranch},
-		func(resp *resty.Response) (int, error) {
+		func(resp *resty.Response) (bool, error) {
 			var page []struct {
 				IID             int64  `json:"iid"`
 				SourceProjectID int64  `json:"source_project_id"`
@@ -355,7 +447,7 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 			}
 
 			if err := json.Unmarshal(resp.Body(), &page); err != nil {
-				return 0, err
+				return false, err
 			}
 
 			for _, mr := range page {
@@ -364,7 +456,7 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 				}
 			}
 
-			return len(page), nil
+			return len(page) > 0, nil
 		})
 	if err != nil {
 		return err
@@ -391,7 +483,8 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 	return nil
 }
 
-// CheckProject returns nil when the project is readable with the token, ErrNotFound when GitLab returns 404.
+// CheckProject returns nil when the project is readable with the token, ErrNotFound when GitLab returns 404,
+// ErrForbidden when it returns 403.
 func (c *REST) CheckProject(ctx context.Context, projectID int64) error {
 	path := fmt.Sprintf("/projects/%d", projectID)
 	resp, err := c.client.R().SetContext(ctx).Get(path)

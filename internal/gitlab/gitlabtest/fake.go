@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
@@ -39,7 +40,8 @@ type mergeRequest struct {
 }
 
 // Fake is an in-memory GitLab: projects, issues, notes, merge requests, project members. A project exists once
-// an issue of it was added; deleting the issue keeps the project. Safe for concurrent use.
+// an issue of it was added; deleting the issue keeps the project. Each added or edited issue note gets a later
+// UpdatedAt than the one before. Safe for concurrent use.
 type Fake struct {
 	mu        sync.Mutex
 	bot       string
@@ -53,10 +55,16 @@ type Fake struct {
 	loadErr   []error
 	writeErr  []error
 	accessErr error
+	accessQ   []error
 	mrErr     []error
 	projErr   []error
 	accessN   int
+	loadN     int
+	refreshN  int
+	blindN    int
+	clock     time.Time
 	onWrite   func(key models.IssueKey, w models.Writes)
+	onLoad    func(key models.IssueKey)
 }
 
 // NewFake returns an empty fake; notes written through the port are authored by bot.
@@ -69,6 +77,7 @@ func NewFake(bot string) *Fake {
 		notes:    map[models.IssueKey][]models.Note{},
 		members:  map[int64]map[string]int{},
 		nextID:   100,
+		clock:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -162,7 +171,28 @@ func (f *Fake) DeleteIssue(key models.IssueKey) {
 	delete(f.notes, key)
 }
 
-// AddNote adds a note; a zero ID gets the next id. It returns the note id.
+// DeleteNote removes one note of an issue.
+func (f *Fake) DeleteNote(key models.IssueKey, id int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.notes[key] = slices.DeleteFunc(f.notes[key], func(n models.Note) bool { return n.ID == id })
+}
+
+// EditNote sets the body of one note of an issue.
+func (f *Fake) EditNote(key models.IssueKey, id int64, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for i := range f.notes[key] {
+		if f.notes[key][i].ID == id {
+			f.notes[key][i].Body = body
+			f.notes[key][i].UpdatedAt = f.tickLocked()
+		}
+	}
+}
+
+// AddNote adds a note; a zero ID gets the next id and a zero UpdatedAt the next time. It returns the note id.
 func (f *Fake) AddNote(key models.IssueKey, n models.Note) int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -178,9 +208,19 @@ func (f *Fake) addNoteLocked(key models.IssueKey, n models.Note) int64 {
 		f.nextID = n.ID
 	}
 
+	if n.UpdatedAt.IsZero() {
+		n.UpdatedAt = f.tickLocked()
+	}
+
 	f.notes[key] = append(f.notes[key], n)
 
 	return n.ID
+}
+
+func (f *Fake) tickLocked() time.Time {
+	f.clock = f.clock.Add(time.Millisecond)
+
+	return f.clock
 }
 
 // SetMember sets the access level of username on a project.
@@ -195,7 +235,7 @@ func (f *Fake) SetMember(projectID int64, username string, level int) {
 	f.members[projectID][username] = level
 }
 
-// FailLoad makes the next Load calls return errs, one per call.
+// FailLoad makes the next Load and Refresh calls return errs, one per call.
 func (f *Fake) FailLoad(errs ...error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -217,6 +257,46 @@ func (f *Fake) FailAccess(err error) {
 	defer f.mu.Unlock()
 
 	f.accessErr = err
+}
+
+// FailAccessNext makes the next AccessLevel calls return errs, one per call.
+func (f *Fake) FailAccessNext(errs ...error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.accessQ = append(f.accessQ, errs...)
+}
+
+// OnLoad calls fn at the start of each Load through the port, outside the fake's lock.
+func (f *Fake) OnLoad(fn func(key models.IssueKey)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.onLoad = fn
+}
+
+// LoadCalls returns how many Load calls the port served.
+func (f *Fake) LoadCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.loadN
+}
+
+// RefreshCalls returns how many Refresh calls the port served.
+func (f *Fake) RefreshCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.refreshN
+}
+
+// BlindWrites returns how many Write calls of a record or a marker note the port served without a known view.
+func (f *Fake) BlindWrites() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.blindN
 }
 
 // OnWrite calls fn after each successful Write through the port, outside the fake's lock.
@@ -275,7 +355,7 @@ func (f *Fake) Ops() []string {
 
 func (f *Fake) sortedNotesLocked(key models.IssueKey) []models.Note {
 	out := slices.Clone(f.notes[key])
-	slices.SortFunc(out, func(a, b models.Note) int { return int(a.ID - b.ID) })
+	slices.SortFunc(out, func(a, b models.Note) int { return cmp.Compare(a.ID, b.ID) })
 
 	return out
 }
@@ -294,33 +374,70 @@ func popErr(errs *[]error) error {
 // Load implements the GitLab port.
 func (f *Fake) Load(_ context.Context, key models.IssueKey) (models.IssueView, error) {
 	f.mu.Lock()
+	f.loadN++
+	fn := f.onLoad
+	f.mu.Unlock()
+
+	if fn != nil {
+		fn(key)
+	}
+
+	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	if err := popErr(&f.loadErr); err != nil {
 		return models.IssueView{}, err
 	}
 
+	return f.viewLocked(key, f.notes[key])
+}
+
+// Refresh implements the GitLab port: prev with the notes added or edited since merged in. A note deleted since
+// prev was read stays in the view.
+func (f *Fake) Refresh(_ context.Context, prev models.IssueView) (models.IssueView, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.refreshN++
+
+	if err := popErr(&f.loadErr); err != nil {
+		return models.IssueView{}, err
+	}
+
+	key := prev.Issue.Key
+	since := models.LastUpdate(prev.Notes)
+
+	var changed []models.Note
+
+	for _, n := range f.notes[key] {
+		if !n.UpdatedAt.Before(since) {
+			changed = append(changed, n)
+		}
+	}
+
+	return f.viewLocked(key, models.MergeNotes(prev.Notes, changed))
+}
+
+func (f *Fake) viewLocked(key models.IssueKey, notes []models.Note) (models.IssueView, error) {
 	is := f.issues[key]
 	if is == nil {
 		return models.IssueView{}, fmt.Errorf("issue %s: %w", key, gitlab.ErrNotFound)
 	}
 
-	v := models.IssueView{
-		Issue: models.Issue{Key: key, ProjectPath: is.path, IssueState: is.state, Labels: slices.Clone(is.labels)},
-		Notes: f.sortedNotesLocked(key),
-	}
+	issue := models.Issue{Key: key, ProjectPath: is.path, IssueState: is.state, Labels: slices.Clone(is.labels)}
 
-	if n, ok := models.StatusNote(v.Notes, f.bot); ok {
-		v.Record, v.HasRecord = models.ParseRecord(n.Body)
-		v.Status, _ = models.ParseStatusView(n.Body)
-	}
-
-	return v, nil
+	return models.NewIssueView(issue, notes, f.bot), nil
 }
 
-// Write implements the GitLab port.
-func (f *Fake) Write(_ context.Context, key models.IssueKey, w models.Writes) error {
+// Write implements the GitLab port. The status note and the marker notes are found in the fake's own notes;
+// known only counts.
+func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error {
 	f.mu.Lock()
+
+	marked := slices.ContainsFunc(w.Notes, func(n models.NewNote) bool { return n.Marker != "" })
+	if known == nil && (w.Record != nil || marked) {
+		f.blindN++
+	}
 
 	if err := popErr(&f.writeErr); err != nil {
 		f.mu.Unlock()
@@ -373,6 +490,10 @@ func (f *Fake) AccessLevel(_ context.Context, projectID int64, username string) 
 	defer f.mu.Unlock()
 
 	f.accessN++
+
+	if err := popErr(&f.accessQ); err != nil {
+		return 0, err
+	}
 
 	if f.accessErr != nil {
 		return 0, f.accessErr
@@ -454,6 +575,7 @@ func (f *Fake) editNoteLocked(key models.IssueKey, id int64, body string) bool {
 		if f.notes[key][i].ID == id {
 			f.ops = append(f.ops, "edit-status")
 			f.notes[key][i].Body = body
+			f.notes[key][i].UpdatedAt = f.tickLocked()
 
 			return true
 		}
@@ -521,16 +643,17 @@ func (f *Fake) withIssue(h issueHandler) http.HandlerFunc {
 }
 
 type jsonNote struct {
-	ID     int64  `json:"id"`
-	Body   string `json:"body"`
-	System bool   `json:"system"`
-	Author struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	System    bool      `json:"system"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Author    struct {
 		Username string `json:"username"`
 	} `json:"author"`
 }
 
 func toJSONNote(n models.Note) jsonNote {
-	j := jsonNote{ID: n.ID, Body: n.Body, System: n.System}
+	j := jsonNote{ID: n.ID, Body: n.Body, System: n.System, UpdatedAt: n.UpdatedAt}
 	j.Author.Username = n.Author
 
 	return j
@@ -572,7 +695,11 @@ func (f *Fake) listNotes(w http.ResponseWriter, r *http.Request, key models.Issu
 	notes := f.sortedNotesLocked(key)
 	f.mu.Unlock()
 
-	if r.URL.Query().Get("sort") == "desc" {
+	if r.URL.Query().Get("order_by") == "updated_at" {
+		slices.SortStableFunc(notes, func(a, b models.Note) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
+	}
+
+	if r.URL.Query().Get("sort") != "asc" {
 		slices.Reverse(notes)
 	}
 

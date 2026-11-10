@@ -11,24 +11,30 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/decide"
 )
 
-// loop is the activation loop: every PollInterval it reads the notes and the actor state and applies
-// decide.Poll. since is the note id of the turn's previous marker; recovered marks the loop of a running actor
-// found by restart recovery. A cancelled ctx ends the loop without a change, so the next restart recovery
-// continues it. While reads fail, the turn timeout still ends the activation.
+// loop is the activation loop: every PollInterval it reads the issue and the actor state and applies
+// decide.Poll. The first read is a full one; later polls read only the notes created or edited since. A
+// decision other than wait is taken again on a full read, made at once, before it is executed. since is the note
+// id of the turn's previous marker; recovered marks the loop of a running actor found by restart recovery. A
+// cancelled ctx ends the loop without a change, so the next restart recovery continues it. While reads fail, the
+// turn timeout still ends the activation.
 func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.IssueKey, since int64, recovered bool) {
+	d.releaseRecovery(key)
+
 	name := key.ActorName()
 	turnStart := d.clk.Now()
 	first := true
 
-	var last models.IssueView
+	var known *models.IssueView
 
-	for {
-		if d.clk.Sleep(ctx, d.cfg.PollInterval) != nil {
+	for full, pause := true, true; ; {
+		if pause && d.clk.Sleep(ctx, d.cfg.PollInterval) != nil {
 			log.Info("Activation left running for restart recovery", "actor", name)
 			return
 		}
 
-		view, err := d.gl.Load(ctx, key)
+		pause = true
+
+		view, err := d.read(ctx, key, known, full)
 		if errors.Is(err, gitlab.ErrNotFound) {
 			d.issueGone(ctx, log, key)
 			return
@@ -37,20 +43,22 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 		if err != nil {
 			log.Warn("Poll: cannot read the issue", "error", err)
 
-			if d.timedOut(ctx, log, key, last, turnStart) {
+			if d.timedOut(ctx, log, key, turnStart) {
 				return
 			}
 
 			continue
 		}
 
-		last = view
+		known = &view
+		confirmed := full
+		full = false
 
 		actor, err := d.sb.Inspect(ctx, name)
 		if err != nil {
 			log.Warn("Poll: cannot read the actor", "error", err)
 
-			if d.timedOut(ctx, log, key, last, turnStart) {
+			if d.timedOut(ctx, log, key, turnStart) {
 				return
 			}
 
@@ -60,6 +68,12 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 		pd := decide.Poll(decide.PollFacts{
 			View: view, Actor: actor, Since: since, Elapsed: d.clk.Now().Sub(turnStart), StopPending: d.stopPending(key),
 		}, d.limits)
+
+		if pd.Action != decide.Wait && !confirmed {
+			full, pause = true, false
+
+			continue
+		}
 
 		switch pd.Action {
 		case decide.Wait:
@@ -91,17 +105,26 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 			d.stop(ctx, log, key, view, actor)
 		}
 
-		log.Info("Activation ended", "row", pd.Row, "turn", pd.Marker.Turn)
+		log.Info("Activation ended", "rule", string(pd.Rule), "turn", pd.Marker.Turn)
 
 		return
 	}
 }
 
+// read returns the full view of the issue, or known with what changed since when full is false.
+func (d *Dispatcher) read(ctx context.Context, key models.IssueKey, known *models.IssueView, full bool,
+) (models.IssueView, error) {
+	if full || known == nil {
+		return d.gl.Load(ctx, key)
+	}
+
+	return d.gl.Refresh(ctx, *known)
+}
+
 // timedOut ends an activation whose reads fail past the turn timeout: best-effort suspend, then record turn
-// timeout. It reports whether the loop must end.
-func (d *Dispatcher) timedOut(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	turnStart time.Time,
-) bool {
+// timeout with status rows from a fresh read; the status note keeps its rows when that read fails. It reports
+// whether the loop must end.
+func (d *Dispatcher) timedOut(ctx context.Context, log *slog.Logger, key models.IssueKey, turnStart time.Time) bool {
 	if ctx.Err() != nil || d.clk.Now().Sub(turnStart) < d.cfg.TurnTimeout {
 		return ctx.Err() != nil
 	}
@@ -112,8 +135,7 @@ func (d *Dispatcher) timedOut(ctx context.Context, log *slog.Logger, key models.
 		log.Error("Cannot suspend the actor", "error", err)
 	}
 
-	suspended := models.ActorView{State: models.Suspended}
-	d.write(ctx, log, key, view, suspended, stateWrites(models.Error, models.ReasonTurnTimeout))
+	d.writeFresh(ctx, log, key, stateWrites(models.Error, models.ReasonTurnTimeout))
 
 	return true
 }

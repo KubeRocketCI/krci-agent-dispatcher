@@ -18,6 +18,10 @@ import (
 // Developer is the lowest GitLab access level of a start author and of a trigger comment author.
 const Developer = 30
 
+// RecoveryConcurrency is the number of issue lanes that run a recover request at the same time. An activation
+// loop that a recover request continues or starts is not counted.
+const RecoveryConcurrency = 8
+
 const (
 	actorPrefix    = "issue-"
 	recheckPause   = 2 * time.Second
@@ -37,7 +41,7 @@ type Config struct {
 	GitLabURL        string
 	Bot              string
 	TriggerLabel     string
-	MaxTurns         int
+	TurnLimit        int
 	TurnTimeout      time.Duration
 	PollInterval     time.Duration
 	NewSessionID     func() string
@@ -53,8 +57,11 @@ type Dispatcher struct {
 	limits decide.Limits
 	log    *slog.Logger
 
+	recovering chan struct{}
+
 	mu       sync.Mutex
 	lanes    map[models.IssueKey]*lane
+	settling map[models.IssueKey]bool
 	ctx      context.Context
 	started  bool
 	stopping bool
@@ -74,12 +81,14 @@ func New(gl GitLab, sb Substrate, clk Clock, cfg Config) *Dispatcher {
 	return &Dispatcher{
 		gl: gl, sb: sb, clk: clk, cfg: cfg, log: cfg.Logger,
 		limits: decide.Limits{
-			MaxTurns:     cfg.MaxTurns,
+			TurnLimit:    cfg.TurnLimit,
 			Bot:          cfg.Bot,
 			TriggerLabel: cfg.TriggerLabel,
 			TurnTimeout:  cfg.TurnTimeout,
 		},
-		lanes: map[models.IssueKey]*lane{},
+		lanes:      map[models.IssueKey]*lane{},
+		settling:   map[models.IssueKey]bool{},
+		recovering: make(chan struct{}, RecoveryConcurrency),
 	}
 }
 

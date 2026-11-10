@@ -6,13 +6,14 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"text/template"
 
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"sigs.k8s.io/yaml"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
 //go:embed actortemplate.yaml.tmpl egresspolicy.yaml.tmpl
@@ -34,17 +35,20 @@ type Params struct {
 
 type data struct {
 	Params
-	GitLabHost string
+	GitLabHost           string
+	GitLabGitConfigScope string
 }
 
 // Render returns the actor template and egress policy of p (text/template → YAML → JSON → protojson).
+// p.GitLabURL is rendered in its canonical form (models.ParseGitLabURL).
 func Render(p Params) (*ateapi.ActorTemplate, *ateapi.EgressPolicy, error) {
-	u, err := url.Parse(p.GitLabURL)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
-		return nil, nil, fmt.Errorf("gitlab url %q: want https://<host>", p.GitLabURL)
+	u, err := models.ParseGitLabURL(p.GitLabURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gitlab url %w", err)
 	}
 
-	d := data{Params: p, GitLabHost: u.Hostname()}
+	p.GitLabURL = u.String()
+	d := data{Params: p, GitLabHost: u.Host(), GitLabGitConfigScope: u.GitConfigScope()}
 	funcs := template.FuncMap{
 		"json": func(v any) (string, error) {
 			b, err := json.Marshal(v)

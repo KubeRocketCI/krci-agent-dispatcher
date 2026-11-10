@@ -48,7 +48,7 @@ components:
   schemas:
     EventPayload:
       type: object
-      description: GitLab webhook payload, kept as raw JSON.
+      description: Event payload from GitLab, kept as raw JSON.
       x-go-type: json.RawMessage
     Accepted:
       type: object

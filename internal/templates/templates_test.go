@@ -110,10 +110,66 @@ func TestRenderQuotesPayloadValues(t *testing.T) {
 	assert.Equal(t, p.ProjectPath, env(tmpl, "PROJECT_PATH"))
 }
 
-func TestRenderRejectsBadGitLabURL(t *testing.T) {
-	p := goldenParams()
-	p.GitLabURL = "not a url"
+func TestRenderGitLabURLForms(t *testing.T) {
+	tests := []struct {
+		in, url, key, host string
+	}{
+		{
+			in:   "https://gitlab.example.com/",
+			url:  "https://gitlab.example.com",
+			key:  "http.https://gitlab.example.com/.extraHeader",
+			host: "gitlab.example.com",
+		},
+		{
+			in:   "https://gitlab.example.com/gitlab",
+			url:  "https://gitlab.example.com/gitlab",
+			key:  "http.https://gitlab.example.com/gitlab/.extraHeader",
+			host: "gitlab.example.com",
+		},
+		{
+			in:   "https://gitlab.example.com/gitlab/",
+			url:  "https://gitlab.example.com/gitlab",
+			key:  "http.https://gitlab.example.com/gitlab/.extraHeader",
+			host: "gitlab.example.com",
+		},
+		{
+			in:   "https://GitLab.Example.com:8443/gitlab//",
+			url:  "https://gitlab.example.com:8443/gitlab",
+			key:  "http.https://gitlab.example.com:8443/gitlab/.extraHeader",
+			host: "gitlab.example.com",
+		},
+	}
 
-	_, _, err := Render(p)
-	require.Error(t, err)
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			p := goldenParams()
+			p.GitLabURL = tt.in
+
+			tmpl, pol, err := Render(p)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.url, env(tmpl, "GITLAB_URL"))
+			assert.Equal(t, tt.key, env(tmpl, "GIT_CONFIG_KEY_0"))
+			assert.Equal(t, []string{tt.host}, pol.GetRules()[1].GetHttps().GetHostnames())
+		})
+	}
+}
+
+func TestRenderRejectsBadGitLabURL(t *testing.T) {
+	for _, v := range []string{
+		"not a url",
+		"http://gitlab.example.com",
+		"https://",
+		"https://bot:hunter2@gitlab.example.com",
+		"https://gitlab.example.com?private_token=hunter2",
+	} {
+		t.Run(v, func(t *testing.T) {
+			p := goldenParams()
+			p.GitLabURL = v
+
+			_, _, err := Render(p)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "hunter2")
+		})
+	}
 }

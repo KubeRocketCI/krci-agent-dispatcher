@@ -1,6 +1,6 @@
 # The turn marker is the completion signal; the actor state is the only lock
 
-The dispatcher learns that a turn ended by polling the issue notes for the hidden turn marker that the agent loop posts in its reply, and it resumes only an actor whose Substrate actor state is suspended. Labels and the status note are display only. The alternatives were an actor-initiated signal (Substrate `RequestActorSuspend` is not wired for callers, and there is no state-change stream) or dispatcher-side state (a store or CRD, rejected for Phase A, see ADR 0001).
+The dispatcher learns that a turn ended by polling the issue notes for the hidden turn marker that the agent loop posts in its reply, and it resumes only an actor whose Substrate actor state is suspended. Labels and the status note are display only. The alternatives were an actor-initiated signal (Substrate `RequestActorSuspend` is not wired for callers, and there is no state-change stream) or dispatcher-side state (a store or CRD, rejected, see ADR 0001).
 
 ## Consequences
 

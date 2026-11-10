@@ -82,8 +82,8 @@ spec:
               value: {{ .Values.config.turnTimeout | quote }}
             - name: POLL_INTERVAL
               value: {{ .Values.config.pollInterval | quote }}
-            - name: MAX_TURNS_PER_ISSUE
-              value: {{ .Values.config.maxTurnsPerIssue | quote }}
+            - name: TURN_LIMIT
+              value: {{ .Values.config.turnLimit | quote }}
           readinessProbe:
             httpGet:
               path: /healthz

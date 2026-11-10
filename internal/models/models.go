@@ -2,9 +2,11 @@
 package models
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // IssueKey identifies one issue across projects.
@@ -19,8 +21,8 @@ func (k IssueKey) String() string { return fmt.Sprintf("%d/%d", k.ProjectID, k.I
 // ActorName returns the name of the issue's actor, template and egress policy owner: "issue-<project-id>-<iid>".
 func (k IssueKey) ActorName() string { return fmt.Sprintf("issue-%d-%d", k.ProjectID, k.IID) }
 
-// AgentBranch returns the source branch of the agent's merge request: "agent/issue-<iid>".
-func (k IssueKey) AgentBranch() string { return fmt.Sprintf("agent/issue-%d", k.IID) }
+// IssueBranch returns the issue branch, the source branch of the agent's merge request: "agent/issue-<iid>".
+func (k IssueKey) IssueBranch() string { return fmt.Sprintf("agent/issue-%d", k.IID) }
 
 // Issue state values of the GitLab API.
 const (
@@ -36,12 +38,13 @@ type Issue struct {
 	Labels      []string
 }
 
-// Note is one issue note.
+// Note is one issue note. UpdatedAt is the time of its last edit, the creation time when never edited.
 type Note struct {
-	ID     int64
-	Body   string
-	Author string
-	System bool
+	ID        int64
+	Body      string
+	Author    string
+	System    bool
+	UpdatedAt time.Time
 }
 
 // AgentState is the agent state of an issue, as written in the record and shown by the state label.
@@ -96,6 +99,57 @@ type IssueView struct {
 	Record    Record
 	HasRecord bool
 	Status    StatusView
+}
+
+// NewIssueView returns the view of issue with notes in note id order and the record and status rows of the bot
+// user's status note.
+func NewIssueView(issue Issue, notes []Note, bot string) IssueView {
+	notes = slices.Clone(notes)
+	slices.SortFunc(notes, func(a, b Note) int { return cmp.Compare(a.ID, b.ID) })
+
+	v := IssueView{Issue: issue, Notes: notes}
+
+	if n, ok := StatusNote(notes, bot); ok {
+		v.Record, v.HasRecord = ParseRecord(n.Body)
+		v.Status, _ = ParseStatusView(n.Body)
+	}
+
+	return v
+}
+
+// LastUpdate returns the latest UpdatedAt of notes; the zero time for no notes.
+func LastUpdate(notes []Note) time.Time {
+	var last time.Time
+
+	for _, n := range notes {
+		if n.UpdatedAt.After(last) {
+			last = n.UpdatedAt
+		}
+	}
+
+	return last
+}
+
+// MergeNotes returns notes with each note of changed added, or put in place of the note with its id.
+func MergeNotes(notes, changed []Note) []Note {
+	at := make(map[int64]int, len(notes))
+	out := slices.Clone(notes)
+
+	for i, n := range out {
+		at[n.ID] = i
+	}
+
+	for _, n := range changed {
+		if i, ok := at[n.ID]; ok {
+			out[i] = n
+			continue
+		}
+
+		at[n.ID] = len(out)
+		out = append(out, n)
+	}
+
+	return out
 }
 
 // NewNote is a note to post. A note whose Marker is already on the issue from the bot user is not posted again.

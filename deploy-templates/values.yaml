@@ -20,7 +20,7 @@ imagePullSecrets: []
 agentImage: ""
 
 gitlab:
-  # -- GitLab base URL, for example https://gitlab.example.com. Required.
+  # -- GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required.
   url: ""
   # -- ConfigMap with key ca.crt: extra CA bundle for GitLab TLS. Empty: system roots.
   caConfigMap: ""
@@ -54,7 +54,7 @@ config:
   # -- Marker poll interval.
   pollInterval: 10s
   # -- Turn limit per issue.
-  maxTurnsPerIssue: 20
+  turnLimit: 20
   # -- Bot user: ignored note author, marker author.
   botUsername: krci-agent
   # -- Label that enables the agent.

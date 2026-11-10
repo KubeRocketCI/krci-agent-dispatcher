@@ -1,4 +1,4 @@
-// Package config reads the dispatcher configuration from the environment (spec §5.6).
+// Package config reads the dispatcher configuration from the environment.
 package config
 
 import (
@@ -7,12 +7,14 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
 // Config holds the resolved dispatcher settings.
 type Config struct {
 	Port             string
-	GitLabURL        string
+	GitLabURL        string // canonical form (models.ParseGitLabURL)
 	GitLabToken      string
 	GitLabTokenFile  string
 	GitLabCAFile     string
@@ -26,7 +28,7 @@ type Config struct {
 	Pool             string
 	SecretsNamespace string
 	AgentImage       string
-	MaxTurnsPerIssue int
+	TurnLimit        int
 	TurnTimeout      time.Duration
 	PollInterval     time.Duration
 }
@@ -73,9 +75,23 @@ func Load() (*Config, error) {
 		return n
 	}
 
+	gitLabURL := func(name string) string {
+		v := required(name)
+		if v == "" {
+			return v
+		}
+
+		u, err := models.ParseGitLabURL(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s %w", name, err))
+		}
+
+		return u.String()
+	}
+
 	cfg := &Config{
 		Port:             orDefault("PORT", "8080"),
-		GitLabURL:        required("GITLAB_URL"),
+		GitLabURL:        gitLabURL("GITLAB_URL"),
 		GitLabToken:      os.Getenv("GITLAB_TOKEN"),
 		GitLabTokenFile:  os.Getenv("GITLAB_TOKEN_FILE"),
 		GitLabCAFile:     os.Getenv("GITLAB_CA_FILE"),
@@ -89,7 +105,7 @@ func Load() (*Config, error) {
 		Pool:             orDefault("POOL", "workers"),
 		SecretsNamespace: orDefault("SECRETS_NAMESPACE", "krci-agents"),
 		AgentImage:       required("AGENT_IMAGE"),
-		MaxTurnsPerIssue: positiveInt("MAX_TURNS_PER_ISSUE", 20),
+		TurnLimit:        positiveInt("TURN_LIMIT", 20),
 		TurnTimeout:      duration("TURN_TIMEOUT", 15*time.Minute),
 		PollInterval:     duration("POLL_INTERVAL", 10*time.Second),
 	}

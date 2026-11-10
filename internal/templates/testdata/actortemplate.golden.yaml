@@ -1,4 +1,4 @@
-# Golden: scripts/dispatcher/template.yaml.tmpl (isolation repo) rendered with envsubst for issue 12/7.
+# Expected ActorTemplate of templates.Render for goldenParams (templates_test.go): issue 12/7.
 metadata:
   atespace: krci-agents
   name: issue-12-7

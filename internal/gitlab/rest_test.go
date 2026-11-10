@@ -45,7 +45,7 @@ func TestTokenHeaderNotInURL(t *testing.T) {
 	ctx := context.Background()
 	_, err = c.Load(ctx, key)
 	require.NoError(t, err)
-	require.NoError(t, c.Write(ctx, key, models.Writes{Record: &models.Record{State: models.Waiting},
+	require.NoError(t, c.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Waiting},
 		Label: models.StateLabel(models.Waiting), Notes: []models.NewNote{{Body: "hi"}}}))
 
 	_, err = c.AccessLevel(ctx, 12, "dev")
@@ -146,4 +146,107 @@ func TestTokenFileReadPerRequest(t *testing.T) {
 
 	_, err = c.AccessLevel(context.Background(), 12, "dev")
 	require.Error(t, err, "an empty token file is an error")
+}
+
+// countingREST returns a REST adapter over f and the log of the requests it sent, as "<method> <path>".
+func countingREST(t *testing.T, f *gitlabtest.Fake) (*gitlab.REST, func() []string) {
+	t.Helper()
+
+	var (
+		mu   sync.Mutex
+		reqs []string
+	)
+
+	inner := f.Handler(token)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		reqs = append(reqs, r.Method+" "+strings.TrimPrefix(r.URL.Path, "/api/v4/projects/12/issues/7"))
+		mu.Unlock()
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := gitlab.NewREST(srv.URL, token, "", bot)
+	require.NoError(t, err)
+
+	return c, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+
+		out := reqs
+		reqs = nil
+
+		return out
+	}
+}
+
+func longIssue(t *testing.T) *gitlabtest.Fake {
+	t.Helper()
+
+	f := gitlabtest.NewFake(bot)
+	f.AddIssue(key, "krci/test-go-app", models.IssueOpened, "agent")
+	f.AddNote(key, models.Note{Author: bot, Body: models.StatusBody(models.Record{State: models.Working},
+		models.StatusView{Session: "s1"})})
+
+	for range 499 {
+		f.AddNote(key, models.Note{Body: "comment", Author: "owner"})
+	}
+
+	return f
+}
+
+func TestRefreshRequestsDoNotGrowWithNotes(t *testing.T) {
+	f := longIssue(t)
+	c, requests := countingREST(t, f)
+	ctx := context.Background()
+
+	prev, err := c.Load(ctx, key)
+	require.NoError(t, err)
+	assert.Len(t, requests(), 6, "a full read: the issue and five pages of notes")
+
+	got, err := c.Refresh(ctx, prev)
+	require.NoError(t, err)
+	assert.Equal(t, prev, got)
+	assert.Equal(t, []string{"GET ", "GET /notes"}, requests())
+
+	f.AddNote(key, models.Note{Body: "<!-- krci-agent-turn n=1 exit=0 last=1 -->", Author: bot})
+
+	got, err = c.Refresh(ctx, got)
+	require.NoError(t, err)
+	assert.Len(t, got.Notes, 501)
+	assert.Equal(t, []string{"GET ", "GET /notes"}, requests())
+}
+
+func TestWriteWithKnownViewReadsNoNotes(t *testing.T) {
+	f := longIssue(t)
+	c, requests := countingREST(t, f)
+	ctx := context.Background()
+	w := models.Writes{Record: &models.Record{State: models.Waiting}, Label: models.StateLabel(models.Waiting)}
+
+	require.NoError(t, c.Write(ctx, key, nil, w))
+	assert.Len(t, requests(), 7, "without a known view: five pages of notes, the status note, the label")
+
+	known, err := c.Load(ctx, key)
+	require.NoError(t, err)
+	requests()
+
+	require.NoError(t, c.Write(ctx, key, &known, w))
+	assert.Equal(t, []string{"PUT /notes/101", "PUT "}, requests())
+
+	require.NoError(t, c.Write(ctx, key, nil, models.Writes{Notes: []models.NewNote{{Body: models.NoRoomText}}}))
+	assert.Equal(t, []string{"POST /notes"}, requests(), "a note without a marker needs no read")
+}
+
+func TestRESTForbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"403 Forbidden"}`, http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := gitlab.NewREST(srv.URL, token, "", bot)
+	require.NoError(t, err)
+
+	_, err = c.AccessLevel(context.Background(), 12, "dev")
+	require.ErrorIs(t, err, gitlab.ErrForbidden)
+	assert.NotContains(t, err.Error(), token)
 }

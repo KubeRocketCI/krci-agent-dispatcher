@@ -62,6 +62,7 @@ func TestContract(t *testing.T) {
 		"NotFound":               NotFound,
 		"ListByPrefix":           ListByPrefix,
 		"CreateCompletesPartial": CreateCompletesPartial,
+		"DeleteRunning":          DeleteRunning,
 	}
 
 	for subject, build := range subjects() {
@@ -221,4 +222,20 @@ func CreateCompletesPartial(t *testing.T, f *substratetest.Fake, p port) {
 	v, err := p.Inspect(context.Background(), actor)
 	require.NoError(t, err)
 	assert.True(t, v.Complete())
+}
+
+func DeleteRunning(t *testing.T, f *substratetest.Fake, p port) {
+	ctx := context.Background()
+	tmpl, pol := rendered(t)
+	require.NoError(t, p.Create(ctx, actor, tmpl, pol))
+	require.NoError(t, p.Resume(ctx, actor))
+	f.ClearOps()
+
+	require.NoError(t, p.Delete(ctx, actor))
+	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, f.Ops(),
+		"a running actor is deleted without a suspend")
+
+	v, err := p.Inspect(ctx, actor)
+	require.NoError(t, err)
+	assert.Equal(t, models.ActorView{State: models.None}, v)
 }

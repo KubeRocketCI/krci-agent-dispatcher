@@ -23,13 +23,13 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | affinity | object | `{}` | Affinity. |
 | agentImage | string | `""` | Agent image (digest reference) of the issue actors. Required. |
 | config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
-| config.maxTurnsPerIssue | int | `20` | Turn limit per issue. |
 | config.pollInterval | string | `"10s"` | Marker poll interval. |
 | config.triggerLabel | string | `"agent"` | Label that enables the agent. |
+| config.turnLimit | int | `20` | Turn limit per issue. |
 | config.turnTimeout | string | `"15m"` | Dispatcher wait for one turn's marker. |
 | fullnameOverride | string | `""` | Overrides the full name. |
 | gitlab.caConfigMap | string | `""` | ConfigMap with key ca.crt: extra CA bundle for GitLab TLS. Empty: system roots. |
-| gitlab.url | string | `""` | GitLab base URL, for example https://gitlab.example.com. Required. |
+| gitlab.url | string | `""` | GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required. |
 | image.digest | string | `""` | Image digest (sha256:...); takes precedence over image.tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `""` | Dispatcher image repository. Required. |

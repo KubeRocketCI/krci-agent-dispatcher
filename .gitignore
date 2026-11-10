@@ -1,3 +1,6 @@
 /bin
 /dist
 coverage.out
+
+# Claude Code
+.claude/settings.local.json

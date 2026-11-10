@@ -1,4 +1,4 @@
-# Golden: scripts/dispatcher/egress-policy.yaml.tmpl (isolation repo) rendered with envsubst.
+# Expected EgressPolicy of templates.Render for goldenParams (templates_test.go).
 metadata:
   atespace: krci-agents
   name: default

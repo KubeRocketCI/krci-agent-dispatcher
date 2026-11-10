@@ -25,7 +25,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "8080", cfg.Port)
 	assert.Equal(t, 15*time.Minute, cfg.TurnTimeout)
 	assert.Equal(t, 10*time.Second, cfg.PollInterval)
-	assert.Equal(t, 20, cfg.MaxTurnsPerIssue)
+	assert.Equal(t, 20, cfg.TurnLimit)
 	assert.Equal(t, "krci-agents", cfg.Atespace)
 	assert.Equal(t, "workers", cfg.Pool)
 	assert.Equal(t, "krci-agents", cfg.SecretsNamespace)
@@ -45,7 +45,7 @@ func TestLoadOverrides(t *testing.T) {
 	setRequired(t)
 	t.Setenv("PORT", "9090")
 	t.Setenv("TURN_TIMEOUT", "2m")
-	t.Setenv("MAX_TURNS_PER_ISSUE", "3")
+	t.Setenv("TURN_LIMIT", "3")
 	t.Setenv("GITLAB_CA_FILE", "/etc/gitlab-ca/ca.crt")
 
 	cfg, err := Load()
@@ -53,7 +53,7 @@ func TestLoadOverrides(t *testing.T) {
 
 	assert.Equal(t, "9090", cfg.Port)
 	assert.Equal(t, 2*time.Minute, cfg.TurnTimeout)
-	assert.Equal(t, 3, cfg.MaxTurnsPerIssue)
+	assert.Equal(t, 3, cfg.TurnLimit)
 	assert.Equal(t, "/etc/gitlab-ca/ca.crt", cfg.GitLabCAFile)
 }
 
@@ -96,11 +96,11 @@ func TestLoadBadInt(t *testing.T) {
 	for _, v := range []string{"many", "0", "-1"} {
 		t.Run(v, func(t *testing.T) {
 			setRequired(t)
-			t.Setenv("MAX_TURNS_PER_ISSUE", v)
+			t.Setenv("TURN_LIMIT", v)
 
 			_, err := Load()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "MAX_TURNS_PER_ISSUE")
+			assert.Contains(t, err.Error(), "TURN_LIMIT")
 		})
 	}
 }
@@ -130,4 +130,51 @@ func TestLoadTokenFile(t *testing.T) {
 	_, err = Load()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "GITLAB_TOKEN or GITLAB_TOKEN_FILE")
+}
+
+func TestLoadRejectsBadGitLabURL(t *testing.T) {
+	for _, v := range []string{
+		"http://gitlab.internal",
+		"gitlab.example",
+		"https://",
+		"https:///gitlab",
+		"https://gitlab.example:",
+		"https://bot:hunter2@gitlab.example",
+		"https://gitlab.example?private_token=hunter2",
+		"https://gitlab.example#hunter2",
+		"https://gitlab.example/a%2Fb",
+		" https://gitlab.example",
+		"not a url",
+	} {
+		t.Run(v, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("GITLAB_URL", v)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "GITLAB_URL must be https://<host>")
+			assert.NotContains(t, err.Error(), "hunter2")
+		})
+	}
+}
+
+func TestLoadCanonicalGitLabURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://gitlab.example":           "https://gitlab.example",
+		"https://gitlab.example/":          "https://gitlab.example",
+		"https://gitlab.example//":         "https://gitlab.example",
+		"https://gitlab.example/gitlab":    "https://gitlab.example/gitlab",
+		"https://gitlab.example/gitlab/":   "https://gitlab.example/gitlab",
+		"https://gitlab.example:8443/a/b/": "https://gitlab.example:8443/a/b",
+		"HTTPS://GitLab.Example/GitLab/":   "https://gitlab.example/GitLab",
+	} {
+		t.Run(in, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("GITLAB_URL", in)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, want, cfg.GitLabURL)
+		})
+	}
 }

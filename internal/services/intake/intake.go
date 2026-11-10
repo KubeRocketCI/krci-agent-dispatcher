@@ -1,4 +1,4 @@
-// Package intake maps a GitLab event payload to a request for an issue lane (spec §5.2). Pure.
+// Package intake maps a GitLab event payload to a request for an issue lane. Pure.
 // The event selects the issue and the request only; the lane re-reads the state.
 package intake
 
@@ -19,7 +19,7 @@ const (
 // Kind is the request kind for an issue lane.
 type Kind int
 
-// Request kinds. Activate also re-evaluates the issue after a person's label or field change (spec R2).
+// Request kinds. Activate also re-evaluates the issue after a person's label or field change.
 const (
 	Ignore Kind = iota
 	Start
@@ -59,7 +59,7 @@ type payload struct {
 		Action       string `json:"action"`
 		NoteableType string `json:"noteable_type"`
 	} `json:"object_attributes"`
-	Labels  []apiLabel `json:"labels"`
+	Labels  *[]apiLabel `json:"labels"`
 	Changes struct {
 		Labels *struct {
 			Previous []apiLabel `json:"previous"`
@@ -67,11 +67,15 @@ type payload struct {
 		} `json:"labels"`
 	} `json:"changes"`
 	Issue *struct {
-		IID int64 `json:"iid"`
+		IID    int64       `json:"iid"`
+		Labels *[]apiLabel `json:"labels"`
 	} `json:"issue"`
 }
 
 // Parse maps one event to a request. bot is the bot user; label is the trigger label.
+// Events other than Issue Hook and Note Hook, confidential ones included, map to an empty Ignore request.
+// An issue event by the bot user maps to Stop or Ignore. A note or an issue update maps to Ignore when the
+// payload lists the issue labels, none of them is the trigger label or a state label, and the update removed none.
 // It returns an error only when the body is not a JSON object.
 func Parse(event string, body []byte, bot, label string) (Request, error) {
 	var p payload
@@ -80,10 +84,10 @@ func Parse(event string, body []byte, bot, label string) (Request, error) {
 	}
 
 	switch event {
-	case IssueHook, "Confidential Issue Hook":
-		return issueRequest(p, label), nil
-	case NoteHook, "Confidential Note Hook":
-		return noteRequest(p, bot), nil
+	case IssueHook:
+		return issueRequest(p, bot, label), nil
+	case NoteHook:
+		return noteRequest(p, bot, label), nil
 	default:
 		return Request{}, nil
 	}
@@ -93,7 +97,12 @@ func has(labels []apiLabel, title string) bool {
 	return slices.ContainsFunc(labels, func(l apiLabel) bool { return l.Title == title })
 }
 
-func issueRequest(p payload, trigger string) Request {
+// hasTriggerOrStateLabel reports whether labels hold the trigger label or a state label.
+func hasTriggerOrStateLabel(labels []apiLabel, trigger string) bool {
+	return has(labels, trigger) || slices.ContainsFunc(models.StateLabels(), func(l string) bool { return has(labels, l) })
+}
+
+func issueRequest(p payload, bot, trigger string) Request {
 	key := models.IssueKey{ProjectID: p.Project.ID, IID: p.ObjectAttributes.IID}
 	r := Request{Key: key, Author: p.User.Username}
 
@@ -101,38 +110,64 @@ func issueRequest(p payload, trigger string) Request {
 		return r
 	}
 
-	errorLabel := models.StateLabel(models.Error)
-
 	switch p.ObjectAttributes.Action {
 	case "open", "reopen":
-		if !has(p.Labels, trigger) {
-			return r
+		if has(deref(p.Labels), trigger) {
+			r.Kind = Start
 		}
-
-		r.Kind = Start
 	case "close":
 		r.Kind = Stop
 	case "update":
-		r.Kind = Activate
+		r.Kind = updateKind(p, trigger)
+	}
 
-		if ch := p.Changes.Labels; ch != nil {
-			switch {
-			case has(ch.Previous, trigger) && !has(ch.Current, trigger):
-				r.Kind = Stop
-			case has(ch.Current, trigger) && !has(ch.Previous, trigger):
-				r.Kind = Start
-			case has(ch.Previous, errorLabel) && !has(ch.Current, errorLabel):
-				r.Kind = ClearError
-			}
-		}
-	default:
-		return r
+	if r.Author == bot && r.Kind != Stop {
+		r.Kind = Ignore
 	}
 
 	return r
 }
 
-func noteRequest(p payload, bot string) Request {
+func deref(labels *[]apiLabel) []apiLabel {
+	if labels == nil {
+		return nil
+	}
+
+	return *labels
+}
+
+func updateKind(p payload, trigger string) Kind {
+	now := p.Labels
+
+	var previous []apiLabel
+
+	if ch := p.Changes.Labels; ch != nil {
+		errorLabel := models.StateLabel(models.Error)
+
+		switch {
+		case has(ch.Previous, trigger) && !has(ch.Current, trigger):
+			return Stop
+		case has(ch.Current, trigger) && !has(ch.Previous, trigger):
+			return Start
+		case has(ch.Previous, errorLabel) && !has(ch.Current, errorLabel):
+			return ClearError
+		}
+
+		previous = ch.Previous
+
+		if now == nil {
+			now = &ch.Current
+		}
+	}
+
+	if now != nil && !hasTriggerOrStateLabel(*now, trigger) && !hasTriggerOrStateLabel(previous, trigger) {
+		return Ignore
+	}
+
+	return Activate
+}
+
+func noteRequest(p payload, bot, trigger string) Request {
 	r := Request{Key: models.IssueKey{ProjectID: p.Project.ID}, Author: p.User.Username}
 	if p.Issue != nil {
 		r.Key.IID = p.Issue.IID
@@ -140,6 +175,10 @@ func noteRequest(p payload, bot string) Request {
 
 	if p.ObjectAttributes.NoteableType != "Issue" || r.Key.IID == 0 || r.Key.ProjectID == 0 || r.Author == "" ||
 		r.Author == bot {
+		return r
+	}
+
+	if labels := p.Issue.Labels; labels != nil && !hasTriggerOrStateLabel(*labels, trigger) {
 		return r
 	}
 

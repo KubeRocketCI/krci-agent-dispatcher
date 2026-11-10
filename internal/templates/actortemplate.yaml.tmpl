@@ -1,6 +1,6 @@
 # Per-issue ActorTemplate (protojson ateapi.ActorTemplate), Go text/template.
 # Values are JSON-quoted (`json`): project path and bot name come from event payloads and config.
-# Reference copy: scripts/dispatcher/template.yaml.tmpl in the isolation repo.
+# Contract of the agent image: docs/agent-image-contract.md.
 metadata:
   atespace: {{ json .Atespace }}
   name: {{ json .Name }}
@@ -51,7 +51,7 @@ containers:
   - name: GIT_CONFIG_COUNT
     value: "1"
   - name: GIT_CONFIG_KEY_0
-    value: {{ json (print "http." .GitLabURL "/.extraHeader") }}
+    value: {{ json (print "http." .GitLabGitConfigScope ".extraHeader") }}
   - name: GIT_CONFIG_VALUE_0
     value: "Authorization: Basic placeholder"
   volumeMounts:

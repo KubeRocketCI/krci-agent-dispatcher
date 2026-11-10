@@ -8,6 +8,15 @@ Dispatcher for KubeRocketCI issue agents. A GitLab project hook sends issue and 
 
 The state label (`agent::working`, `agent::waiting`, `agent::done`, `agent::error`) and the status note show the agent state.
 
+## Limitations
+
+Confidential issues are not supported:
+
+- `hack/register-hook.sh` keeps `confidential_issues_events` and `confidential_note_events` off, so GitLab sends no event for a confidential issue or its comments.
+- The dispatcher ignores `Confidential Issue Hook` and `Confidential Note Hook` events.
+- The trigger label on a confidential issue starts no agent.
+- Do not enable the confidential events on the hook by hand.
+
 ## Build
 
 ```
@@ -23,3 +32,11 @@ hack/register-hook.sh add <project-path> https://<ingress-host>/hook
 ```
 
 Chart values: `deploy-templates/README.md`. Configuration (env): `internal/config/config.go`.
+
+## Documentation
+
+| Document | Content |
+|---|---|
+| [GLOSSARY.md](GLOSSARY.md) | Terms |
+| [docs/adr/](docs/adr/) | Decisions |
+| [docs/agent-image-contract.md](docs/agent-image-contract.md) | What the agent image (`agentImage`) receives and what the dispatcher reads back |

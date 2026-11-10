@@ -289,7 +289,8 @@ func (g *GRPC) Revert(ctx context.Context, name string) error {
 }
 
 // Delete deletes the egress policy, the actor and the template, each only if present. It also clears a
-// partial create. Snapshots are deleted with the actor.
+// partial create. An actor is deleted in any actor state: Substrate ends the workload of a running one and
+// frees its worker. Snapshots are deleted with the actor.
 func (g *GRPC) Delete(ctx context.Context, name string) error {
 	ctx, cancel := callCtx(ctx)
 	defer cancel()

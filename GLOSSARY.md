@@ -170,9 +170,3 @@ _Avoid_: restart (alone)
 **Restart recovery**:
 The dispatcher's one-time pass after a dispatcher restart that settles actors left running by an activation in progress.
 _Avoid_: reconcile, sync
-
-## Planning
-
-**Phase**:
-One step of the Isolated Agents epic (A–E).
-_Avoid_: stage

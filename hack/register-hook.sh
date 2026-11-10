@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Project hook for krci-agent-dispatcher (spec §5.7).
+# Project hook for krci-agent-dispatcher.
 #   register-hook.sh add <project-path> <hook-url>     create or update the hook with that exact URL
 #   register-hook.sh remove <project-path> <hook-url>  delete the hook with that exact URL
 #   register-hook.sh list <project-path> <hook-url>    show the hook with that exact URL
 # Hook settings: issues_events and note_events on, every other event off, enable_ssl_verification on,
-# token = the dispatcher hook token. Hooks with another URL (KRCI hook 1) are never changed.
+# token = the dispatcher hook token. Hooks with another URL are never changed.
+# confidential_issues_events and confidential_note_events stay off: confidential issues are not supported.
 # Env: GITLAB_URL (required), GITLAB_CA_FILE (optional PEM), GITLAB_RESOLVE (optional curl --resolve host:port:addr), GITSERVER_SECRET (default krci/ci-gitlab, key token;
 # a Maintainer token: krci-agent cannot manage hooks), HOOK_SECRET (default krci-agents/hook, key token).
 # Tokens stay in non-exported variables; curl gets them from a process substitution or stdin, never argv.

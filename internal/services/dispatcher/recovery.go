@@ -8,8 +8,9 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
 
-// recover queues a recover request on the lane of every issue actor in the atespace (spec §5.5). The actor list
+// recover queues a recover request on the lane of every issue actor in the atespace. The actor list
 // is retried with backoff until it succeeds or ctx ends. Requests that arrive meanwhile wait as pending.
+// RecoveryConcurrency lanes run their recover request at a time.
 func (d *Dispatcher) recover(ctx context.Context) {
 	var names []string
 
@@ -41,6 +42,33 @@ func (d *Dispatcher) recover(ctx context.Context) {
 	}
 
 	d.log.Info("Restart recovery queued", "actors", len(names))
+}
+
+// holdRecovery takes a recovery slot for the lane of key. It reports false when ctx ended first.
+func (d *Dispatcher) holdRecovery(ctx context.Context, key models.IssueKey) bool {
+	select {
+	case d.recovering <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+
+	d.mu.Lock()
+	d.settling[key] = true
+	d.mu.Unlock()
+
+	return true
+}
+
+// releaseRecovery frees the recovery slot of the lane of key, if it holds one.
+func (d *Dispatcher) releaseRecovery(key models.IssueKey) {
+	d.mu.Lock()
+	held := d.settling[key]
+	delete(d.settling, key)
+	d.mu.Unlock()
+
+	if held {
+		<-d.recovering
+	}
 }
 
 func parseActorName(name string) (models.IssueKey, bool) {

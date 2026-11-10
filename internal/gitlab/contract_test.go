@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,8 @@ var key = models.IssueKey{ProjectID: 12, IID: 7}
 // port is the GitLab port as the dispatcher declares it.
 type port interface {
 	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
-	Write(ctx context.Context, key models.IssueKey, w models.Writes) error
+	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
+	Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error
 	AccessLevel(ctx context.Context, projectID int64, username string) (int, error)
 	NoteMergeRequest(ctx context.Context, projectID int64, sourceBranch string, n models.NewNote) error
 	CheckProject(ctx context.Context, projectID int64) error
@@ -68,6 +70,17 @@ func TestContract(t *testing.T) {
 		"NoteMergeRequestReadsAllPages":   NoteMergeRequestReadsAllPages,
 		"CheckProjectReadable":            CheckProjectReadable,
 		"NoteMergeRequestSkipsForkMR":     NoteMergeRequestSkipsForkMR,
+		"RefreshMergesNewAndEditedNotes":  RefreshMergesNewAndEditedNotes,
+		"RefreshReadsIssueFields":         RefreshReadsIssueFields,
+		"RefreshReadsSameTimeNote":        RefreshReadsSameTimeNote,
+		"RefreshReadsAllNewPages":         RefreshReadsAllNewPages,
+		"RefreshFromEmptyView":            RefreshFromEmptyView,
+		"RefreshKeepsDeletedNote":         RefreshKeepsDeletedNote,
+		"RefreshNotFound":                 RefreshNotFound,
+		"WriteKnownEditsStatusNote":       WriteKnownEditsStatusNote,
+		"WriteKnownWithoutStatusNote":     WriteKnownWithoutStatusNote,
+		"WriteKnownStatusNoteDeleted":     WriteKnownStatusNoteDeleted,
+		"WriteKnownSkipsMarkerNote":       WriteKnownSkipsMarkerNote,
 	}
 
 	for subject, build := range subjects() {
@@ -133,7 +146,7 @@ func LoadIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
 }
 
 func WriteOrderRecordLabelNotes(t *testing.T, f *gitlabtest.Fake, p port) {
-	err := p.Write(context.Background(), key, models.Writes{
+	err := p.Write(context.Background(), key, nil, models.Writes{
 		Notes:  []models.NewNote{{Body: models.NoRoomText}},
 		Label:  models.StateLabel(models.Waiting),
 		Record: &models.Record{State: models.Waiting},
@@ -146,7 +159,7 @@ func WriteOrderRecordLabelNotes(t *testing.T, f *gitlabtest.Fake, p port) {
 func WriteSingleStateLabel(t *testing.T, f *gitlabtest.Fake, p port) {
 	f.SetIssue(key, models.IssueOpened, "agent", "bug", "agent::working", "agent::error")
 
-	require.NoError(t, p.Write(context.Background(), key, models.Writes{Label: models.StateLabel(models.Done)}))
+	require.NoError(t, p.Write(context.Background(), key, nil, models.Writes{Label: models.StateLabel(models.Done)}))
 	assert.ElementsMatch(t, []string{"agent", "bug", "agent::done"}, f.Labels(key))
 }
 
@@ -154,8 +167,8 @@ func WriteSkipsExistingMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
 	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
 	f.AddNote(key, models.Note{Body: refused.Body, Author: "owner"})
 
-	require.NoError(t, p.Write(context.Background(), key, models.Writes{Notes: []models.NewNote{refused}}))
-	require.NoError(t, p.Write(context.Background(), key, models.Writes{Notes: []models.NewNote{refused}}))
+	require.NoError(t, p.Write(context.Background(), key, nil, models.Writes{Notes: []models.NewNote{refused}}))
+	require.NoError(t, p.Write(context.Background(), key, nil, models.Writes{Notes: []models.NewNote{refused}}))
 
 	bots := 0
 
@@ -170,9 +183,9 @@ func WriteSkipsExistingMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteCreatesThenEditsStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
 	ctx := context.Background()
-	require.NoError(t, p.Write(ctx, key, models.Writes{Record: &models.Record{State: models.Waiting},
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Waiting},
 		Status: &models.StatusView{Session: "s1"}}))
-	require.NoError(t, p.Write(ctx, key, models.Writes{Record: &models.Record{State: models.Working},
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Working},
 		Status: &models.StatusView{Session: "s1"}}))
 
 	notes := f.Notes(key)
@@ -186,11 +199,11 @@ func WriteCreatesThenEditsStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteKeepsStatusRowsWithoutView(t *testing.T, f *gitlabtest.Fake, p port) {
 	ctx := context.Background()
-	require.NoError(t, p.Write(ctx, key, models.Writes{Record: &models.Record{State: models.Working},
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Working},
 		Status: &models.StatusView{Actor: key.ActorName(), Session: "s1"}}))
 
 	busy := models.Record{State: models.Error, Reason: models.ReasonActorBusy}
-	require.NoError(t, p.Write(ctx, key, models.Writes{Record: &busy}))
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Record: &busy}))
 
 	v, err := p.Load(ctx, key)
 	require.NoError(t, err)
@@ -201,7 +214,7 @@ func WriteKeepsStatusRowsWithoutView(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteNotFound(t *testing.T, _ *gitlabtest.Fake, p port) {
 	missing := models.IssueKey{ProjectID: 12, IID: 99}
-	err := p.Write(context.Background(), missing, models.Writes{Label: models.StateLabel(models.Done)})
+	err := p.Write(context.Background(), missing, nil, models.Writes{Label: models.StateLabel(models.Done)})
 	require.ErrorIs(t, err, gitlab.ErrNotFound)
 }
 
@@ -281,4 +294,199 @@ func NoteMergeRequestSkipsForkMR(t *testing.T, f *gitlabtest.Fake, p port) {
 
 	require.NoError(t, p.NoteMergeRequest(context.Background(), 12, "agent/issue-7", stopped))
 	assert.Empty(t, f.MRNotes(12, 8), "an MR from a fork branch of the same name is not the agent's")
+}
+
+func RefreshMergesNewAndEditedNotes(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+
+	for i := range 120 {
+		f.AddNote(key, models.Note{Body: fmt.Sprintf("comment %d", i), Author: "owner"})
+	}
+
+	waiting := models.Record{State: models.Waiting}
+	status := f.AddNote(key, models.Note{Body: models.StatusBody(waiting, models.StatusView{Session: "s1"}), Author: bot})
+	edited := f.AddNote(key, models.Note{Body: "draft", Author: bot})
+
+	prev, err := p.Load(ctx, key)
+	require.NoError(t, err)
+
+	f.AddNote(key, models.Note{Body: "one more", Author: "owner"})
+	f.EditNote(key, edited, "done\n<!-- krci-agent-turn n=1 exit=0 last=5 -->")
+	f.EditNote(key, status, models.StatusBody(models.Record{State: models.Working}, models.StatusView{Session: "s2"}))
+
+	got, err := p.Refresh(ctx, prev)
+	require.NoError(t, err)
+
+	want, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Equal(t, models.Working, got.Record.State)
+	assert.Equal(t, "s2", got.Status.Session)
+
+	m, ok := models.LastMarker(got.Notes, bot)
+	require.True(t, ok, "a marker added by an edit is read")
+	assert.Equal(t, edited, m.NoteID)
+
+	again, err := p.Refresh(ctx, got)
+	require.NoError(t, err)
+	assert.Equal(t, want, again)
+}
+
+func RefreshReadsIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
+	prev, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+
+	f.SetIssue(key, models.IssueClosed, "agent", "agent::working")
+
+	got, err := p.Refresh(context.Background(), prev)
+	require.NoError(t, err)
+	assert.Equal(t, models.IssueClosed, got.Issue.IssueState)
+	assert.Equal(t, []string{"agent", "agent::working"}, got.Issue.Labels)
+	assert.Equal(t, "krci/test-go-app", got.Issue.ProjectPath)
+}
+
+func RefreshReadsSameTimeNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	f.AddNote(key, models.Note{Body: "first", Author: "owner", UpdatedAt: at})
+
+	prev, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+
+	f.AddNote(key, models.Note{Body: "same millisecond", Author: "owner", UpdatedAt: at})
+
+	got, err := p.Refresh(context.Background(), prev)
+	require.NoError(t, err)
+	require.Len(t, got.Notes, 2)
+	assert.Equal(t, "same millisecond", got.Notes[1].Body)
+}
+
+func RefreshReadsAllNewPages(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.AddNote(key, models.Note{Body: "old", Author: "owner"})
+
+	prev, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+
+	for i := range 250 {
+		f.AddNote(key, models.Note{Body: fmt.Sprintf("comment %d", i), Author: "owner"})
+	}
+
+	got, err := p.Refresh(context.Background(), prev)
+	require.NoError(t, err)
+	require.Len(t, got.Notes, 251)
+
+	for i := 1; i < len(got.Notes); i++ {
+		assert.Less(t, got.Notes[i-1].ID, got.Notes[i].ID)
+	}
+}
+
+func RefreshFromEmptyView(t *testing.T, f *gitlabtest.Fake, p port) {
+	for i := range 130 {
+		f.AddNote(key, models.Note{Body: fmt.Sprintf("comment %d", i), Author: "owner"})
+	}
+
+	got, err := p.Refresh(context.Background(), models.IssueView{Issue: models.Issue{Key: key}})
+	require.NoError(t, err)
+
+	want, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func RefreshKeepsDeletedNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.AddNote(key, models.Note{Body: "kept", Author: "owner"})
+	gone := f.AddNote(key, models.Note{Body: "deleted later", Author: "owner"})
+
+	prev, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+
+	f.DeleteNote(key, gone)
+
+	got, err := p.Refresh(context.Background(), prev)
+	require.NoError(t, err)
+	assert.Len(t, got.Notes, 2, "Refresh does not see a delete")
+
+	full, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+	assert.Len(t, full.Notes, 1)
+}
+
+func RefreshNotFound(t *testing.T, f *gitlabtest.Fake, p port) {
+	prev, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+
+	f.DeleteIssue(key)
+
+	_, err = p.Refresh(context.Background(), prev)
+	require.ErrorIs(t, err, gitlab.ErrNotFound)
+}
+
+func WriteKnownEditsStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Working},
+		Status: &models.StatusView{Actor: key.ActorName(), Session: "s1"}}))
+
+	known, err := p.Load(ctx, key)
+	require.NoError(t, err)
+
+	busy := models.Record{State: models.Error, Reason: models.ReasonActorBusy}
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Record: &busy, Label: models.StateLabel(models.Error)}))
+
+	v, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, v.Notes, 1)
+
+	want := models.StatusView{State: models.Error, Actor: key.ActorName(), Session: "s1", Reason: models.ReasonActorBusy}
+	assert.Equal(t, want, v.Status, "rows without a new view come from the known status note")
+	assert.Equal(t, []string{"create-status", "edit-status", "label agent::error"}, f.Ops())
+}
+
+func WriteKnownWithoutStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+
+	known, err := p.Load(ctx, key)
+	require.NoError(t, err)
+
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Record: &models.Record{State: models.Waiting}}))
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Record: &models.Record{State: models.Working}}))
+
+	assert.Equal(t, []string{"create-status", "edit-status"}, f.Ops(),
+		"a status note made after the view was read is found")
+
+	r, ok := f.Record(key)
+	require.True(t, ok)
+	assert.Equal(t, models.Working, r.State)
+}
+
+func WriteKnownStatusNoteDeleted(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	id := f.AddNote(key, models.Note{Author: bot, Body: models.StatusBody(models.Record{State: models.Waiting},
+		models.StatusView{Session: "s1"})})
+
+	known, err := p.Load(ctx, key)
+	require.NoError(t, err)
+
+	f.DeleteNote(key, id)
+
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Record: &models.Record{State: models.Done}}))
+
+	r, ok := f.Record(key)
+	require.True(t, ok, "a new status note holds the record")
+	assert.Equal(t, models.Done, r.State)
+	assert.Len(t, f.Notes(key), 1)
+}
+
+func WriteKnownSkipsMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	plain := models.NewNote{Body: models.NoRoomText}
+
+	known, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Notes: []models.NewNote{refused, plain}}))
+
+	known, err = p.Load(ctx, key)
+	require.NoError(t, err)
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Notes: []models.NewNote{refused, plain}}))
+
+	assert.Len(t, f.Notes(key), 3, "the marker note once, the plain note twice")
 }

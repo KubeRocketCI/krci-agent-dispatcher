@@ -111,6 +111,8 @@ func TestHookIgnoredEventAccepted(t *testing.T) {
 		{"Note Hook", "note-mr.json"},
 		{"Note Hook", "note-bot.json"},
 		{"Issue Hook", "issue-reopen-no-label.json"},
+		{"Confidential Issue Hook", "issue-open.json"},
+		{"Confidential Note Hook", "note-issue.json"},
 	} {
 		resp := post(t, srv, c.event, hookToken, fixture(t, c.fixture))
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode, c)

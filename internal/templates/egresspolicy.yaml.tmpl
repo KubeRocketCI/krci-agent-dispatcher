@@ -1,7 +1,7 @@
 # Per-issue egress policy (protojson ateapi.EgressPolicy), Go text/template: Anthropic API, GitLab, Go module proxy.
 # All other hosts denied. Singleton of the actor: name default.
 # proxy.golang.org redirects module zips to storage.googleapis.com. A Go mirror (Nexus) replaces the three Go hosts.
-# Reference copy: scripts/dispatcher/egress-policy.yaml.tmpl in the isolation repo.
+# Contract of the agent image: docs/agent-image-contract.md.
 metadata:
   atespace: {{ json .Atespace }}
   name: default

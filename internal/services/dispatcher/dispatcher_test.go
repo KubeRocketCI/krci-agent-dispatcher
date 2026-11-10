@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
@@ -57,11 +58,11 @@ func (c *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
 	c.mu.Lock()
 	c.now = c.now.Add(d)
 	c.sleeps = append(c.sleeps, d)
-	hook := c.onSleep
+	onSleep := c.onSleep
 	c.mu.Unlock()
 
-	if hook != nil {
-		hook(d)
+	if onSleep != nil {
+		onSleep(d)
 	}
 
 	time.Sleep(time.Microsecond)
@@ -147,7 +148,7 @@ func newEnvWith(t *testing.T, mod func(*dispatcher.Config)) *env {
 	cfg := dispatcher.Config{
 		Atespace: "krci-agents", Pool: "workers", SecretsNamespace: "krci-agents",
 		Image: "localhost:5001/krci-agent-go:dev", GitLabURL: "https://gitlab.example",
-		Bot: bot, TriggerLabel: "agent", MaxTurns: 5,
+		Bot: bot, TriggerLabel: "agent", TurnLimit: 5,
 		TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-1" },
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
@@ -222,8 +223,8 @@ func (e *env) reply() {
 	})
 }
 
-// agentAnswersOnResume makes the agent reply once right after each resume.
-func (e *env) agentAnswersOnResume() { e.sb.OnResume(func(string) { e.reply() }) }
+// agentRepliesOnResume makes the agent reply once right after each resume.
+func (e *env) agentRepliesOnResume() { e.sb.OnResume(func(string) { e.reply() }) }
 
 func (e *env) record() models.Record {
 	r, ok := e.gl.Record(key)
@@ -304,14 +305,17 @@ func TestStartCleansPartial(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
 	e.sb.AddPartial(actor, true)
-	e.agentAnswersOnResume()
-	e.run()
+	e.agentRepliesOnResume()
 	e.handle(intake.Start, dev)
+	e.run()
 	e.idle()
 
 	ops := e.sb.Ops()
 	require.GreaterOrEqual(t, len(ops), 3)
 	assert.Equal(t, []string{"delete-actor " + actor, "delete-template " + actor, "create-template " + actor}, ops[:3])
+	assert.Contains(t, e.logs.String(), "request=start rule=start-partial-create action=create",
+		"the start runs before the recover request")
+	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
 	e.assertState(models.Waiting, "")
 }
 
@@ -374,7 +378,7 @@ func TestStartRefusedForReporter(t *testing.T) {
 func TestStartAllowedForDeveloper(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
-	e.agentAnswersOnResume()
+	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.Start, dev)
 	e.idle()
@@ -383,7 +387,21 @@ func TestStartAllowedForDeveloper(t *testing.T) {
 	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
 }
 
-func TestStartAuthorLookupErrorRefused(t *testing.T) {
+func TestStartAuthorLookupRetried(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, nil, "agent")
+	e.gl.FailAccessNext(errRP, errRP)
+	e.agentRepliesOnResume()
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
+	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
+	e.assertState(models.Waiting, "")
+}
+
+func TestStartAuthorLookupErrorNotRefused(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
 	e.gl.FailAccess(errors.New("gitlab down"))
@@ -392,12 +410,42 @@ func TestStartAuthorLookupErrorRefused(t *testing.T) {
 	e.idle()
 
 	assert.Empty(t, e.sb.Ops())
-	assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
+	assert.Empty(t, e.gl.Ops(), "a failed lookup is not a refusal")
+	assert.Equal(t, 4, e.gl.AccessCalls())
+	assert.Contains(t, e.logs.String(), "Cannot read the access level of the request author")
+}
+
+func TestStartAuthorLookupDefiniteAnswerRefused(t *testing.T) {
+	for name, err := range map[string]error{"not found": gitlab.ErrNotFound, "forbidden": gitlab.ErrForbidden} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.issue(models.IssueOpened, nil, "agent")
+			e.gl.FailAccess(fmt.Errorf("members: %w", err))
+			e.run()
+			e.handle(intake.Start, dev)
+			e.idle()
+
+			assert.Empty(t, e.sb.Ops())
+			assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
+			assert.Equal(t, 1, e.gl.AccessCalls(), "a definite answer is not retried")
+		})
+	}
+}
+
+func TestStartLookupErrorKeepsDecisionWithoutAuthor(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "agent")
+	e.gl.FailAccess(errRP)
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.notesWith(models.RefusedMarker), "the done refusal does not depend on the author")
 }
 
 // --- activate
 
-// waitingIssue: open issue with the trigger label, record waiting, a suspended actor, turn 1 answered.
+// waitingIssue: open issue with the trigger label, record waiting, a suspended actor, turn 1 replied to.
 func waitingIssue(t *testing.T) *env {
 	t.Helper()
 
@@ -414,7 +462,7 @@ func TestActivateRequiresSuspended(t *testing.T) {
 	e := waitingIssue(t)
 	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
 	e.comment(dev)
-	e.agentAnswersOnResume()
+	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.Activate, dev)
 	e.idle()
@@ -487,7 +535,7 @@ func markers(notes []models.Note) []models.Note {
 	return out
 }
 
-func TestActivateDeadlinePerTurn(t *testing.T) {
+func TestActivateTurnTimeoutPerTurn(t *testing.T) {
 	e := waitingIssue(t)
 	e.comment(dev)
 
@@ -567,7 +615,7 @@ func TestActivateNoRoomPostsNote(t *testing.T) {
 	assert.Equal(t, 0, e.clk.count(time.Second), "no room is not retried")
 
 	e.sb.SetNoRoom(false)
-	e.agentAnswersOnResume()
+	e.agentRepliesOnResume()
 	e.comment(dev)
 	e.handle(intake.Activate, dev)
 	e.idle()
@@ -621,13 +669,8 @@ func TestStopOrderAndDone(t *testing.T) {
 	e.handle(intake.Stop, dev)
 	e.idle()
 
-	assert.Equal(t, []string{
-		"suspend " + actor,
-		"delete-policy " + actor,
-		"delete-actor " + actor,
-		"delete-template " + actor,
-	},
-		e.sb.Ops())
+	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, e.sb.Ops(),
+		"a running actor is deleted without a suspend")
 	e.assertState(models.Done, "")
 }
 
@@ -659,7 +702,7 @@ func TestStopAfterRunningActivation(t *testing.T) {
 	ops := e.sb.Ops()
 
 	assert.Less(t, polls, 10, "stop runs after the marker, not at the timeout")
-	assert.Equal(t, []string{"resume " + actor, "suspend " + actor, "delete-policy " + actor, "delete-actor " + actor,
+	assert.Equal(t, []string{"resume " + actor, "delete-policy " + actor, "delete-actor " + actor,
 		"delete-template " + actor}, ops)
 	assert.Len(t, markers(e.gl.Notes(key)), 2, "the turn finished before the stop")
 	e.assertState(models.Done, "")
@@ -732,8 +775,10 @@ func TestErrorClearedNextCommentActivates(t *testing.T) {
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 	e.comment(dev)
 	e.reply()
-	e.agentAnswersOnResume()
+	e.agentRepliesOnResume()
 	e.run()
+	e.idle()
+	require.Equal(t, []string{models.StateLabel(models.Error)}, e.stateLabels(), "restart recovery re-adds agent::error")
 	e.handle(intake.ClearError, dev)
 	e.idle()
 
@@ -752,7 +797,7 @@ func TestCrashedRevertedBeforeResume(t *testing.T) {
 	e := waitingIssue(t)
 	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_CRASHED)
 	e.comment(dev)
-	e.agentAnswersOnResume()
+	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.Activate, dev)
 	e.idle()
@@ -766,7 +811,7 @@ func TestRPCRetryThenSubstrateError(t *testing.T) {
 		e := waitingIssue(t)
 		e.comment(dev)
 		e.sb.Fail("resume", errRP, errRP, errRP)
-		e.agentAnswersOnResume()
+		e.agentRepliesOnResume()
 		e.run()
 		e.handle(intake.Activate, dev)
 		e.idle()
@@ -811,7 +856,7 @@ func TestTransitionalRecheckThenActorBusy(t *testing.T) {
 		e := waitingIssue(t)
 		e.sb.QueueStates(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDING, ateapi.ActorState_ACTOR_STATE_SUSPENDING)
 		e.comment(dev)
-		e.agentAnswersOnResume()
+		e.agentRepliesOnResume()
 		e.run()
 		e.handle(intake.Activate, dev)
 		e.idle()
@@ -1228,7 +1273,7 @@ func TestCreateRetryAfterPartialStep(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
 	e.sb.Fail("create-actor", errRP)
-	e.agentAnswersOnResume()
+	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.Start, dev)
 	e.idle()
@@ -1408,4 +1453,385 @@ func TestIssueGoneProjectUnreadableSuspendsRunningActor(t *testing.T) {
 	e.idle()
 
 	assert.Equal(t, []string{"suspend " + actor}, e.sb.Ops(), "kept, but not holding a worker")
+}
+
+func TestIssueDeletedDeletesRunningActorWithoutSuspend(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, nil, "agent")
+	e.gl.DeleteIssue(key)
+	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.run()
+	e.idle()
+
+	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, e.sb.Ops())
+}
+
+// --- lookup failures
+
+func TestTriggerLookupRetried(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.gl.FailAccessNext(errRP)
+	e.agentRepliesOnResume()
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("resume", actor), "a transient lookup failure does not drop the trigger comment")
+	e.assertState(models.Waiting, "")
+}
+
+func TestTriggerLookupErrorLogged(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.gl.FailAccess(errRP)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("resume", actor))
+	assert.Equal(t, 4, e.gl.AccessCalls())
+	assert.Contains(t, e.logs.String(), "level=ERROR")
+	assert.Contains(t, e.logs.String(), "Cannot read the access level of a comment author")
+	e.assertState(models.Waiting, "")
+}
+
+// --- stop with Substrate down
+
+func TestStopInspectOutageRecordsError(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.gl.SetIssue(key, models.IssueClosed, "agent", models.StateLabel(models.Waiting))
+	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
+	e.handle(intake.Stop, dev)
+	e.idle()
+
+	e.assertState(models.Error, models.ReasonSubstrateError)
+	assert.NotContains(t, e.logs.String(), "nothing recorded")
+
+	n, _ := models.StatusNote(e.gl.Notes(key), bot)
+	v, _ := models.ParseStatusView(n.Body)
+	assert.Equal(t, "session-0", v.Session, "the status rows are kept")
+
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "the next request runs the stop")
+	e.assertState(models.Done, "")
+}
+
+func TestInspectOutageOnStoppedIssueWritesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueClosed, &models.Record{State: models.Done}, "agent", models.StateLabel(models.Done))
+	e.run()
+	e.idle()
+	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
+	e.handle(intake.Stop, dev)
+	e.idle()
+
+	assert.Empty(t, e.gl.Ops())
+}
+
+// --- turn timeout while reads fail
+
+func statusRows(e *env) models.StatusView {
+	n, ok := models.StatusNote(e.gl.Notes(key), bot)
+	require.True(e.t, ok)
+
+	v, _ := models.ParseStatusView(n.Body)
+
+	return v
+}
+
+func TestTurnTimeoutWhileReadsFailKeepsStatusRows(t *testing.T) {
+	many := make([]error, 10000)
+	for i := range many {
+		many[i] = errRP
+	}
+
+	t.Run("issue reads fail", func(t *testing.T) {
+		e := waitingIssue(t)
+		e.run()
+		e.idle()
+		e.comment(dev)
+
+		polls := 0
+
+		e.clk.setOnSleep(func(d time.Duration) {
+			if polls++; d == 10*time.Second && polls == 1 {
+				e.gl.FailLoad(many...)
+			}
+		})
+		e.handle(intake.Activate, dev)
+		e.idle()
+
+		e.assertState(models.Error, models.ReasonTurnTimeout)
+
+		v := statusRows(e)
+		assert.Equal(t, "session-0", v.Session)
+		assert.Equal(t, "uid-1", v.ActorUID)
+	})
+
+	t.Run("actor reads fail", func(t *testing.T) {
+		e := waitingIssue(t)
+		e.run()
+		e.idle()
+		e.comment(dev)
+
+		polls := 0
+
+		e.clk.setOnSleep(func(d time.Duration) {
+			if polls++; d == 10*time.Second && polls == 1 {
+				e.sb.Fail("inspect", many...)
+			}
+		})
+		e.handle(intake.Activate, dev)
+		e.idle()
+
+		e.assertState(models.Error, models.ReasonTurnTimeout)
+
+		v := statusRows(e)
+		assert.Equal(t, "session-0", v.Session)
+		assert.Equal(t, "uid-1", v.ActorUID)
+	})
+}
+
+// --- restart recovery load
+
+// waitingIssues adds n settled issues: record waiting, a suspended actor, nothing to do.
+func waitingIssues(e *env, n int, state ateapi.ActorState) []models.IssueKey {
+	keys := make([]models.IssueKey, 0, n)
+
+	for i := range n {
+		k := models.IssueKey{ProjectID: 12, IID: int64(100 + i)}
+		rec := models.Record{State: models.Waiting}
+
+		e.gl.AddIssue(k, "krci/test-go-app", models.IssueOpened, "agent", models.StateLabel(models.Waiting))
+		e.gl.AddNote(k, models.Note{Author: bot, Body: models.StatusBody(rec, models.StatusView{State: rec.State})})
+		e.sb.AddComplete(k.ActorName(), state)
+
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
+func TestRecoveryReadsBounded(t *testing.T) {
+	e := newEnv(t)
+	waitingIssues(e, 40, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
+
+	var (
+		mu            sync.Mutex
+		inFlight, top int
+	)
+
+	e.gl.OnLoad(func(models.IssueKey) {
+		mu.Lock()
+		inFlight++
+		top = max(top, inFlight)
+		mu.Unlock()
+
+		time.Sleep(2 * time.Millisecond)
+
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+	})
+	e.run()
+	e.idle()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	assert.Equal(t, 40, e.gl.LoadCalls(), "every actor is recovered")
+	assert.LessOrEqual(t, top, dispatcher.RecoveryConcurrency)
+}
+
+func TestRecoveredActivationsDoNotHoldRecovery(t *testing.T) {
+	e := newEnvWith(t, func(c *dispatcher.Config) { c.TurnTimeout = 1000 * time.Hour })
+	keys := waitingIssues(e, 2*dispatcher.RecoveryConcurrency, ateapi.ActorState_ACTOR_STATE_RUNNING)
+
+	var (
+		mu    sync.Mutex
+		polls = map[models.IssueKey]int{}
+	)
+
+	e.gl.OnLoad(func(k models.IssueKey) {
+		mu.Lock()
+		polls[k]++
+		mu.Unlock()
+	})
+	e.run()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		for _, k := range keys {
+			if polls[k] < 2 {
+				return false
+			}
+		}
+
+		return true
+	}, 5*time.Second, time.Millisecond, "every recovered activation polls while the others run")
+
+	for _, k := range keys {
+		e.gl.AddNote(k, models.Note{Author: bot, Body: "<!-- krci-agent-turn n=1 exit=0 last=0 -->"})
+	}
+
+	e.idle()
+
+	for _, k := range keys {
+		assert.Equal(t, 1, e.sb.Count("suspend", k.ActorName()))
+	}
+}
+
+// --- GitLab reads of an activation
+
+func TestActivationPollsWithoutFullReads(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	polls := 0
+
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d != 10*time.Second {
+			return
+		}
+
+		if polls++; polls == 30 {
+			e.reply()
+		}
+	})
+
+	before := e.gl.LoadCalls()
+
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.LessOrEqual(t, e.gl.LoadCalls()-before, 5, "full reads do not grow with the number of polls")
+	assert.GreaterOrEqual(t, e.gl.RefreshCalls(), 28)
+	assert.Equal(t, 0, e.gl.BlindWrites(), "every write names the view it follows")
+	e.assertState(models.Waiting, "")
+}
+
+func TestPollDecisionTakenOnFullRead(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	var (
+		polls   int
+		deleted int64
+	)
+
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d != 10*time.Second {
+			return
+		}
+
+		switch polls++; polls {
+		case 2:
+			deleted = e.gl.AddNote(key, models.Note{Author: reporter, Body: "never mind"})
+		case 4:
+			e.gl.DeleteNote(key, deleted)
+		case 5:
+			e.reply()
+		}
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Less(t, polls, 10, "a comment deleted before the reply does not keep the actor resumed")
+	assert.Equal(t, 1, e.sb.Count("suspend", actor))
+	e.assertState(models.Waiting, "")
+}
+
+// --- clear error and recovery creates
+
+func TestClearErrorMissingActorCreates(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
+	e.agentRepliesOnResume()
+	e.run()
+	e.handle(intake.ClearError, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
+	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
+	e.assertState(models.Waiting, "")
+}
+
+func TestClearErrorMissingActorRefusedForReporter(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
+	e.run()
+	e.handle(intake.ClearError, reporter)
+	e.idle()
+
+	assert.Empty(t, e.sb.Ops())
+	assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
+	e.assertState(models.Error, models.ReasonActorMissing)
+}
+
+func TestClearErrorLookupErrorNotRefused(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
+	e.gl.FailAccess(errRP)
+	e.run()
+	e.handle(intake.ClearError, dev)
+	e.idle()
+
+	assert.Empty(t, e.sb.Ops())
+	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
+	assert.Equal(t, []string{models.StateLabel(models.Error)}, e.stateLabels())
+	assert.Equal(t, models.Record{State: models.Error, Reason: models.ReasonActorMissing}, e.record())
+	assert.Contains(t, e.logs.String(), "Cannot read the access level of the request author")
+}
+
+func TestClearErrorAtTurnLimitKeepsError(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonTurnLimit}, "agent")
+	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
+
+	for range 5 {
+		e.comment(dev)
+		e.reply()
+	}
+
+	e.handle(intake.ClearError, dev)
+	e.run()
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("resume", actor))
+	assert.Contains(t, e.logs.String(), "request=clear-error rule=clear-error-turn-limit action=none")
+	e.assertState(models.Error, models.ReasonTurnLimit)
+
+	e.comment(dev)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("resume", actor))
+	e.assertState(models.Error, models.ReasonTurnLimit)
+}
+
+func TestRecoveryCompletesPartialCreate(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, nil, "agent")
+	e.sb.AddPartial(actor, true)
+	e.agentRepliesOnResume()
+	e.run()
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("create-policy", actor))
+	assert.Equal(t, 1, e.sb.Count("resume", actor))
+	assert.Equal(t, 0, e.gl.AccessCalls(), "a recover request has no author")
+	e.assertState(models.Waiting, "")
 }

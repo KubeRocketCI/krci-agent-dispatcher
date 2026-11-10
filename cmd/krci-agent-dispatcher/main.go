@@ -82,7 +82,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
 		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace, Image: cfg.AgentImage,
 		GitLabURL: cfg.GitLabURL, Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel,
-		MaxTurns: cfg.MaxTurnsPerIssue, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
+		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		Logger: log,
 	})
 
