@@ -38,7 +38,7 @@ build: ## Build the binary → dist/krci-agent-dispatcher-<arch>
 
 .PHONY: test
 test: ## Run the tests with the race detector
-	go test -race ./... -coverprofile=coverage.out
+	CGO_ENABLED=1 go test -race ./... -coverprofile=coverage.out
 
 .PHONY: generate
 generate: oapi-codegen ## Generate the server code from the OpenAPI spec
