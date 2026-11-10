@@ -8,7 +8,9 @@ Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services
 
 ```
 make build      # → dist/krci-agent-dispatcher-<arch> (CGO_ENABLED=0)
-make test       # go test -race ./... -coverprofile=coverage.out
+make test       # go test -race ./... -coverprofile=coverage.out, then the CRAP gate (CRAP_CHECK=false skips it)
+make crap       # worst CRAP scores from coverage.out
+make crap-baseline  # rewrite .crap-baseline.json after an intended change
 make lint       # golangci-lint v2 (.golangci.yaml)
 make lint-fix
 make generate   # oapi-codegen: internal/api/oapi.yaml → internal/api/server_gen.go
@@ -34,6 +36,7 @@ internal/substrate/          Substrate port adapters: gRPC, substratetest fake, 
 internal/templates/          ActorTemplate + EgressPolicy render, pure
 deploy-templates/            Helm chart
 hack/register-hook.sh        project hook add|remove|list
+hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseline
 ```
 
 ## Conventions

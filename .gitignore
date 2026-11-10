@@ -4,3 +4,6 @@ coverage.out
 
 # Claude Code
 .claude/settings.local.json
+
+# CRAP gate report
+/crap.json
