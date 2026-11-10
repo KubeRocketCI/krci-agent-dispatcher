@@ -1,21 +1,65 @@
 # krci-agent-dispatcher
 
-Dispatcher for KubeRocketCI issue agents. A GitLab project hook sends issue and comment events to `POST /hook`. The dispatcher runs one isolated Agent Substrate actor per issue:
+Run AI coding agents on real work without giving them your cluster or your secrets.
 
-- The trigger label `agent` on an open issue starts the agent.
-- A comment by a Developer or higher starts the next turn.
-- Closing the issue, or removing the trigger label, stops the agent and deletes its actor.
+krci-agent-dispatcher is the KubeRocketCI orchestrator for isolated AI coding agents. Each task gets its own Agent Substrate sandbox (gVisor or microVM). The agent writes code, builds and tests it in the sandbox, and sends the result back as a merge request for human review.
 
-The state label (`agent::working`, `agent::waiting`, `agent::done`, `agent::error`) and the status note show the agent state.
+Today the task is a GitLab issue. The orchestrator is built for more triggers and agents.
+
+## Why
+
+- **Isolated:** one sandbox per task, separate from your cluster and from other tasks.
+- **No secrets inside:** the agent holds placeholders only. The egress proxy adds the real credentials on the way out.
+- **Closed network:** only the model API, your GitLab and the Go module proxy are reachable. All other hosts are denied.
+- **Human in the loop:** the agent opens a merge request. A person reviews and merges it.
+
+## How it works
+
+```mermaid
+flowchart LR
+  dev([Developer]) -- "label, comment, close" --> gl[GitLab issue]
+  gl -- "Issue and Note hooks" --> d[krci-agent-dispatcher]
+  d -- "create, resume, suspend, delete" --> a
+  d -- "status note, state label" --> gl
+  subgraph sb ["Agent Substrate sandbox (gVisor or microVM)"]
+    a[AI coding agent]
+  end
+  a --> eg{{"Egress proxy<br/>adds credentials"}}
+  eg --> llm[(Model API)]
+  eg -- "reply, merge request" --> gl
+  eg --> mod[(Go module proxy)]
+```
+
+One turn:
+
+```mermaid
+sequenceDiagram
+  actor Dev as Developer
+  participant GL as GitLab
+  participant D as Dispatcher
+  participant A as Agent sandbox
+  Dev->>GL: comment on the issue
+  GL->>D: Note Hook
+  D->>A: resume
+  A->>GL: reply and turn marker
+  D->>GL: poll, find the marker
+  D->>A: suspend
+  D->>GL: agent::waiting
+```
+
+## Use it
+
+| You do | The agent |
+|---|---|
+| Add the `agent` label to an open issue | starts and takes its first turn |
+| Comment (Developer or higher) | takes the next turn |
+| Close the issue, or remove the label | stops; its sandbox is deleted |
+
+The state label shows where the agent is: `agent::working`, `agent::waiting`, `agent::done`, `agent::error`. The status note on the issue shows the details.
 
 ## Limitations
 
-Confidential issues are not supported:
-
-- `hack/register-hook.sh` keeps `confidential_issues_events` and `confidential_note_events` off, so GitLab sends no event for a confidential issue or its comments.
-- The dispatcher ignores `Confidential Issue Hook` and `Confidential Note Hook` events.
-- The trigger label on a confidential issue starts no agent.
-- Do not enable the confidential events on the hook by hand.
+- Confidential issues are not supported. The hook does not send their events, and the dispatcher ignores them. Do not enable the confidential events on the hook by hand.
 
 ## Build
 
