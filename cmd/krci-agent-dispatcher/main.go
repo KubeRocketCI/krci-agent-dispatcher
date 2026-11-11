@@ -60,7 +60,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		"version", info.Version, "git-commit", info.GitCommit, "git-tag", info.GitTag,
 		"build-date", info.BuildDate, "go-version", info.Go, "platform", info.Platform,
 		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL.String(),
-		"trigger-role", cfg.TriggerMinRole.String(),
+		"trigger-role", cfg.TriggerMinRole.String(), "sweep-interval", cfg.SweepInterval.String(),
 	)
 
 	if !cfg.AgentImagePinned() {
@@ -92,7 +92,8 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
 		Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel, TriggerRole: cfg.TriggerMinRole,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
-		Logger: log,
+		SweepInterval: cfg.SweepInterval,
+		Logger:        log,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(),

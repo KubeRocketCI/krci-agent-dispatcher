@@ -52,6 +52,10 @@ _Avoid_: agent branch, feature branch
 The end of the agent for an issue; its actor is deleted.
 _Avoid_: suspend, pause, done
 
+**Discard**:
+Deleting the actor of an issue that no longer exists; nothing is written to the issue.
+_Avoid_: stop (for this), cleanup
+
 **Re-enable**:
 Asking for the agent again on an issue whose agent was stopped, by setting the trigger label again or by reopening the issue with it.
 _Avoid_: restart
@@ -87,7 +91,7 @@ The lowest Git provider role whose users can trigger the agent; on GitLab `devel
 _Avoid_: access level, min role
 
 **Trigger comment**:
-A comment by a user with the trigger role or higher. Only these resume a suspended actor.
+A comment by a user with the trigger role or higher. Only these resume a suspended actor; any comment keeps a resumed actor resumed for the next turn.
 _Avoid_: authorized comment, developer comment
 
 **Reply**:
@@ -174,3 +178,7 @@ _Avoid_: restart (alone)
 **Restart recovery**:
 The dispatcher's one-time pass after a dispatcher restart that settles actors left running by an activation in progress.
 _Avoid_: reconcile, sync
+
+**Sweep**:
+The dispatcher's periodic pass over actors that settles an actor that is running or transitional with no issue lane, as restart recovery does.
+_Avoid_: reconcile, resync, scan, garbage collection

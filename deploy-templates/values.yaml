@@ -41,7 +41,8 @@ substrate:
   # -- ClusterTrustBundle label selector.
   trustBundleLabels:
     podcert.ate.dev/canarying: live
-  # -- Atespace of the issue actors. Empty: the release namespace.
+  # -- Atespace of the issue actors. Empty: the release namespace. One dispatcher per atespace: the dispatcher owns
+  # every actor named `issue-<project-id>-<iid>` in it.
   atespace: ""
   # -- Worker pool of the actor template.
   pool: workers
@@ -53,6 +54,8 @@ config:
   turnTimeout: 15m
   # -- Marker poll interval.
   pollInterval: 10s
+  # -- Time between sweeps over actors without an issue lane. 0 turns the sweep off.
+  sweepInterval: 5m
   # -- Turn limit per issue.
   turnLimit: 20
   # -- Bot user: ignored note author, marker author.

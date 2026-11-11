@@ -84,6 +84,8 @@ spec:
               value: {{ .Values.config.turnTimeout | quote }}
             - name: POLL_INTERVAL
               value: {{ .Values.config.pollInterval | quote }}
+            - name: SWEEP_INTERVAL
+              value: {{ .Values.config.sweepInterval | quote }}
             - name: TURN_LIMIT
               value: {{ .Values.config.turnLimit | quote }}
           readinessProbe:

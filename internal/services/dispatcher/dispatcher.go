@@ -1,5 +1,5 @@
 // Package dispatcher runs issue lanes: one action at a time per issue, decided by package decide from facts it
-// re-reads on each request, plus the activation loop and the restart recovery.
+// re-reads on each request, plus the activation loop, the restart recovery and the sweep.
 package dispatcher
 
 import (
@@ -31,14 +31,15 @@ const (
 
 // Config holds the dispatcher settings.
 type Config struct {
-	Bot          string
-	TriggerLabel string
-	TriggerRole  models.Role
-	TurnLimit    int
-	TurnTimeout  time.Duration
-	PollInterval time.Duration
-	NewSessionID func() string
-	Logger       *slog.Logger
+	Bot           string
+	TriggerLabel  string
+	TriggerRole   models.Role
+	TurnLimit     int
+	TurnTimeout   time.Duration
+	PollInterval  time.Duration
+	SweepInterval time.Duration
+	NewSessionID  func() string
+	Logger        *slog.Logger
 }
 
 // Dispatcher serves requests on issue lanes.
@@ -102,8 +103,9 @@ func (d *Dispatcher) Handle(r intake.Request) {
 	d.enqueueLocked(r)
 }
 
-// Run runs the restart recovery once, then serves requests until ctx ends. It returns after every lane
-// stopped. An activation cut by ctx leaves its actor running for the next restart recovery.
+// Run runs the restart recovery once, then serves requests and, when SweepInterval is above 0, the sweep until ctx
+// ends. It returns after every lane and the sweep stopped. An activation cut by ctx leaves its actor running for
+// the next restart recovery.
 func (d *Dispatcher) Run(ctx context.Context) error {
 	d.recover(ctx)
 
@@ -112,6 +114,12 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 
 	for key, l := range d.lanes {
 		d.startLocked(key, l)
+	}
+
+	if d.cfg.SweepInterval > 0 {
+		d.wg.Add(1)
+
+		go d.sweepLoop(ctx)
 	}
 	d.mu.Unlock()
 

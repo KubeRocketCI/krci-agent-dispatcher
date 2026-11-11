@@ -20,7 +20,7 @@ const (
 // port is the Substrate port as the dispatcher declares it.
 type port interface {
 	Inspect(ctx context.Context, name string) (models.ActorView, error)
-	List(ctx context.Context, prefix string) ([]string, error)
+	List(ctx context.Context, prefix string) ([]models.ActorSummary, error)
 	Create(ctx context.Context, name string, spec models.ActorSpec) error
 	Resume(ctx context.Context, name string) error
 	Suspend(ctx context.Context, name string) error
@@ -185,13 +185,23 @@ func NotFound(t *testing.T, _ *substratetest.Fake, p port) {
 }
 
 func ListByPrefix(t *testing.T, f *substratetest.Fake, p port) {
-	for _, n := range []string{"issue-2-5", "other-x", "issue-1-1", "issue-3-3", "probe-a"} {
+	for _, n := range []string{"issue-2-5", "other-x", "issue-1-1", "probe-a"} {
 		f.AddPartial(n, true)
 	}
 
+	f.AddComplete("issue-3-3", ateapi.ActorState_ACTOR_STATE_RUNNING)
+	f.AddComplete("issue-4-4", ateapi.ActorState_ACTOR_STATE_CRASHED)
+	f.AddComplete("issue-5-5", ateapi.ActorState_ACTOR_STATE_RESUMING)
+
 	got, err := p.List(context.Background(), "issue-")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"issue-1-1", "issue-2-5", "issue-3-3"}, got)
+	assert.ElementsMatch(t, []models.ActorSummary{
+		{Name: "issue-1-1", State: models.Suspended},
+		{Name: "issue-2-5", State: models.Suspended},
+		{Name: "issue-3-3", State: models.Running},
+		{Name: "issue-4-4", State: models.Crashed},
+		{Name: "issue-5-5", State: models.Transitional},
+	}, got, "each actor comes with its actor state")
 }
 
 func CreateCompletesPartial(t *testing.T, f *substratetest.Fake, p port) {

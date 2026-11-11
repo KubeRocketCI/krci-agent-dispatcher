@@ -18,7 +18,7 @@ One actor per issue.
 |---|---|
 | Actor template and actor name | `issue-<project-id>-<iid>` |
 | Egress policy name | `default`, owned by the actor |
-| Atespace | `ATESPACE` of the dispatcher |
+| Atespace | `ATESPACE` of the dispatcher, required; one dispatcher per atespace |
 | Worker selector | `workload: <POOL>` |
 | Container | one, named `claude` |
 | Image | `AGENT_IMAGE` of the dispatcher (chart value `agentImage`) |
@@ -137,6 +137,7 @@ Rules:
 | Issue closed or trigger label removed | Deletes the actor in any actor state. Record done. During an activation: at the next marker, at the turn timeout, or when the actor is no longer running. |
 | Issue deleted | Deletes the actor in any actor state; nothing is written to the issue. A project that is not readable keeps the actor: a running actor, or one that cannot be read, is suspended. |
 | Dispatcher restart | A running actor keeps running. Restart recovery continues its activation loop and reads the last marker again. |
+| Actor running or transitional with no issue lane in two sweeps in a row (`SWEEP_INTERVAL`, default 5 m) | The recover request of restart recovery: the activation loop continues, or the actor is suspended or deleted. |
 
 A suspend can come at any time after the marker is posted. A delete can come at any time.
 

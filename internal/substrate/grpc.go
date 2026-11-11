@@ -198,13 +198,13 @@ func (g *GRPC) Inspect(ctx context.Context, name string) (models.ActorView, erro
 	return v, nil
 }
 
-// List returns the names of the atespace's actors that start with prefix.
-func (g *GRPC) List(ctx context.Context, prefix string) ([]string, error) {
+// List returns the atespace's actors whose names start with prefix, with their actor states.
+func (g *GRPC) List(ctx context.Context, prefix string) ([]models.ActorSummary, error) {
 	ctx, cancel := callCtx(ctx)
 	defer cancel()
 
 	var (
-		out   []string
+		out   []models.ActorSummary
 		token string
 	)
 
@@ -219,7 +219,7 @@ func (g *GRPC) List(ctx context.Context, prefix string) ([]string, error) {
 
 		for _, a := range resp.GetActors() {
 			if n := a.GetMetadata().GetName(); strings.HasPrefix(n, prefix) {
-				out = append(out, n)
+				out = append(out, models.ActorSummary{Name: n, State: StateOf(a.GetStatus().GetState())})
 			}
 		}
 
