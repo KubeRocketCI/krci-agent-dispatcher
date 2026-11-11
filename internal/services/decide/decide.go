@@ -537,7 +537,7 @@ type PollFacts struct {
 type PollAction int
 
 // Poll actions. StayResumed: a new turn starts (reset the turn timeout, Since = Marker.NoteID). Suspend:
-// suspend, then the writes. End: the writes, no suspend. StopNow: run the stop action.
+// suspend, then the writes. End: the writes, no suspend. StopNow: run the stop action, then the writes.
 const (
 	Wait PollAction = iota
 	StayResumed
@@ -571,7 +571,7 @@ func Poll(p PollFacts, l Limits) PollDecision {
 	enabled := p.View.Enabled(l.TriggerLabel)
 
 	if p.StopPending && !enabled && (hasNew || timedOut || settled) {
-		return PollDecision{Rule: PollStopPending, Action: StopNow, Marker: m}
+		return PollDecision{Rule: PollStopPending, Action: StopNow, Marker: m, Writes: record(models.Done, "")}
 	}
 
 	switch {
