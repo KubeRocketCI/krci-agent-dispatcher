@@ -1,5 +1,6 @@
 // Package decide is the decision function of the dispatcher: facts of one issue and its actor in, one action and
-// its GitLab writes out. Pure: no I/O, no clock. A new rule is a new Rule constant and a new table-test case.
+// its GitLab writes out. Pure: no I/O, no clock. A new rule is a new Rule constant, a new table-test case and a
+// reviewed diff of the golden maps in testdata.
 package decide
 
 import (

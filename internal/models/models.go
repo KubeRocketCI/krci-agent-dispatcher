@@ -60,6 +60,9 @@ const (
 
 var agentStates = []AgentState{Working, Waiting, Done, Error}
 
+// AgentStates returns every agent state.
+func AgentStates() []AgentState { return slices.Clone(agentStates) }
+
 const stateLabelPrefix = "agent::"
 
 // StateLabel returns the state label of s, for example "agent::waiting".

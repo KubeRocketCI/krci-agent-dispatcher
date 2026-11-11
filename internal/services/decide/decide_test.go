@@ -1,9 +1,6 @@
 package decide
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/consttest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
@@ -876,36 +874,15 @@ func TestActionNames(t *testing.T) {
 func declaredRules(t *testing.T) map[string]Rule {
 	t.Helper()
 
-	f, err := parser.ParseFile(token.NewFileSet(), "decide.go", nil, 0)
+	consts, err := consttest.Declared("decide.go", "Rule")
 	require.NoError(t, err)
 
 	rules := map[string]Rule{}
 
-	for _, decl := range f.Decls {
-		gen, isGen := decl.(*ast.GenDecl)
-		if !isGen || gen.Tok != token.CONST {
-			continue
-		}
+	for _, c := range consts {
+		require.NotEmpty(t, c.Value, "%s: a Rule constant is a string literal", c.Name)
 
-		for _, spec := range gen.Specs {
-			vs, _ := spec.(*ast.ValueSpec)
-
-			if typ, isIdent := vs.Type.(*ast.Ident); !isIdent || typ.Name != "Rule" {
-				continue
-			}
-
-			require.Len(t, vs.Values, len(vs.Names))
-
-			for i, name := range vs.Names {
-				lit, isLit := vs.Values[i].(*ast.BasicLit)
-				require.True(t, isLit, name.Name)
-
-				v, err := strconv.Unquote(lit.Value)
-				require.NoError(t, err)
-
-				rules[name.Name] = Rule(v)
-			}
-		}
+		rules[c.Name] = Rule(c.Value)
 	}
 
 	return rules
