@@ -8,22 +8,24 @@ import (
 // ActorState is the Substrate actor state as the dispatcher sees it.
 type ActorState string
 
-// Actor states. Transitional covers resuming, suspending, deleting and reverting.
+// Actor states. Transitional covers resuming, suspending, deleting and reverting. Unknown: the actor read failed;
+// it is never taken for None.
 const (
 	None         ActorState = "none"
 	Running      ActorState = "running"
 	Suspended    ActorState = "suspended"
 	Crashed      ActorState = "crashed"
 	Transitional ActorState = "transitional"
+	Unknown      ActorState = "unknown"
 )
 
-var actorStates = []ActorState{None, Running, Suspended, Crashed, Transitional}
+var actorStates = []ActorState{None, Running, Suspended, Crashed, Transitional, Unknown}
 
 // ActorStates returns every actor state.
 func ActorStates() []ActorState { return slices.Clone(actorStates) }
 
-// Settled reports whether s is neither running nor transitional: the actor holds no worker and none is coming.
-func (s ActorState) Settled() bool { return s != Running && s != Transitional }
+// Settled reports whether s is none, suspended or crashed: the actor holds no worker and none is coming.
+func (s ActorState) Settled() bool { return s == None || s == Suspended || s == Crashed }
 
 // ActorSummary is one actor of a list: its name and actor state.
 type ActorSummary struct {

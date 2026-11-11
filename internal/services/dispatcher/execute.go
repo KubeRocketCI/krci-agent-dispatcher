@@ -36,14 +36,19 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 		var actor models.ActorView
 
 		if err := d.retry(ctx, func() error { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
-			d.failInspect(ctx, log, view, err)
+			if ctx.Err() != nil {
+				log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
+				return
+			}
 
-			return
+			log.Error("Cannot read the actor", "error", err)
+
+			actor = models.ActorView{State: models.Unknown}
 		}
 
 		f := decide.Facts{View: view, Actor: actor, Request: r.Kind, Rechecks: rechecks}
 
-		if enabled {
+		if enabled && actor.State != models.Unknown {
 			f.TriggerAfterLast = d.triggerAfterLast(ctx, log, view)
 
 			if r.Kind == intake.Start || r.Kind == intake.ClearError {
@@ -381,11 +386,12 @@ func stateWrites(s models.AgentState, reason string) models.Writes {
 
 func substrateError() models.Writes { return stateWrites(models.Error, models.ReasonSubstrateError) }
 
-// write applies w; a record without status rows gets them from the view and the actor.
+// write applies w; a record without status rows gets them from the view and the actor. An unknown actor keeps the
+// rows of the status note.
 func (d *Dispatcher) write(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
 	actor models.ActorView, w models.Writes,
 ) {
-	if w.Record != nil && w.Status == nil {
+	if w.Record != nil && w.Status == nil && actor.State != models.Unknown {
 		v := models.StatusView{
 			Actor: key.ActorName(), ActorUID: actor.UID, Pod: actor.Pod, Session: view.Status.Session,
 			Updated: d.clk.Now().UTC().Format(statusTimeUTC),
@@ -482,26 +488,6 @@ func (d *Dispatcher) failRPC(ctx context.Context, log *slog.Logger, key models.I
 
 	log.Error(msg, "error", err)
 	d.write(ctx, log, key, view, actor, substrateError())
-}
-
-// failInspect logs an actor read that failed past the retries. An issue whose record, or state label without a
-// record, is working, waiting or error gets substrate error and keeps its status rows; this covers a stop
-// request, which then runs on the next request for the issue. Any other issue gets no write.
-func (d *Dispatcher) failInspect(ctx context.Context, log *slog.Logger, view models.IssueView, err error) {
-	state, known := view.Record.State, view.HasRecord
-	if !known {
-		state, known = models.StateFromLabels(view.Issue.Labels)
-	}
-
-	switch {
-	case !known || state == models.Done:
-		log.Error("Cannot read the actor; no record or state label of a started agent, nothing written", "error", err)
-	case ctx.Err() != nil:
-		log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
-	default:
-		log.Error("Cannot read the actor", "error", err)
-		d.put(ctx, log, view.Issue.Key, &view, substrateError())
-	}
 }
 
 // failRPCFresh is failRPC with status rows from a fresh read.

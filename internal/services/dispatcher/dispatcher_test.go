@@ -1217,12 +1217,36 @@ func TestInspectOutageOnAgentIssueErrors(t *testing.T) {
 	e := waitingIssue(t)
 	e.run()
 	e.idle()
+
+	before := statusRows(e)
+
 	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
 	e.comment(dev)
 	e.handle(intake.Activate, dev)
 	e.idle()
 
 	e.assertState(models.Error, models.ReasonSubstrateError)
+	assert.Equal(t, before.Updated, statusRows(e).Updated, "an unknown actor keeps the status rows")
+	assert.Contains(t, e.logs.String(), "rule=actor-unknown-started")
+}
+
+func TestInspectOutageCutByCancelWritesNothing(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == time.Second {
+			e.cancel()
+		}
+	})
+	e.comment(dev)
+	e.handle(intake.Activate, dev)
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(e.logs.String(), "Cannot read the actor; dispatcher stopping, left for restart recovery")
+	}, 5*time.Second, time.Millisecond)
+	e.assertState(models.Waiting, "")
 }
 
 func TestCancelDuringRPCWritesNothing(t *testing.T) {
@@ -2296,4 +2320,20 @@ func TestTransientIssueReadIsRetried(t *testing.T) {
 
 	assert.NotContains(t, e.logs.String(), "rule=issue-unavailable", "one failed read is retried before it counts")
 	assert.Contains(t, e.logs.String(), "rule=running-continue")
+}
+
+func TestUnknownActorSkipsTriggerLookups(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
+
+	calls := e.gl.CanTriggerCalls()
+
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, calls, e.gl.CanTriggerCalls(), "an unknown actor needs no trigger lookup")
+	assert.Contains(t, e.logs.String(), "rule=actor-unknown-started")
 }

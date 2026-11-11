@@ -84,6 +84,24 @@ func decideCases() []decideCase {
 			Decision{Rule: RuleIssueGone, Action: Discard}},
 		{"issue unavailable: keep", Facts{Issue: ReadUnavailable, Actor: running, Request: intake.Recover},
 			Decision{Rule: RuleIssueUnavailable, Action: Keep}},
+		{"actor unknown, record waiting: substrate error", Facts{
+			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
+			Actor:   models.ActorView{State: models.Unknown},
+			Request: intake.Activate,
+		},
+			Decision{Rule: RuleActorUnknownStarted, Action: None, Writes: record(models.Error, models.ReasonSubstrateError)}},
+		{"actor unknown, no record, label working: substrate error", Facts{
+			View:    open("agent", lbl(models.Working)).v,
+			Actor:   models.ActorView{State: models.Unknown},
+			Request: intake.Stop,
+		},
+			Decision{Rule: RuleActorUnknownStarted, Action: None, Writes: record(models.Error, models.ReasonSubstrateError)}},
+		{"actor unknown, record done: nothing", Facts{
+			View:    closed("agent", lbl(models.Done)).record(models.Done, "").v,
+			Actor:   models.ActorView{State: models.Unknown},
+			Request: intake.Stop,
+		},
+			Decision{Rule: RuleActorUnknown, Action: None}},
 		{"closed, actor: stop", Facts{
 			View:    closed("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   suspended,

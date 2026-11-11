@@ -46,4 +46,4 @@ They pin behaviour; they do not judge it. A row is right when a person says so i
 
 - Inputs are value classes, not every possible value: one marker note id, one comment, a turn at each step up to the limit.
 - Which issue read outcome applies, gone or unavailable, is classified in the dispatcher (`settleUnread`), outside `decide`.
-- A failed actor read is handled outside `decide` and is not in the maps.
+- A failed actor read is the actor value `unknown` in `decide.golden`. `Poll` never sees it: a failed read in the activation loop ends in the turn timeout. Other failed issue reads in the activation loop end there too, outside the maps.
