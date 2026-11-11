@@ -2,7 +2,7 @@
 
 `github.com/KubeRocketCI/krci-agent-dispatcher`: the dispatcher for KubeRocketCI issue agents. It receives GitLab Issue Hook and Note Hook events on `POST /hook` and drives one Agent Substrate actor per issue: start, turn, stop.
 
-Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services/decide/decide.go`. Agent image contract: `docs/agent-image-contract.md`. Use the glossary terms in code names, logs and notes.
+Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services/decide/decide.go`; their truth table: `docs/golden-maps.md`. Agent image contract: `docs/agent-image-contract.md`. Use the glossary terms in code names, logs and notes.
 
 ## Build & Test
 
@@ -20,6 +20,8 @@ make changelog
 ```
 
 Run one package: `go test -race ./internal/services/decide/... -run TestDecideTable`.
+
+Rewrite the golden maps after an intended change to `Decide` or `Poll`: `go test ./internal/services/decide -run Golden -update`, then review the diff of `internal/services/decide/testdata/*.golden`.
 
 ## Architecture
 
@@ -46,7 +48,8 @@ hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseli
 - Ports are declared by their consumer (`dispatcher/ports.go`). Only `main` builds adapters.
 - Port errors are declared in `models`; adapters wrap them.
 - Each port has a production adapter and an in-memory fake; one contract suite runs against both.
-- `decide` and `substrate/templates` are pure. A new rule is a new rule constant and a new table-test case.
+- `decide` and `substrate/templates` are pure. A new rule is a new rule constant, a new table-test case and a reviewed golden map diff.
+- A new request kind, agent state or actor state goes into its enumerator (`intake.Kinds`, `models.AgentStates`, `models.ActorStates`); tests fail until it is listed and the golden maps classify it.
 - Tests go through module interfaces (`Handle`, `Run`, `Decide`, `Poll`, port contracts).
 - No secret value in logs, argv, errors or test output.
 

@@ -1,6 +1,9 @@
 package models
 
-import "errors"
+import (
+	"errors"
+	"slices"
+)
 
 // ActorState is the Substrate actor state as the dispatcher sees it.
 type ActorState string
@@ -13,6 +16,11 @@ const (
 	Crashed      ActorState = "crashed"
 	Transitional ActorState = "transitional"
 )
+
+var actorStates = []ActorState{None, Running, Suspended, Crashed, Transitional}
+
+// ActorStates returns every actor state.
+func ActorStates() []ActorState { return slices.Clone(actorStates) }
 
 // ActorView is the Substrate side of one issue: which parts exist and the actor state.
 type ActorView struct {

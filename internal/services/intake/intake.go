@@ -35,6 +35,11 @@ var kindNames = map[Kind]string{
 
 func (k Kind) String() string { return kindNames[k] }
 
+var kinds = []Kind{Ignore, Start, Activate, Stop, ClearError, Recover}
+
+// Kinds returns every request kind, Ignore first.
+func Kinds() []Kind { return slices.Clone(kinds) }
+
 // Request is one request for the issue lane of Key. Author is the start author (Issue Hook user) or the note
 // author (Note Hook). An Ignore request keeps the key and author the payload had, for logs.
 type Request struct {
