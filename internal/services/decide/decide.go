@@ -196,7 +196,7 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	labels := f.View.Issue.Labels
-	enabled := f.View.Issue.IssueState == models.IssueOpened && models.HasLabel(labels, l.TriggerLabel)
+	enabled := f.View.Enabled(l.TriggerLabel)
 
 	if !enabled {
 		return is.disabled()
@@ -501,7 +501,7 @@ func Poll(p PollFacts, l Limits) PollDecision {
 
 	// A stop request counts only while the issue is still closed or without the trigger label; a stop that a
 	// later reopen or label made stale is handled by Decide on the lane.
-	enabled := p.View.Issue.IssueState == models.IssueOpened && models.HasLabel(p.View.Issue.Labels, l.TriggerLabel)
+	enabled := p.View.Enabled(l.TriggerLabel)
 
 	if p.StopPending && !enabled && (hasNew || timedOut || settled) {
 		return PollDecision{Rule: PollStopPending, Action: StopNow, Marker: m}

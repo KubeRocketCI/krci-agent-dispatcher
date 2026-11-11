@@ -104,6 +104,11 @@ type IssueView struct {
 	Status    StatusView
 }
 
+// Enabled reports whether the agent is asked for: the issue is open and has trigger, the trigger label.
+func (v IssueView) Enabled(trigger string) bool {
+	return v.Issue.IssueState == IssueOpened && HasLabel(v.Issue.Labels, trigger)
+}
+
 // NewIssueView returns the view of issue with notes in note id order and the record and status rows of the bot
 // user's status note.
 func NewIssueView(issue Issue, notes []Note, bot string) IssueView {

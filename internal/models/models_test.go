@@ -94,3 +94,13 @@ func TestNewIssueView(t *testing.T) {
 	assert.Equal(t, "s1", v.Status.Session)
 	assert.False(t, NewIssueView(Issue{}, notes[:1], bot).HasRecord)
 }
+
+func TestIssueViewEnabled(t *testing.T) {
+	view := func(state string, labels ...string) IssueView {
+		return IssueView{Issue: Issue{IssueState: state, Labels: labels}}
+	}
+
+	assert.True(t, view(IssueOpened, "agent").Enabled("agent"))
+	assert.False(t, view(IssueOpened, "other").Enabled("agent"), "no trigger label")
+	assert.False(t, view(IssueClosed, "agent").Enabled("agent"), "closed")
+}
