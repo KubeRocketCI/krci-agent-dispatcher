@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/oapi-codegen/runtime v1.2.0
 	github.com/stretchr/testify v1.12.1
-	go.ate.dev/substrate v0.6.1-0.20261105224544-94e0a26ac901
+	go.ate.dev/substrate v1.0.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	sigs.k8s.io/yaml v1.6.0
