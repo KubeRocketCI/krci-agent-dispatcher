@@ -270,8 +270,28 @@ func (f *Fake) observeLocked(name string) (*actor, ateapi.ActorState) {
 	return a, st
 }
 
-// List implements the Substrate port.
-func (f *Fake) List(_ context.Context, prefix string) ([]string, error) {
+// List implements the Substrate port. The actor states are the stored ones; queued observations are kept.
+func (f *Fake) List(_ context.Context, prefix string) ([]models.ActorSummary, error) {
+	listed, err := f.list(prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]models.ActorSummary, 0, len(listed))
+	for _, a := range listed {
+		out = append(out, models.ActorSummary{Name: a.name, State: substrate.StateOf(a.state)})
+	}
+
+	return out, nil
+}
+
+type listedActor struct {
+	name  string
+	state ateapi.ActorState
+}
+
+// list returns the actors whose names start with prefix, sorted by name.
+func (f *Fake) list(prefix string) ([]listedActor, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -279,15 +299,15 @@ func (f *Fake) List(_ context.Context, prefix string) ([]string, error) {
 		return nil, err
 	}
 
-	var out []string
+	var out []listedActor
 
-	for n := range f.actors {
+	for n, a := range f.actors {
 		if strings.HasPrefix(n, prefix) {
-			out = append(out, n)
+			out = append(out, listedActor{name: n, state: a.state})
 		}
 	}
 
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b listedActor) int { return strings.Compare(a.name, b.name) })
 
 	return out, nil
 }
@@ -599,7 +619,7 @@ func (s *server) ListActors(ctx context.Context, req *ateapi.ListActorsRequest) 
 		return nil, err
 	}
 
-	names, err := s.f.List(ctx, "")
+	listed, err := s.f.list("")
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -608,21 +628,24 @@ func (s *server) ListActors(ctx context.Context, req *ateapi.ListActorsRequest) 
 
 	start := 0
 	if tok := req.GetOptions().GetPageToken(); tok != "" {
-		start = slices.Index(names, tok)
+		start = slices.IndexFunc(listed, func(a listedActor) bool { return a.name == tok })
 		if start < 0 {
 			return nil, status.Error(codes.InvalidArgument, "bad page token")
 		}
 	}
 
-	end := min(start+pageSize, len(names))
+	end := min(start+pageSize, len(listed))
 	resp := &ateapi.ListActorsResponse{}
 
-	for _, n := range names[start:end] {
-		resp.Actors = append(resp.Actors, &ateapi.Actor{Metadata: &ateapi.ResourceMetadata{Atespace: s.f.atespace, Name: n}})
+	for _, a := range listed[start:end] {
+		resp.Actors = append(resp.Actors, &ateapi.Actor{
+			Metadata: &ateapi.ResourceMetadata{Atespace: s.f.atespace, Name: a.name},
+			Status:   &ateapi.ActorStatus{State: a.state},
+		})
 	}
 
-	if end < len(names) {
-		resp.NextPageToken = names[end]
+	if end < len(listed) {
+		resp.NextPageToken = listed[end].name
 	}
 
 	return resp, nil

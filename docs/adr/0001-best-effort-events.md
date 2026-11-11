@@ -1,6 +1,6 @@
 # Events are best effort; missed events are not recovered
 
-The dispatcher acts only on GitLab events as they arrive. It keeps no event store and does not scan GitLab for missed work. GitLab does not redeliver a failed event, so an event lost while the dispatcher is down or failing is lost: the person must comment again. We chose this to keep the dispatcher stateless and small; the only recovery is the restart recovery of actors left RUNNING by a dispatcher restart, which lists actors in Substrate instead of scanning GitLab issues.
+The dispatcher acts only on GitLab events as they arrive. It keeps no event store and does not scan GitLab for missed work. GitLab does not redeliver a failed event, so an event lost while the dispatcher is down or failing is lost: the person must comment again. We chose this to keep the dispatcher stateless and small; the only recovery is the restart recovery of actors left RUNNING by a dispatcher restart, which lists actors in Substrate instead of scanning GitLab issues. ADR 0005 adds the sweep, which runs the same recovery periodically.
 
 ## Considered Options
 

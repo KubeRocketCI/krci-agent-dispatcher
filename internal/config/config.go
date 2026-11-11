@@ -36,6 +36,7 @@ type Config struct {
 	TurnLimit        int
 	TurnTimeout      time.Duration
 	PollInterval     time.Duration
+	SweepInterval    time.Duration
 }
 
 // Load reads the environment, applies defaults and validates the values.
@@ -52,15 +53,10 @@ func Load() (*Config, error) {
 		return v
 	}
 
-	duration := func(name string, def time.Duration) time.Duration {
-		v := os.Getenv(name)
-		if v == "" {
-			return def
-		}
-
-		d, err := time.ParseDuration(v)
-		if err != nil || d <= 0 {
-			errs = append(errs, fmt.Errorf("%s must be a positive duration", name))
+	duration := func(name string, def time.Duration, allowZero bool) time.Duration {
+		d, err := envDuration(name, def, allowZero)
+		if err != nil {
+			errs = append(errs, err)
 		}
 
 		return d
@@ -116,13 +112,14 @@ func Load() (*Config, error) {
 		ATEAPIAddr:       orDefault("ATE_API_ADDR", "api.ate-system.svc:443"),
 		ATETokenFile:     orDefault("ATE_TOKEN_FILE", "/var/run/ate/token"),
 		ATECAFile:        orDefault("ATE_CA_FILE", "/var/run/ate/ca.crt"),
-		Atespace:         orDefault("ATESPACE", "krci-agents"),
+		Atespace:         required("ATESPACE"),
 		Pool:             orDefault("POOL", "workers"),
 		SecretsNamespace: orDefault("SECRETS_NAMESPACE", "krci-agents"),
 		AgentImage:       required("AGENT_IMAGE"),
 		TurnLimit:        positiveInt("TURN_LIMIT", 20),
-		TurnTimeout:      duration("TURN_TIMEOUT", 15*time.Minute),
-		PollInterval:     duration("POLL_INTERVAL", 10*time.Second),
+		TurnTimeout:      duration("TURN_TIMEOUT", 15*time.Minute, false),
+		PollInterval:     duration("POLL_INTERVAL", 10*time.Second, false),
+		SweepInterval:    duration("SWEEP_INTERVAL", 5*time.Minute, true),
 	}
 
 	if cfg.GitLabToken == "" && cfg.GitLabTokenFile == "" {
@@ -139,6 +136,25 @@ func Load() (*Config, error) {
 // AgentImagePinned reports whether AgentImage is <repo>[:<tag>]@sha256:<digest>.
 func (c *Config) AgentImagePinned() bool {
 	return digestPinned.MatchString(c.AgentImage)
+}
+
+// envDuration reads the duration in name; empty is def. A duration is positive, or 0 or more with allowZero.
+func envDuration(name string, def time.Duration, allowZero bool) (time.Duration, error) {
+	v := os.Getenv(name)
+	if v == "" {
+		return def, nil
+	}
+
+	d, err := time.ParseDuration(v)
+	if err == nil && (d > 0 || d == 0 && allowZero) {
+		return d, nil
+	}
+
+	if allowZero {
+		return d, fmt.Errorf("%s must be a duration of 0 or more", name)
+	}
+
+	return d, fmt.Errorf("%s must be a positive duration", name)
 }
 
 func orDefault(name, def string) string {

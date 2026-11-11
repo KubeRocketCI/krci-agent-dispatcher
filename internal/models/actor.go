@@ -22,6 +22,15 @@ var actorStates = []ActorState{None, Running, Suspended, Crashed, Transitional}
 // ActorStates returns every actor state.
 func ActorStates() []ActorState { return slices.Clone(actorStates) }
 
+// Settled reports whether s is neither running nor transitional: the actor holds no worker and none is coming.
+func (s ActorState) Settled() bool { return s != Running && s != Transitional }
+
+// ActorSummary is one actor of a list: its name and actor state.
+type ActorSummary struct {
+	Name  string
+	State ActorState
+}
+
 // ActorView is the Substrate side of one issue: which parts exist and the actor state.
 type ActorView struct {
 	Template     bool

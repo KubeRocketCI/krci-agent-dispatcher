@@ -1888,7 +1888,7 @@ func TestRecoveryForbiddenProjectKeepsAndReleases(t *testing.T) {
 	}
 
 	assert.Equal(t, dispatcher.RecoveryConcurrency, strings.Count(e.logs.String(),
-		"Restart recovery: project not readable; actor kept"))
+		"Recover request: project not readable; actor kept"))
 	assert.Equal(t, 0, e.clk.count(time.Second), "a forbidden read is not retried")
 }
 
@@ -2076,4 +2076,165 @@ func TestRecoveryCompletesPartialCreate(t *testing.T) {
 	assert.Equal(t, 1, e.sb.Count("resume", actor))
 	assert.Equal(t, 0, e.gl.CanTriggerCalls(), "a recover request has no author")
 	e.assertState(models.Waiting, "")
+}
+
+// --- sweep
+
+const sweepEvery = 7 * time.Minute
+
+// sweepEnv is a waiting issue with a suspended actor, the sweep on, Run started and restart recovery done.
+func sweepEnv(t *testing.T, mod func(*dispatcher.Config)) (*env, *sweepGate) {
+	t.Helper()
+
+	e := newEnvWith(t, func(c *dispatcher.Config) {
+		c.SweepInterval = sweepEvery
+		mod(c)
+	})
+	e.issue(models.IssueOpened, waiting(), "agent", models.StateLabel(models.Waiting))
+	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
+	e.comment(dev)
+	e.reply()
+
+	g := e.sweepGate()
+	e.run()
+	g.started()
+	e.idle()
+
+	return e, g
+}
+
+// sweepGate holds the sweep loop in its sleep; sweep runs one sweep and waits for its end.
+type sweepGate struct {
+	t                  *testing.T
+	parked, tick, stop chan struct{}
+}
+
+// sweepGate installs the gate. Call it before run, so no sweep runs before the gate.
+func (e *env) sweepGate() *sweepGate {
+	g := &sweepGate{t: e.t, parked: make(chan struct{}), tick: make(chan struct{}), stop: make(chan struct{})}
+
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d != sweepEvery {
+			return
+		}
+
+		select {
+		case g.parked <- struct{}{}:
+		case <-g.stop:
+			return
+		}
+
+		select {
+		case <-g.tick:
+		case <-g.stop:
+		}
+	})
+
+	return g
+}
+
+// started waits for the loop's first sleep. Call it after run: its cleanup releases the loop before Run stops.
+func (g *sweepGate) started() {
+	g.t.Cleanup(func() { close(g.stop) })
+	g.wait("start")
+}
+
+func (g *sweepGate) sweep() {
+	g.tick <- struct{}{}
+
+	g.wait("finish a sweep")
+}
+
+func (g *sweepGate) wait(step string) {
+	select {
+	case <-g.parked:
+	case <-time.After(5 * time.Second):
+		g.t.Fatalf("sweep loop did not %s", step)
+	}
+}
+
+func noChange(*dispatcher.Config) {}
+
+func TestSweepRecoversRunningActorWithoutLane(t *testing.T) {
+	e, g := sweepEnv(t, noChange)
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+
+	g.sweep()
+	assert.NotContains(t, e.logs.String(), "Sweep: actor without an issue lane", "one sweep is not enough")
+
+	g.sweep()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "Sweep: actor without an issue lane; recover requested")
+	assert.Equal(t, 1, e.sb.Count("suspend", actor), "the recovered activation ends with a suspend")
+}
+
+func TestSweepNeedsTwoSweepsInARow(t *testing.T) {
+	e, g := sweepEnv(t, noChange)
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+
+	g.sweep()
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
+	g.sweep()
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	g.sweep()
+	e.idle()
+
+	assert.NotContains(t, e.logs.String(), "Sweep: actor without an issue lane")
+	assert.Equal(t, 0, e.sb.Count("suspend", actor))
+}
+
+func TestSweepSkipsActorWithLane(t *testing.T) {
+	e, g := sweepEnv(t, func(c *dispatcher.Config) { c.TurnTimeout = 1000 * time.Hour })
+	e.comment(dev)
+	e.handle(intake.Activate, dev)
+	require.Eventually(t, func() bool { return e.sb.Count("resume", actor) == 1 }, 5*time.Second, time.Millisecond)
+
+	g.sweep()
+	g.sweep()
+	g.sweep()
+
+	require.False(t, e.d.Idle(), "the activation still runs on its lane")
+	assert.NotContains(t, e.logs.String(), "Sweep: actor without an issue lane", "an activation in progress has a lane")
+}
+
+func TestSweepSkipsSuspendedAndCrashedActors(t *testing.T) {
+	e, g := sweepEnv(t, noChange)
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_CRASHED)
+
+	g.sweep()
+	g.sweep()
+	e.idle()
+
+	assert.NotContains(t, e.logs.String(), "Sweep: actor without an issue lane", "a crashed actor holds no worker")
+}
+
+func TestSweepListFailureKeepsPreviousSweep(t *testing.T) {
+	e, g := sweepEnv(t, noChange)
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+
+	g.sweep()
+	e.sb.Fail("list", errRP)
+	g.sweep()
+	assert.Contains(t, e.logs.String(), "Sweep: cannot list actors")
+
+	g.sweep()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "Sweep: actor without an issue lane; recover requested")
+}
+
+func TestSweepRequestsAgainWhileActorStaysWithoutLane(t *testing.T) {
+	e, g := sweepEnv(t, noChange)
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.sb.Fail("suspend", failing(errRP, 100)...)
+
+	g.sweep()
+	g.sweep()
+	e.idle()
+	g.sweep()
+	e.idle()
+
+	assert.Equal(t, 2, strings.Count(e.logs.String(), "Sweep: actor without an issue lane"),
+		"an actor that stays without a lane is requested again at the next sweep")
 }

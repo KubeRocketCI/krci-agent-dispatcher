@@ -491,7 +491,7 @@ type PollDecision struct {
 func Poll(p PollFacts, l Limits) PollDecision {
 	m, hasNew := models.MarkerAfter(p.View.Notes, l.Bot, p.Since)
 	timedOut := p.Elapsed >= l.TurnTimeout
-	settled := p.Actor.State != models.Running && p.Actor.State != models.Transitional
+	settled := p.Actor.State.Settled()
 
 	// A stop request counts only while the issue is still closed or without the trigger label; a stop that a
 	// later reopen or label made stale is handled by Decide on the lane.

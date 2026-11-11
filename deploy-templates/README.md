@@ -24,6 +24,7 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | agentImage | string | `""` | Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required. |
 | config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
 | config.pollInterval | string | `"10s"` | Marker poll interval. |
+| config.sweepInterval | string | `"5m"` | Time between sweeps over actors without an issue lane. 0 turns the sweep off. |
 | config.triggerLabel | string | `"agent"` | Label that enables the agent. |
 | config.triggerMinRole | string | `"developer"` | Trigger role: lowest GitLab project role that can start the agent and write trigger comments: developer, maintainer or owner. |
 | config.turnLimit | int | `20` | Turn limit per issue. |
@@ -52,7 +53,7 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | service.port | int | `8080` | Service port. |
 | serviceAccount.annotations | object | `{}` | Annotations of the ServiceAccount. Its name is the full name: the Substrate access policy member. |
 | substrate.addr | string | `"api.ate-system.svc:443"` | Substrate API address. |
-| substrate.atespace | string | `""` | Atespace of the issue actors. Empty: the release namespace. |
+| substrate.atespace | string | `""` | Atespace of the issue actors. Empty: the release namespace. One dispatcher per atespace: the dispatcher owns every actor named `issue-<project-id>-<iid>` in it. |
 | substrate.pool | string | `"workers"` | Worker pool of the actor template. |
 | substrate.secretsNamespace | string | `""` | Namespace in the ate-secret:// URIs of the egress policy. Empty: the release namespace. |
 | substrate.tokenAudience | string | `"api.ate-system.svc"` | ServiceAccount token audience of the Substrate API. |

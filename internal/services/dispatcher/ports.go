@@ -43,7 +43,7 @@ type GitLab interface {
 //   - Any other error is a failed call; the dispatcher retries it.
 type Substrate interface {
 	Inspect(ctx context.Context, name string) (models.ActorView, error)
-	List(ctx context.Context, prefix string) ([]string, error)
+	List(ctx context.Context, prefix string) ([]models.ActorSummary, error)
 	Create(ctx context.Context, name string, spec models.ActorSpec) error
 	Resume(ctx context.Context, name string) error
 	Suspend(ctx context.Context, name string) error

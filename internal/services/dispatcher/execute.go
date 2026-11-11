@@ -266,7 +266,7 @@ func (d *Dispatcher) readEnds(ctx context.Context, log *slog.Logger, r intake.Re
 // suspended when running.
 func (d *Dispatcher) issueForbidden(ctx context.Context, log *slog.Logger, key models.IssueKey, readErr error) {
 	name := key.ActorName()
-	log.Error("Restart recovery: project not readable; actor kept", "actor", name, "error", readErr)
+	log.Error("Recover request: project not readable; actor kept", "actor", name, "error", readErr)
 
 	d.keepActor(ctx, log, name)
 }
@@ -456,7 +456,7 @@ func (d *Dispatcher) load(ctx context.Context, log *slog.Logger, r intake.Reques
 			return view, err
 		}
 
-		log.Warn("Restart recovery: cannot read the issue; retrying", "error", err, "in", wait.String())
+		log.Warn("Recover request: cannot read the issue; retrying", "error", err, "in", wait.String())
 
 		if d.clk.Sleep(ctx, wait) != nil {
 			return view, err

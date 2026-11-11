@@ -21,6 +21,7 @@ func setRequired(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "glpat-test")
 	t.Setenv("HOOK_TOKEN", "hook-test")
 	t.Setenv("AGENT_IMAGE", testImage)
+	t.Setenv("ATESPACE", "krci-agents")
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -32,6 +33,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "8080", cfg.Port)
 	assert.Equal(t, 15*time.Minute, cfg.TurnTimeout)
 	assert.Equal(t, 10*time.Second, cfg.PollInterval)
+	assert.Equal(t, 5*time.Minute, cfg.SweepInterval)
 	assert.Equal(t, 20, cfg.TurnLimit)
 	assert.Equal(t, "krci-agents", cfg.Atespace)
 	assert.Equal(t, "workers", cfg.Pool)
@@ -55,6 +57,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TURN_TIMEOUT", "2m")
 	t.Setenv("TURN_LIMIT", "3")
 	t.Setenv("GITLAB_CA_FILE", "/etc/gitlab-ca/ca.crt")
+	t.Setenv("SWEEP_INTERVAL", "0")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -63,10 +66,11 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, cfg.TurnTimeout)
 	assert.Equal(t, 3, cfg.TurnLimit)
 	assert.Equal(t, "/etc/gitlab-ca/ca.crt", cfg.GitLabCAFile)
+	assert.Zero(t, cfg.SweepInterval, "0 turns the sweep off")
 }
 
 func TestLoadMissingRequired(t *testing.T) {
-	for _, name := range []string{"GITLAB_URL", "HOOK_TOKEN", "AGENT_IMAGE"} {
+	for _, name := range []string{"GITLAB_URL", "HOOK_TOKEN", "AGENT_IMAGE", "ATESPACE"} {
 		t.Run(name, func(t *testing.T) {
 			setRequired(t)
 			t.Setenv(name, "")
@@ -79,7 +83,7 @@ func TestLoadMissingRequired(t *testing.T) {
 }
 
 func TestLoadBadDuration(t *testing.T) {
-	for _, name := range []string{"TURN_TIMEOUT", "POLL_INTERVAL"} {
+	for _, name := range []string{"TURN_TIMEOUT", "POLL_INTERVAL", "SWEEP_INTERVAL"} {
 		t.Run(name, func(t *testing.T) {
 			setRequired(t)
 			t.Setenv(name, "soon")
@@ -97,6 +101,15 @@ func TestLoadBadDuration(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "POLL_INTERVAL")
+	})
+
+	t.Run("negative sweep interval", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("SWEEP_INTERVAL", "-1m")
+
+		_, err := Load()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "SWEEP_INTERVAL must be a duration of 0 or more")
 	})
 }
 
