@@ -40,7 +40,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "/var/run/ate/token", cfg.ATETokenFile)
 	assert.Equal(t, "/var/run/ate/ca.crt", cfg.ATECAFile)
 	assert.Empty(t, cfg.GitLabCAFile)
-	assert.Equal(t, "https://gitlab.example", cfg.GitLabURL)
+	assert.Equal(t, "https://gitlab.example", cfg.GitLabURL.String())
 	assert.Equal(t, "glpat-test", cfg.GitLabToken)
 	assert.Equal(t, "hook-test", cfg.HookToken)
 	assert.Equal(t, testImage, cfg.AgentImage)
@@ -179,7 +179,7 @@ func TestLoadCanonicalGitLabURL(t *testing.T) {
 
 			cfg, err := Load()
 			require.NoError(t, err)
-			assert.Equal(t, want, cfg.GitLabURL)
+			assert.Equal(t, want, cfg.GitLabURL.String())
 		})
 	}
 }

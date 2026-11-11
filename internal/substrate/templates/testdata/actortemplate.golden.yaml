@@ -1,27 +1,22 @@
-# Per-issue ActorTemplate (protojson ateapi.ActorTemplate), Go text/template.
-# Values are JSON-quoted (`json`): project path and bot name come from event payloads and config.
-# Contract of the agent image: docs/agent-image-contract.md.
-metadata:
-  atespace: {{ json .Atespace }}
-  name: {{ json .Name }}
+# Expected ActorTemplate of templates.Render for goldenParams (templates_test.go): issue 12/7.
 workerSelector:
   matchLabels:
-    workload: {{ json .Pool }}
+    workload: workers
 containers:
 - name: claude
-  image: {{ json .Image }}
+  image: localhost:5001/krci-agent-go@sha256:0000000000000000000000000000000000000000000000000000000000000000
   command: ["/usr/local/bin/agent-loop.sh"]
   env:
   - name: GITLAB_URL
-    value: {{ json .GitLabURL }}
+    value: https://gitlab.127.0.0.1.nip.io
   - name: PROJECT_PATH
-    value: {{ json .ProjectPath }}
+    value: krci/test-go-app
   - name: ISSUE_IID
-    value: {{ json (print .IID) }}
+    value: "7"
   - name: BOT_USERNAME
-    value: {{ json .BotUsername }}
+    value: krci-agent
   - name: SESSION_ID
-    value: {{ json .SessionID }}
+    value: "00000000-0000-0000-0000-00000000000a"
   - name: POLL_SECONDS
     value: "15"
   - name: GOPROXY
@@ -51,7 +46,7 @@ containers:
   - name: GIT_CONFIG_COUNT
     value: "1"
   - name: GIT_CONFIG_KEY_0
-    value: {{ json (print "http." .GitLabGitConfigScope ".extraHeader") }}
+    value: http.https://gitlab.127.0.0.1.nip.io/.extraHeader
   - name: GIT_CONFIG_VALUE_0
     value: "Authorization: Basic placeholder"
   volumeMounts:

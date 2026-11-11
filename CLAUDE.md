@@ -27,13 +27,13 @@ Run one package: `go test -race ./internal/services/decide/... -run TestDecideTa
 cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
-internal/models/             IssueKey, Issue, Note, Marker, Record, Writes, ActorView
+internal/models/             IssueKey, Issue, Note, Marker, Record, Writes, ActorView, ActorSpec, port errors
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules, pure
 internal/services/dispatcher/ Handle, Run: issue lanes, execution, activation loop, restart recovery; ports.go
 internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contract suite
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite
-internal/templates/          ActorTemplate + EgressPolicy render, pure
+internal/substrate/templates/ ActorTemplate + EgressPolicy render, pure
 deploy-templates/            Helm chart
 hack/register-hook.sh        project hook add|remove|list
 hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseline
@@ -46,7 +46,7 @@ hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseli
 - Ports are declared by their consumer (`dispatcher/ports.go`). Only `main` builds adapters.
 - Port errors are declared in `models`; adapters wrap them.
 - Each port has a production adapter and an in-memory fake; one contract suite runs against both.
-- `decide` and `templates` are pure. A new rule is a new rule constant and a new table-test case.
+- `decide` and `substrate/templates` are pure. A new rule is a new rule constant and a new table-test case.
 - Tests go through module interfaces (`Handle`, `Run`, `Decide`, `Poll`, port contracts).
 - No secret value in logs, argv, errors or test output.
 

@@ -8,7 +8,6 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/decide"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/templates"
 )
 
 // act runs one request: gather facts, decide, execute. Transitional actors are re-read up to MaxRechecks.
@@ -122,18 +121,11 @@ func (d *Dispatcher) create(ctx context.Context, log *slog.Logger, key models.Is
 		}
 	}
 
-	tmpl, pol, err := templates.Render(templates.Params{
-		Atespace: d.cfg.Atespace, Pool: d.cfg.Pool, SecretsNamespace: d.cfg.SecretsNamespace, Name: name,
-		Image: d.cfg.Image, GitLabURL: d.cfg.GitLabURL, ProjectPath: view.Issue.ProjectPath, BotUsername: d.cfg.Bot,
-		SessionID: session, IID: key.IID,
-	})
-	if err != nil {
-		d.failRPC(ctx, log, key, view, actor, "Cannot render the actor template", err)
-
-		return
+	spec := models.ActorSpec{
+		ProjectPath: view.Issue.ProjectPath, IID: key.IID, SessionID: session, BotUsername: d.cfg.Bot,
 	}
 
-	if err := d.retry(ctx, func() error { return d.sb.Create(ctx, name, tmpl, pol) }); err != nil {
+	if err := d.retry(ctx, func() error { return d.sb.Create(ctx, name, spec) }); err != nil {
 		d.failRPC(ctx, log, key, view, actor, "Cannot create the actor", err)
 
 		return
@@ -143,7 +135,8 @@ func (d *Dispatcher) create(ctx context.Context, log *slog.Logger, key models.Is
 
 	var created models.ActorView
 
-	if err := d.retry(ctx, func() error { created, err = d.sb.Inspect(ctx, name); return err }); err != nil {
+	err := d.retry(ctx, func() (err error) { created, err = d.sb.Inspect(ctx, name); return err })
+	if err != nil {
 		d.failRPC(ctx, log, key, view, actor, "Cannot read the created actor", err)
 
 		return
@@ -323,15 +316,15 @@ func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectI
 }
 
 // retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom, ErrActorNotFound,
-// ErrNotFound and ErrForbidden.
+// ErrInvalidSpec, ErrNotFound and ErrForbidden.
 func (d *Dispatcher) retry(ctx context.Context, fn func() error) error {
 	wait := retryFirstWait
 
 	for attempt := 0; ; attempt++ {
 		err := fn()
 		if err == nil || attempt == retryAttempts || errors.Is(err, models.ErrNoRoom) ||
-			errors.Is(err, models.ErrActorNotFound) || errors.Is(err, models.ErrNotFound) ||
-			errors.Is(err, models.ErrForbidden) {
+			errors.Is(err, models.ErrActorNotFound) || errors.Is(err, models.ErrInvalidSpec) ||
+			errors.Is(err, models.ErrNotFound) || errors.Is(err, models.ErrForbidden) {
 			return err
 		}
 

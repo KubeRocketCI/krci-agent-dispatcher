@@ -12,20 +12,36 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"sigs.k8s.io/yaml"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-func goldenParams() Params {
+func gitLabURL(t *testing.T, raw string) models.GitLabURL {
+	t.Helper()
+
+	u, err := models.ParseGitLabURL(raw)
+	require.NoError(t, err)
+
+	return u
+}
+
+func goldenParams(t *testing.T) Params {
+	t.Helper()
+
 	return Params{
-		Atespace:         "krci-agents",
-		Pool:             "workers",
-		SecretsNamespace: "krci-agents",
-		Name:             "issue-12-7",
-		Image:            "localhost:5001/krci-agent-go@sha256:" + strings.Repeat("0", 64),
-		GitLabURL:        "https://gitlab.127.0.0.1.nip.io",
-		ProjectPath:      "krci/test-go-app",
-		BotUsername:      "krci-agent",
-		SessionID:        "00000000-0000-0000-0000-00000000000a",
-		IID:              7,
+		Deployment: Deployment{
+			Atespace:         "krci-agents",
+			Pool:             "workers",
+			SecretsNamespace: "krci-agents",
+			Image:            "localhost:5001/krci-agent-go@sha256:" + strings.Repeat("0", 64),
+			GitLabURL:        gitLabURL(t, "https://gitlab.127.0.0.1.nip.io"),
+		},
+		ActorSpec: models.ActorSpec{
+			ProjectPath: "krci/test-go-app",
+			IID:         7,
+			SessionID:   "00000000-0000-0000-0000-00000000000a",
+			BotUsername: "krci-agent",
+		},
 	}
 }
 
@@ -50,7 +66,7 @@ func env(tmpl *ateapi.ActorTemplate, name string) string {
 }
 
 func TestRenderGolden(t *testing.T) {
-	tmpl, pol, err := Render(goldenParams())
+	tmpl, pol, err := Render(goldenParams(t))
 	require.NoError(t, err)
 
 	var wantTmpl ateapi.ActorTemplate
@@ -65,23 +81,24 @@ func TestRenderGolden(t *testing.T) {
 }
 
 func TestRenderValues(t *testing.T) {
-	p := goldenParams()
-	p.Name, p.IID, p.ProjectPath = "issue-40-3", 3, "team/other-app"
+	p := goldenParams(t)
+	p.IID, p.ProjectPath, p.SessionID, p.BotUsername = 3, "team/other-app", "s2", "other-bot"
 
 	tmpl, pol, err := Render(p)
 	require.NoError(t, err)
 
-	assert.Equal(t, "issue-40-3", tmpl.GetMetadata().GetName())
-	assert.Equal(t, "krci-agents", tmpl.GetMetadata().GetAtespace())
 	assert.Equal(t, "3", env(tmpl, "ISSUE_IID"))
 	assert.Equal(t, "team/other-app", env(tmpl, "PROJECT_PATH"))
+	assert.Equal(t, "s2", env(tmpl, "SESSION_ID"))
+	assert.Equal(t, "other-bot", env(tmpl, "BOT_USERNAME"))
 	assert.Equal(t, "workers", tmpl.GetWorkerSelector().GetMatchLabels()["workload"])
-	assert.Equal(t, "default", pol.GetMetadata().GetName())
+	assert.Nil(t, tmpl.GetMetadata())
+	assert.Nil(t, pol.GetMetadata())
 	assert.Equal(t, []string{"gitlab.127.0.0.1.nip.io"}, pol.GetRules()[1].GetHttps().GetHostnames())
 }
 
 func TestRenderHasNoSecretValue(t *testing.T) {
-	tmpl, pol, err := Render(goldenParams())
+	tmpl, pol, err := Render(goldenParams(t))
 	require.NoError(t, err)
 
 	assert.Equal(t, "placeholder", env(tmpl, "ANTHROPIC_API_KEY"))
@@ -102,7 +119,7 @@ func TestRenderHasNoSecretValue(t *testing.T) {
 }
 
 func TestRenderQuotesPayloadValues(t *testing.T) {
-	p := goldenParams()
+	p := goldenParams(t)
 	p.ProjectPath = "krci/app\"\n  injected: true"
 
 	tmpl, _, err := Render(p)
@@ -142,8 +159,8 @@ func TestRenderGitLabURLForms(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			p := goldenParams()
-			p.GitLabURL = tt.in
+			p := goldenParams(t)
+			p.GitLabURL = gitLabURL(t, tt.in)
 
 			tmpl, pol, err := Render(p)
 			require.NoError(t, err)
@@ -155,21 +172,18 @@ func TestRenderGitLabURLForms(t *testing.T) {
 	}
 }
 
-func TestRenderRejectsBadGitLabURL(t *testing.T) {
-	for _, v := range []string{
-		"not a url",
-		"http://gitlab.example.com",
-		"https://",
-		"https://bot:hunter2@gitlab.example.com",
-		"https://gitlab.example.com?private_token=hunter2",
-	} {
-		t.Run(v, func(t *testing.T) {
-			p := goldenParams()
-			p.GitLabURL = v
+func TestRenderRejectsEmptyGitLabURL(t *testing.T) {
+	p := goldenParams(t)
+	p.GitLabURL = models.GitLabURL{}
 
-			_, _, err := Render(p)
-			require.Error(t, err)
-			assert.NotContains(t, err.Error(), "hunter2")
-		})
-	}
+	_, _, err := Render(p)
+	require.Error(t, err)
+}
+
+func TestRenderRejectsInvalidSpec(t *testing.T) {
+	p := goldenParams(t)
+	p.SessionID = ""
+
+	_, _, err := Render(p)
+	require.ErrorContains(t, err, "session ID")
 }

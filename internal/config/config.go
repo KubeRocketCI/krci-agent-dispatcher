@@ -18,7 +18,7 @@ var digestPinned = regexp.MustCompile(`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`)
 // Config holds the resolved dispatcher settings.
 type Config struct {
 	Port             string
-	GitLabURL        string // canonical form (models.ParseGitLabURL)
+	GitLabURL        models.GitLabURL
 	GitLabToken      string
 	GitLabTokenFile  string
 	GitLabCAFile     string
@@ -79,10 +79,10 @@ func Load() (*Config, error) {
 		return n
 	}
 
-	gitLabURL := func(name string) string {
+	gitLabURL := func(name string) models.GitLabURL {
 		v := required(name)
 		if v == "" {
-			return v
+			return models.GitLabURL{}
 		}
 
 		u, err := models.ParseGitLabURL(v)
@@ -90,7 +90,7 @@ func Load() (*Config, error) {
 			errs = append(errs, fmt.Errorf("%s %w", name, err))
 		}
 
-		return u.String()
+		return u
 	}
 
 	cfg := &Config{

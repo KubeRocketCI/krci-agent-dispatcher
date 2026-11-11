@@ -17,9 +17,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/templates"
 )
 
 const (
@@ -42,11 +42,14 @@ func StateOf(s ateapi.ActorState) models.ActorState {
 	}
 }
 
+// Deployment holds the settings shared by every issue actor.
+type Deployment = templates.Deployment
+
 // GRPC calls the ateapi Control service of one atespace.
 type GRPC struct {
-	conn     *grpc.ClientConn
-	client   ateapi.ControlClient
-	atespace string
+	conn   *grpc.ClientConn
+	client ateapi.ControlClient
+	deploy Deployment
 }
 
 // tokenFile sends the bearer token read from a projected ServiceAccount token file on each call.
@@ -68,9 +71,14 @@ func (f tokenFile) GetRequestMetadata(_ context.Context, _ ...string) (map[strin
 
 func (tokenFile) RequireTransportSecurity() bool { return true }
 
-// NewGRPC returns an adapter for addr (host:port, optionally with a gRPC scheme). The server certificate is
-// verified against caFile for the host of addr. The token file is read on each call.
-func NewGRPC(addr, tokenPath, caFile, atespace string, opts ...grpc.DialOption) (*GRPC, error) {
+// NewGRPC returns an adapter for addr (host:port, optionally with a gRPC scheme) that creates actors in
+// d.Atespace from d. The server certificate is verified against caFile for the host of addr. The token file is
+// read on each call. d.GitLabURL must be set.
+func NewGRPC(addr, tokenPath, caFile string, d Deployment, opts ...grpc.DialOption) (*GRPC, error) {
+	if d.GitLabURL.String() == "" {
+		return nil, errors.New("gitlab url is empty")
+	}
+
 	pem, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("read Substrate API CA file: %w", err)
@@ -102,14 +110,14 @@ func NewGRPC(addr, tokenPath, caFile, atespace string, opts ...grpc.DialOption) 
 		return nil, fmt.Errorf("substrate API client: %w", err)
 	}
 
-	return &GRPC{conn: conn, client: ateapi.NewControlClient(conn), atespace: atespace}, nil
+	return &GRPC{conn: conn, client: ateapi.NewControlClient(conn), deploy: d}, nil
 }
 
 // Close closes the connection.
 func (g *GRPC) Close() error { return g.conn.Close() }
 
 func (g *GRPC) ref(name string) *ateapi.ObjectRef {
-	return &ateapi.ObjectRef{Atespace: g.atespace, Name: name}
+	return &ateapi.ObjectRef{Atespace: g.deploy.Atespace, Name: name}
 }
 
 func callCtx(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -202,11 +210,11 @@ func (g *GRPC) List(ctx context.Context, prefix string) ([]string, error) {
 
 	for {
 		resp, err := g.client.ListActors(ctx, &ateapi.ListActorsRequest{
-			Atespace: g.atespace,
+			Atespace: g.deploy.Atespace,
 			Options:  &ateapi.ListOptions{PageSize: listPageSize, PageToken: token},
 		})
 		if err != nil {
-			return nil, mapErr("list actors", g.atespace, err)
+			return nil, mapErr("list actors", g.deploy.Atespace, err)
 		}
 
 		for _, a := range resp.GetActors() {
@@ -221,29 +229,34 @@ func (g *GRPC) List(ctx context.Context, prefix string) ([]string, error) {
 	}
 }
 
-// Create creates the actor template, the actor, then its egress policy, all named name. Parts that exist are kept.
-func (g *GRPC) Create(ctx context.Context, name string, tmpl *ateapi.ActorTemplate, pol *ateapi.EgressPolicy) error {
+// Create renders the actor template and egress policy of spec with the deployment settings, then creates the
+// template, the actor and the egress policy, all named name. Parts that exist are kept. A spec that does not
+// render returns models.ErrInvalidSpec before any call.
+func (g *GRPC) Create(ctx context.Context, name string, spec models.ActorSpec) error {
+	tmpl, pol, err := templates.Render(templates.Params{Deployment: g.deploy, ActorSpec: spec})
+	if err != nil {
+		return fmt.Errorf("render actor %s: %w: %w", name, models.ErrInvalidSpec, err)
+	}
+
 	ctx, cancel := callCtx(ctx)
 	defer cancel()
 
-	tmpl = proto.CloneOf(tmpl)
-	tmpl.Metadata = &ateapi.ResourceMetadata{Atespace: g.atespace, Name: name}
+	tmpl.Metadata = &ateapi.ResourceMetadata{Atespace: g.deploy.Atespace, Name: name}
 
-	_, err := g.client.CreateActorTemplate(ctx, &ateapi.CreateActorTemplateRequest{ActorTemplate: tmpl})
+	_, err = g.client.CreateActorTemplate(ctx, &ateapi.CreateActorTemplateRequest{ActorTemplate: tmpl})
 	if created(err) != nil {
 		return mapErr("create actor template", name, err)
 	}
 
 	actor := &ateapi.Actor{
-		Metadata:      &ateapi.ResourceMetadata{Atespace: g.atespace, Name: name},
+		Metadata:      &ateapi.ResourceMetadata{Atespace: g.deploy.Atespace, Name: name},
 		ActorTemplate: g.ref(name),
 	}
 	if _, err = g.client.CreateActor(ctx, &ateapi.CreateActorRequest{Actor: actor}); created(err) != nil {
 		return mapErr("create actor", name, err)
 	}
 
-	pol = proto.CloneOf(pol)
-	pol.Metadata = &ateapi.ResourceMetadata{Atespace: g.atespace, Name: egressPolicyName}
+	pol.Metadata = &ateapi.ResourceMetadata{Atespace: g.deploy.Atespace, Name: egressPolicyName}
 
 	polReq := &ateapi.CreateActorEgressPolicyRequest{Actor: g.ref(name), EgressPolicy: pol}
 	_, err = g.client.CreateActorEgressPolicy(ctx, polReq)

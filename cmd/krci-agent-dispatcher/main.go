@@ -59,7 +59,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	log.Info("Starting krci-agent-dispatcher",
 		"version", info.Version, "git-commit", info.GitCommit, "git-tag", info.GitTag,
 		"build-date", info.BuildDate, "go-version", info.Go, "platform", info.Platform,
-		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL,
+		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL.String(),
 	)
 
 	if !cfg.AgentImagePinned() {
@@ -72,12 +72,15 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		glOpts = append(glOpts, gitlab.WithTokenFile(cfg.GitLabTokenFile))
 	}
 
-	gl, err := gitlab.NewREST(cfg.GitLabURL, cfg.GitLabToken, cfg.GitLabCAFile, cfg.BotUsername, glOpts...)
+	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), cfg.GitLabToken, cfg.GitLabCAFile, cfg.BotUsername, glOpts...)
 	if err != nil {
 		return err
 	}
 
-	sb, err := substrate.NewGRPC(cfg.ATEAPIAddr, cfg.ATETokenFile, cfg.ATECAFile, cfg.Atespace)
+	sb, err := substrate.NewGRPC(cfg.ATEAPIAddr, cfg.ATETokenFile, cfg.ATECAFile, substrate.Deployment{
+		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace, Image: cfg.AgentImage,
+		GitLabURL: cfg.GitLabURL,
+	})
 	if err != nil {
 		return err
 	}
@@ -85,8 +88,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	defer func() { _ = sb.Close() }()
 
 	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
-		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace, Image: cfg.AgentImage,
-		GitLabURL: cfg.GitLabURL, Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel,
+		Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		Logger: log,
 	})

@@ -1,10 +1,11 @@
-// Package templates renders the per-issue ActorTemplate and EgressPolicy. Pure: no I/O.
+// Package templates renders the per-issue ActorTemplate and EgressPolicy without metadata. Pure: no I/O.
 package templates
 
 import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"text/template"
 
@@ -19,36 +20,34 @@ import (
 //go:embed actortemplate.yaml.tmpl egresspolicy.yaml.tmpl
 var files embed.FS
 
-// Params are the values of one issue's actor.
-type Params struct {
+// Deployment holds the settings shared by every issue actor. Atespace is set as metadata by the adapter.
+type Deployment struct {
 	Atespace         string
 	Pool             string
 	SecretsNamespace string
-	Name             string
 	Image            string
-	GitLabURL        string
-	ProjectPath      string
-	BotUsername      string
-	SessionID        string
-	IID              int64
+	GitLabURL        models.GitLabURL
 }
 
-type data struct {
-	Params
-	GitLabHost           string
-	GitLabGitConfigScope string
+// Params are the values of one issue's actor: the deployment settings and the actor spec.
+type Params struct {
+	Deployment
+	models.ActorSpec
 }
 
-// Render returns the actor template and egress policy of p (text/template → YAML → JSON → protojson).
-// p.GitLabURL is rendered in its canonical form (models.ParseGitLabURL).
+var errNoGitLabURL = errors.New("gitlab url is empty")
+
+// Render returns the actor template and egress policy of p (text/template → YAML → JSON → protojson). It fails
+// on an empty GitLab URL and on a spec that does not pass models.ActorSpec.Validate.
 func Render(p Params) (*ateapi.ActorTemplate, *ateapi.EgressPolicy, error) {
-	u, err := models.ParseGitLabURL(p.GitLabURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("gitlab url %w", err)
+	if p.GitLabURL.String() == "" {
+		return nil, nil, errNoGitLabURL
 	}
 
-	p.GitLabURL = u.String()
-	d := data{Params: p, GitLabHost: u.Host(), GitLabGitConfigScope: u.GitConfigScope()}
+	if err := p.Validate(); err != nil {
+		return nil, nil, err
+	}
+
 	funcs := template.FuncMap{
 		"json": func(v any) (string, error) {
 			b, err := json.Marshal(v)
@@ -60,26 +59,26 @@ func Render(p Params) (*ateapi.ActorTemplate, *ateapi.EgressPolicy, error) {
 	}
 
 	tmpl := &ateapi.ActorTemplate{}
-	if err := render(funcs, "actortemplate.yaml.tmpl", d, tmpl); err != nil {
+	if err := render(funcs, "actortemplate.yaml.tmpl", p, tmpl); err != nil {
 		return nil, nil, err
 	}
 
 	pol := &ateapi.EgressPolicy{}
-	if err := render(funcs, "egresspolicy.yaml.tmpl", d, pol); err != nil {
+	if err := render(funcs, "egresspolicy.yaml.tmpl", p, pol); err != nil {
 		return nil, nil, err
 	}
 
 	return tmpl, pol, nil
 }
 
-func render(funcs template.FuncMap, name string, d data, out proto.Message) error {
+func render(funcs template.FuncMap, name string, p Params, out proto.Message) error {
 	t, err := template.New(name).Funcs(funcs).Option("missingkey=error").ParseFS(files, name)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", name, err)
 	}
 
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, d); err != nil {
+	if err := t.Execute(&buf, p); err != nil {
 		return fmt.Errorf("execute %s: %w", name, err)
 	}
 

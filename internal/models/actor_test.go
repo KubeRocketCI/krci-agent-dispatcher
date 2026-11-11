@@ -33,3 +33,20 @@ func TestActorViewExists(t *testing.T) {
 	assert.True(t, ActorView{EgressPolicy: true}.Exists())
 	assert.True(t, ActorView{Template: true}.Exists())
 }
+
+func TestActorSpecValidate(t *testing.T) {
+	ok := ActorSpec{ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
+	assert.NoError(t, ok.Validate())
+
+	for name, mod := range map[string]func(*ActorSpec){
+		"project path": func(s *ActorSpec) { s.ProjectPath = "" },
+		"issue IID":    func(s *ActorSpec) { s.IID = 0 },
+		"session ID":   func(s *ActorSpec) { s.SessionID = "" },
+		"bot username": func(s *ActorSpec) { s.BotUsername = "" },
+	} {
+		s := ok
+		mod(&s)
+		err := s.Validate()
+		assert.ErrorContains(t, err, name, name)
+	}
+}

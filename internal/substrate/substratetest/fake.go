@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
@@ -33,6 +34,9 @@ type Fake struct {
 	templates map[string]bool
 	actors    map[string]*actor
 	policies  map[string]bool
+	specs     map[string]models.ActorSpec
+	sentTmpl  map[string]*ateapi.ActorTemplate
+	sentPol   map[string]*ateapi.EgressPolicy
 	ops       []string
 	noRoom    bool
 	nextUID   int
@@ -50,6 +54,9 @@ func NewFake(atespace string) *Fake {
 		templates: map[string]bool{},
 		actors:    map[string]*actor{},
 		policies:  map[string]bool{},
+		specs:     map[string]models.ActorSpec{},
+		sentTmpl:  map[string]*ateapi.ActorTemplate{},
+		sentPol:   map[string]*ateapi.EgressPolicy{},
 		failures:  map[string][]error{},
 		states:    map[string][]ateapi.ActorState{},
 	}
@@ -172,6 +179,34 @@ func (f *Fake) ClearOps() {
 	f.ops = nil
 }
 
+// Spec returns the spec of the last successful Create of name through the port; deleting the actor clears it.
+func (f *Fake) Spec(name string) (models.ActorSpec, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	s, ok := f.specs[name]
+
+	return s, ok
+}
+
+// SentTemplate returns the last actor template of name the gRPC server received in a create; nil when none or
+// after the template is deleted.
+func (f *Fake) SentTemplate(name string) *ateapi.ActorTemplate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return proto.CloneOf(f.sentTmpl[name])
+}
+
+// SentEgressPolicy returns the last egress policy of the actor name the gRPC server received in a create; nil
+// when none or after the policy is deleted.
+func (f *Fake) SentEgressPolicy(name string) *ateapi.EgressPolicy {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return proto.CloneOf(f.sentPol[name])
+}
+
 // Authorizations returns the authorization metadata the gRPC server received, in order.
 func (f *Fake) Authorizations() []string {
 	f.mu.Lock()
@@ -257,8 +292,9 @@ func (f *Fake) List(_ context.Context, prefix string) ([]string, error) {
 	return out, nil
 }
 
-// Create implements the Substrate port.
-func (f *Fake) Create(_ context.Context, name string, _ *ateapi.ActorTemplate, _ *ateapi.EgressPolicy) error {
+// Create implements the Substrate port. A spec that fails models.ActorSpec.Validate returns models.ErrInvalidSpec
+// before any change.
+func (f *Fake) Create(_ context.Context, name string, spec models.ActorSpec) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -266,11 +302,17 @@ func (f *Fake) Create(_ context.Context, name string, _ *ateapi.ActorTemplate, _
 		return err
 	}
 
+	if err := spec.Validate(); err != nil {
+		return fmt.Errorf("create %s: %w: %w", name, models.ErrInvalidSpec, err)
+	}
+
 	for _, step := range []func(string) error{f.createTemplateLocked, f.createActorLocked, f.createPolicyLocked} {
 		if err := step(name); err != nil && !errors.Is(err, errAlreadyExists) {
 			return err
 		}
 	}
+
+	f.specs[name] = spec
 
 	return nil
 }
@@ -428,6 +470,7 @@ func (f *Fake) deletePolicyLocked(name string) bool {
 	}
 
 	delete(f.policies, name)
+	delete(f.sentPol, name)
 	f.opLocked("delete-policy", name)
 
 	return true
@@ -439,6 +482,7 @@ func (f *Fake) deleteActorLocked(name string) bool {
 	}
 
 	delete(f.actors, name)
+	delete(f.specs, name)
 	f.opLocked("delete-actor", name)
 
 	return true
@@ -450,6 +494,7 @@ func (f *Fake) deleteTemplateLocked(name string) bool {
 	}
 
 	delete(f.templates, name)
+	delete(f.sentTmpl, name)
 	f.opLocked("delete-template", name)
 
 	return true
@@ -595,7 +640,11 @@ func (s *server) CreateActorTemplate(
 		return nil, status.Error(codes.InvalidArgument, "at least one container")
 	}
 
-	return req.GetActorTemplate(), s.locked(func() error { return s.f.createTemplateLocked(md.GetName()) })
+	return req.GetActorTemplate(), s.locked(func() error {
+		s.f.sentTmpl[md.GetName()] = proto.CloneOf(req.GetActorTemplate())
+
+		return s.f.createTemplateLocked(md.GetName())
+	})
 }
 
 func (s *server) CreateActor(ctx context.Context, req *ateapi.CreateActorRequest) (*ateapi.Actor, error) {
@@ -625,7 +674,11 @@ func (s *server) CreateActorEgressPolicy(
 		return nil, status.Error(codes.InvalidArgument, "egress policy must be named default, in the atespace, with rules")
 	}
 
-	return pol, s.locked(func() error { return s.f.createPolicyLocked(req.GetActor().GetName()) })
+	return pol, s.locked(func() error {
+		s.f.sentPol[req.GetActor().GetName()] = proto.CloneOf(pol)
+
+		return s.f.createPolicyLocked(req.GetActor().GetName())
+	})
 }
 
 // locked runs fn under the fake's lock and returns its error as a gRPC status.
