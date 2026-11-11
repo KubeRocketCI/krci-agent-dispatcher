@@ -108,12 +108,42 @@ func issueAxes[T any](view func(*T) *models.IssueView, actor func(*T) *models.Ac
 	l.add("yes", func(t *T) { view(t).Issue.Labels = append(view(t).Issue.Labels, limits.TriggerLabel) })
 	l.add("no", func(*T) {})
 
-	a = &axis[T]{name: "actor"}
+	return s, l, actorAxis(actor)
+}
+
+func actorAxis[T any](actor func(*T) *models.ActorView) *axis[T] {
+	a := &axis[T]{name: "actor"}
 	for _, v := range actorValues {
 		a.add(v.name, func(t *T) { *actor(t) = v.view })
 	}
 
-	return s, l, a
+	return a
+}
+
+func requestAxis() *axis[Facts] {
+	request := &axis[Facts]{name: "request"}
+
+	for _, k := range intake.Kinds() {
+		if k != intake.Ignore {
+			request.add(k.String(), func(f *Facts) { f.Request = k })
+		}
+	}
+
+	return request
+}
+
+// unreadAxes are the inputs of Decide after a failed issue read. The request and actor axes show that the outcome
+// alone decides.
+func unreadAxes() []*axis[Facts] {
+	read := &axis[Facts]{name: "issue-read"}
+
+	for _, r := range IssueReads() {
+		if r != ReadOK {
+			read.add(r.String(), func(f *Facts) { f.Issue = r })
+		}
+	}
+
+	return []*axis[Facts]{read, requestAxis(), actorAxis(func(f *Facts) *models.ActorView { return &f.Actor })}
 }
 
 // decideAxes are the inputs of Decide, outermost first. Request kinds and agent states come from their
@@ -137,13 +167,7 @@ func decideAxes() []*axis[Facts] {
 		})
 	}
 
-	request := &axis[Facts]{name: "request"}
-
-	for _, k := range intake.Kinds() {
-		if k != intake.Ignore {
-			request.add(k.String(), func(f *Facts) { f.Request = k })
-		}
-	}
+	request := requestAxis()
 
 	afterLast := &axis[Facts]{name: "trigger-after-last"}
 	afterLast.add("no", func(*Facts) {})
@@ -422,6 +446,17 @@ func TestDecideGolden(t *testing.T) {
 	})
 
 	assertGolden(t, "decide.golden", got)
+}
+
+func TestDecideUnreadGolden(t *testing.T) {
+	zero := func() Facts { return Facts{View: models.IssueView{Issue: models.Issue{Key: key}}} }
+
+	got := renderGolden(unreadAxes(), zero, func(f Facts) string {
+		d := Decide(f, limits)
+		return fmt.Sprintf("%s %s %s", d.Rule, d.Action, writesString(d.Writes))
+	})
+
+	assertGolden(t, "decide-unread.golden", got)
 }
 
 func TestPollGolden(t *testing.T) {

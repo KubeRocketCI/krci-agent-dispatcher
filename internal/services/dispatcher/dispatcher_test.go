@@ -1124,7 +1124,7 @@ func TestIssueGoneProjectUnreadableKeepsActor(t *testing.T) {
 
 	assert.Empty(t, e.sb.Ops(), "project deleted or bot access lost: the actor stays")
 	assert.Contains(t, e.logs.String(), "level=ERROR")
-	assert.Contains(t, e.logs.String(), "actor kept")
+	assert.Contains(t, e.logs.String(), "rule=issue-unavailable")
 }
 
 func TestIssueGoneProjectErrorKeepsActor(t *testing.T) {
@@ -1138,7 +1138,7 @@ func TestIssueGoneProjectErrorKeepsActor(t *testing.T) {
 
 	assert.Empty(t, e.sb.Ops())
 	assert.Contains(t, e.logs.String(), "level=ERROR")
-	assert.Contains(t, e.logs.String(), "actor kept")
+	assert.Contains(t, e.logs.String(), "rule=issue-unavailable")
 }
 
 func TestRunRecoveryBeforeRequests(t *testing.T) {
@@ -1888,7 +1888,7 @@ func TestRecoveryForbiddenProjectKeepsAndReleases(t *testing.T) {
 	}
 
 	assert.Equal(t, dispatcher.RecoveryConcurrency, strings.Count(e.logs.String(),
-		"Recover request: project not readable; actor kept"))
+		"rule=issue-unavailable"))
 	assert.Equal(t, 0, e.clk.count(time.Second), "a forbidden read is not retried")
 }
 
@@ -2249,4 +2249,51 @@ func TestRecoveryStopsRunningActorOfDoneIssue(t *testing.T) {
 	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "a done issue keeps no running actor")
 	assert.Contains(t, e.logs.String(), "rule=done-running-stop")
 	e.assertState(models.Done, "")
+}
+
+func TestUnavailableIssueKeepsRunningActorSuspended(t *testing.T) {
+	for name, fail := range map[string]func(e *env){
+		"forbidden": func(e *env) { e.gl.SetForbidden(key.ProjectID) },
+		"failing":   func(e *env) { e.gl.FailLoad(failing(errRP, 4)...) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := waitingIssue(t)
+			e.run()
+			e.idle()
+			e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+			fail(e)
+			e.handle(intake.Activate, dev)
+			e.idle()
+
+			assert.Equal(t, 1, e.sb.Count("suspend", actor), "an unavailable issue keeps its actor, suspended")
+			assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+			assert.Contains(t, e.logs.String(), "rule=issue-unavailable")
+		})
+	}
+}
+
+func TestGoneIssueDiscardsActor(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.gl.DeleteIssue(key)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor))
+	assert.Contains(t, e.logs.String(), "rule=issue-gone")
+	assert.Contains(t, e.logs.String(), "Actor discarded")
+}
+
+func TestTransientIssueReadIsRetried(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.gl.FailLoad(errRP)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.NotContains(t, e.logs.String(), "rule=issue-unavailable", "one failed read is retried before it counts")
+	assert.Contains(t, e.logs.String(), "rule=running-continue")
 }

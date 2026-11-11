@@ -56,6 +56,18 @@ _Avoid_: suspend, pause, done
 Deleting the actor of an issue that no longer exists; nothing is written to the issue.
 _Avoid_: stop (for this), cleanup
 
+**Gone**:
+An issue that GitLab no longer has while its project is still readable; its actor is discarded.
+_Avoid_: deleted, missing (for the read outcome)
+
+**Unavailable**:
+An issue that cannot be read for any other reason; its actor is kept.
+_Avoid_: forbidden, down (for the read outcome)
+
+**Keep**:
+Leaving an actor in place, suspended when it runs, with nothing written to the issue.
+_Avoid_: hold, park
+
 **Re-enable**:
 Asking for the agent again on an issue whose agent was stopped, by setting the trigger label again or by reopening the issue with it.
 _Avoid_: restart

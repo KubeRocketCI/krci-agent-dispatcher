@@ -23,12 +23,34 @@ type Limits struct {
 	TurnTimeout  time.Duration
 }
 
+// IssueRead is the outcome of the issue read. ReadGone: the issue does not exist and its project is readable.
+// ReadUnavailable: any other failed read. Both decide on the outcome alone; View is unset.
+type IssueRead int
+
+// Issue read outcomes.
+const (
+	ReadOK IssueRead = iota
+	ReadGone
+	ReadUnavailable
+)
+
+var issueReads = []IssueRead{ReadOK, ReadGone, ReadUnavailable}
+
+var issueReadNames = map[IssueRead]string{ReadOK: "ok", ReadGone: "gone", ReadUnavailable: "unavailable"}
+
+func (r IssueRead) String() string { return issueReadNames[r] }
+
+// IssueReads returns every issue read outcome.
+func IssueReads() []IssueRead { return slices.Clone(issueReads) }
+
 // Facts are what the issue lane read for one request.
+// Issue: the outcome of the issue read; View holds the issue only for ReadOK.
 // TriggerAfterLast: a trigger comment has a note id above the last marker's last=.
 // AuthorOK: the request author has the trigger role or higher (start and clear-error requests).
 // AuthorUnknown: the check of the request author failed (start and clear-error requests).
 // Rechecks: how many times a transitional actor was re-read for this request.
 type Facts struct {
+	Issue            IssueRead
 	View             models.IssueView
 	Actor            models.ActorView
 	Request          intake.Kind
@@ -45,6 +67,7 @@ type Action int
 // Activate: an activation (resume first). Revert: revert, then an activation. Continue: the activation loop
 // of a running actor, after the resume step. Stop: delete the actor, running or not, then the writes.
 // Recheck: read the actor again after a pause, then decide again. SuspendOnly: suspend, no activation.
+// Discard: delete the actor, no writes. Keep: keep the actor, suspended when it runs, no writes.
 const (
 	None Action = iota
 	Create
@@ -54,11 +77,13 @@ const (
 	Continue
 	Recheck
 	SuspendOnly
+	Discard
+	Keep
 )
 
 var actionNames = map[Action]string{
 	None: "none", Create: "create", Activate: "activate", Revert: "revert", Stop: "stop", Continue: "continue",
-	Recheck: "recheck", SuspendOnly: "suspend",
+	Recheck: "recheck", SuspendOnly: "suspend", Discard: "discard", Keep: "keep",
 }
 
 func (a Action) String() string { return actionNames[a] }
@@ -72,6 +97,10 @@ type Rule string
 // without the egress policy. Complete actor: the egress policy exists. Label repair: the state label is set from
 // the record when the issue does not have exactly that one state label.
 const (
+	// Issue gone. Discard.
+	RuleIssueGone Rule = "issue-gone"
+	// Issue unavailable. Keep the actor, suspended when it runs.
+	RuleIssueUnavailable Rule = "issue-unavailable"
 	// Not enabled; an actor exists, or the record or the state label is not done. Stop, record done.
 	RuleNotEnabledStop Rule = "not-enabled-stop"
 	// Not enabled, no actor, no record. Nothing.
@@ -186,6 +215,10 @@ type facts struct {
 
 // Decide returns the decision of the first matching rule.
 func Decide(f Facts, l Limits) Decision {
+	if f.Issue != ReadOK {
+		return unread(f.Issue)
+	}
+
 	is := facts{f: f, l: l, rec: f.View.Record, hasRec: f.View.HasRecord}
 	is.marker, is.hasMarker = models.LastMarker(f.View.Notes, l.Bot)
 
@@ -255,6 +288,15 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	return is.complete()
+}
+
+// unread: the issue read failed.
+func unread(r IssueRead) Decision {
+	if r == ReadGone {
+		return Decision{Rule: RuleIssueGone, Action: Discard}
+	}
+
+	return Decision{Rule: RuleIssueUnavailable, Action: Keep}
 }
 
 // disabled: issue closed or without the trigger label.

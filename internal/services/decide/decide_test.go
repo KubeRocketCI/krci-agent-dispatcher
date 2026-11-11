@@ -80,6 +80,10 @@ type decideCase struct {
 
 func decideCases() []decideCase {
 	return []decideCase{
+		{"issue gone: discard", Facts{Issue: ReadGone, Actor: running, Request: intake.Activate},
+			Decision{Rule: RuleIssueGone, Action: Discard}},
+		{"issue unavailable: keep", Facts{Issue: ReadUnavailable, Actor: running, Request: intake.Recover},
+			Decision{Rule: RuleIssueUnavailable, Action: Keep}},
 		{"closed, actor: stop", Facts{
 			View:    closed("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   suspended,
@@ -881,6 +885,17 @@ func TestActionNames(t *testing.T) {
 	assert.Equal(t, "suspend", SuspendOnly.String())
 	assert.Equal(t, "suspend", Suspend.String())
 	assert.Equal(t, "stop-now", StopNow.String())
+}
+
+func TestIssueReadsListsEveryIssueRead(t *testing.T) {
+	consts, err := consttest.Declared("decide.go", "IssueRead")
+	require.NoError(t, err)
+	require.Len(t, IssueReads(), len(consts), "an IssueRead constant is missing from issueReads")
+
+	for i, r := range IssueReads() {
+		assert.Equal(t, IssueRead(i), r, "issueReads is not in declaration order")
+		assert.NotEmpty(t, r.String(), "%s has no name", consts[i].Name)
+	}
 }
 
 // declaredRules returns the Rule constants of decide.go by constant name.

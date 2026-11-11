@@ -26,12 +26,8 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 
 	for rechecks := 0; ; rechecks++ {
 		view, err := d.load(ctx, log, r)
-		if d.readEnds(ctx, log, r, err) {
-			return
-		}
-
 		if err != nil {
-			log.Error("Cannot read the issue", "error", err)
+			d.settleUnread(ctx, log, r.Key, err)
 			return
 		}
 
@@ -92,15 +88,13 @@ func (d *Dispatcher) execute(ctx context.Context, log *slog.Logger, key models.I
 	case decide.Continue:
 		d.write(ctx, log, key, view, actor, dec.Writes)
 		d.loop(ctx, log, key, continueSince(view.Notes, d.cfg.Bot), true)
+	case decide.Discard:
+		d.discard(ctx, log, key.ActorName())
+	case decide.Keep:
+		d.keepActor(ctx, log, key.ActorName())
 	case decide.SuspendOnly:
 		d.write(ctx, log, key, view, actor, dec.Writes)
-
-		if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, key.ActorName()) }); err != nil {
-			log.Error("Cannot suspend the actor in error", "error", err)
-			return
-		}
-
-		log.Info("Actor in error suspended", "actor", key.ActorName())
+		d.suspendInError(ctx, log, key.ActorName())
 	default:
 		d.write(ctx, log, key, view, actor, dec.Writes)
 	}
@@ -226,49 +220,51 @@ func (d *Dispatcher) noteAgentMR(ctx context.Context, log *slog.Logger, key mode
 	}
 }
 
-// issueGone deletes the actor of an issue that GitLab no longer has, when its project is still readable (the
-// issue was deleted). Delete needs no actor read: a missing actor or part is not an error. A project that is not
-// readable (deleted, or bot access lost) keeps the actor, suspended.
-func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models.IssueKey) {
-	name := key.ActorName()
-
-	if err := d.retry(ctx, func() error { return d.gl.CheckProject(ctx, key.ProjectID) }); err != nil {
-		log.Error("Issue not found and project not readable; actor kept", "actor", name, "error", err)
-		d.keepActor(ctx, log, name)
-
+// settleUnread decides a failed issue read and executes the decision. The issue is gone when GitLab does not have it
+// and its project is readable; any other failure leaves it unavailable. A read cut by the end of ctx decides nothing.
+func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key models.IssueKey, readErr error) {
+	if ctx.Err() != nil {
 		return
 	}
 
+	read := decide.ReadUnavailable
+
+	if errors.Is(readErr, models.ErrNotFound) &&
+		d.retry(ctx, func() error { return d.gl.CheckProject(ctx, key.ProjectID) }) == nil {
+		read = decide.ReadGone
+	}
+
+	dec := decide.Decide(decide.Facts{Issue: read}, d.limits)
+
+	level := slog.LevelInfo
+	if dec.Action == decide.Keep {
+		level = slog.LevelError
+	}
+
+	log.Log(ctx, level, "Decision", "rule", string(dec.Rule), "action", dec.Action.String(), "issue_read",
+		read.String(), "error", readErr)
+
+	d.execute(ctx, log, key, models.IssueView{}, models.ActorView{}, dec)
+}
+
+// suspendInError suspends the actor of an issue in error; the error stays.
+func (d *Dispatcher) suspendInError(ctx context.Context, log *slog.Logger, name string) {
+	if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
+		log.Error("Cannot suspend the actor in error", "error", err)
+		return
+	}
+
+	log.Info("Actor in error suspended", "actor", name)
+}
+
+// discard deletes the actor of a gone issue. Delete needs no actor read: a missing actor or part is not an error.
+func (d *Dispatcher) discard(ctx context.Context, log *slog.Logger, name string) {
 	if err := d.retry(ctx, func() error { return d.sb.Delete(ctx, name) }); err != nil {
-		log.Error("Cannot delete the actor of a deleted issue", "actor", name, "error", err)
+		log.Error("Cannot discard the actor", "actor", name, "error", err)
 		return
 	}
 
-	log.Info("Actor of a deleted issue deleted", "actor", name)
-}
-
-// readEnds reports whether the issue read error err ends r: ErrNotFound runs issueGone, ErrForbidden on a
-// recover request runs issueForbidden.
-func (d *Dispatcher) readEnds(ctx context.Context, log *slog.Logger, r intake.Request, err error) bool {
-	switch {
-	case errors.Is(err, models.ErrNotFound):
-		d.issueGone(ctx, log, r.Key)
-	case errors.Is(err, models.ErrForbidden) && r.Kind == intake.Recover:
-		d.issueForbidden(ctx, log, r.Key, err)
-	default:
-		return false
-	}
-
-	return true
-}
-
-// issueForbidden handles a recover request whose issue read the Git provider refuses: the actor is kept and
-// suspended when running.
-func (d *Dispatcher) issueForbidden(ctx context.Context, log *slog.Logger, key models.IssueKey, readErr error) {
-	name := key.ActorName()
-	log.Error("Recover request: project not readable; actor kept", "actor", name, "error", readErr)
-
-	d.keepActor(ctx, log, name)
+	log.Info("Actor discarded", "actor", name)
 }
 
 // keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a
@@ -444,9 +440,17 @@ func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key model
 	d.write(ctx, log, key, view, actor, w)
 }
 
-// load reads the issue; a recover request retries read errors other than ErrNotFound and ErrForbidden with
-// backoff until ctx ends, so a GitLab outage at a dispatcher restart does not leave a running actor alone.
+// load reads the issue with retry. A recover request retries read errors other than ErrNotFound and ErrForbidden
+// with backoff until ctx ends, so a GitLab outage at a dispatcher restart does not leave a running actor alone.
 func (d *Dispatcher) load(ctx context.Context, log *slog.Logger, r intake.Request) (models.IssueView, error) {
+	if r.Kind != intake.Recover {
+		var view models.IssueView
+
+		err := d.retry(ctx, func() (err error) { view, err = d.gl.Load(ctx, r.Key); return err })
+
+		return view, err
+	}
+
 	wait := retryFirstWait
 
 	for {
