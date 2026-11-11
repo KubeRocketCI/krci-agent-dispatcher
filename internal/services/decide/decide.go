@@ -101,6 +101,11 @@ const (
 	RuleIssueGone Rule = "issue-gone"
 	// Issue unavailable. Keep the actor, suspended when it runs.
 	RuleIssueUnavailable Rule = "issue-unavailable"
+	// Actor unknown; the record, or the state label without a record, is working, waiting or error. Record error,
+	// reason substrate error; the status note keeps its rows.
+	RuleActorUnknownStarted Rule = "actor-unknown-started"
+	// Actor unknown; any other issue. Nothing.
+	RuleActorUnknown Rule = "actor-unknown"
 	// Not enabled; an actor exists, or the record or the state label is not done. Stop, record done.
 	RuleNotEnabledStop Rule = "not-enabled-stop"
 	// Not enabled, no actor, no record. Nothing.
@@ -215,8 +220,8 @@ type facts struct {
 
 // Decide returns the decision of the first matching rule.
 func Decide(f Facts, l Limits) Decision {
-	if f.Issue != ReadOK {
-		return unread(f.Issue)
+	if d, ok := unread(f); ok {
+		return d
 	}
 
 	is := facts{f: f, l: l, rec: f.View.Record, hasRec: f.View.HasRecord}
@@ -290,13 +295,33 @@ func Decide(f Facts, l Limits) Decision {
 	return is.complete()
 }
 
-// unread: the issue read failed.
-func unread(r IssueRead) Decision {
-	if r == ReadGone {
-		return Decision{Rule: RuleIssueGone, Action: Discard}
+// unread decides a failed read: the issue read first, then the actor read.
+func unread(f Facts) (Decision, bool) {
+	switch {
+	case f.Issue == ReadGone:
+		return Decision{Rule: RuleIssueGone, Action: Discard}, true
+	case f.Issue == ReadUnavailable:
+		return Decision{Rule: RuleIssueUnavailable, Action: Keep}, true
+	case f.Actor.State == models.Unknown:
+		return actorUnknown(f.View), true
 	}
 
-	return Decision{Rule: RuleIssueUnavailable, Action: Keep}
+	return Decision{}, false
+}
+
+// actorUnknown: the actor read failed. A started agent, by its record or else its state label, records substrate
+// error; a stop request then runs on the next request for the issue.
+func actorUnknown(v models.IssueView) Decision {
+	state, known := v.Record.State, v.HasRecord
+	if !known {
+		state, known = models.StateFromLabels(v.Issue.Labels)
+	}
+
+	if !known || state == models.Done {
+		return Decision{Rule: RuleActorUnknown, Action: None}
+	}
+
+	return Decision{Rule: RuleActorUnknownStarted, Action: None, Writes: record(models.Error, models.ReasonSubstrateError)}
 }
 
 // disabled: issue closed or without the trigger label.

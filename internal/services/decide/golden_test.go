@@ -55,11 +55,13 @@ func (a *axis[T]) add(name string, set func(*T)) {
 	a.values = append(a.values, axisValue[T]{name: name, set: set})
 }
 
-// actorValues are the actor axis values. Every models.ActorState is the state of one of them.
-var actorValues = []struct {
+type actorValue struct {
 	name string
 	view models.ActorView
-}{
+}
+
+// actorValues are the actor axis values. Every models.ActorState is the state of one of them.
+var actorValues = []actorValue{
 	{"none", noActor},
 	{"template", models.ActorView{Template: true, State: models.None}},
 	{"policy-only", models.ActorView{EgressPolicy: true, State: models.None}},
@@ -70,7 +72,14 @@ var actorValues = []struct {
 	{"running", running},
 	{"crashed", crashed},
 	{"transitional", moving},
+	{"unknown", models.ActorView{State: models.Unknown}},
 }
+
+// pollActorValues are the actor axis values Poll can see. A failed actor read ends in the turn timeout before Poll,
+// and every Substrate state maps to a known one, so Poll never sees Unknown.
+var pollActorValues = slices.DeleteFunc(slices.Clone(actorValues), func(v actorValue) bool {
+	return v.view.State == models.Unknown
+})
 
 func markerBody(turn int, last int64) string {
 	return "reply\n<!-- krci-agent-turn n=" + strconv.Itoa(turn) + " exit=0 last=" + strconv.FormatInt(last, 10) + " -->"
@@ -98,7 +107,9 @@ func markerAxis[T any](view func(*T) *models.IssueView, id int64, extra ...axisV
 }
 
 // issueAxes returns the issue state, trigger label and actor axes shared by Decide and Poll.
-func issueAxes[T any](view func(*T) *models.IssueView, actor func(*T) *models.ActorView) (s, l, a *axis[T]) {
+func issueAxes[T any](
+	view func(*T) *models.IssueView, actors []actorValue, actor func(*T) *models.ActorView,
+) (s, l, a *axis[T]) {
 	s = &axis[T]{name: "issue"}
 	for _, st := range []string{models.IssueOpened, models.IssueClosed} {
 		s.add(st, func(t *T) { view(t).Issue.IssueState = st })
@@ -108,12 +119,12 @@ func issueAxes[T any](view func(*T) *models.IssueView, actor func(*T) *models.Ac
 	l.add("yes", func(t *T) { view(t).Issue.Labels = append(view(t).Issue.Labels, limits.TriggerLabel) })
 	l.add("no", func(*T) {})
 
-	return s, l, actorAxis(actor)
+	return s, l, actorAxis(actors, actor)
 }
 
-func actorAxis[T any](actor func(*T) *models.ActorView) *axis[T] {
+func actorAxis[T any](values []actorValue, actor func(*T) *models.ActorView) *axis[T] {
 	a := &axis[T]{name: "actor"}
-	for _, v := range actorValues {
+	for _, v := range values {
 		a.add(v.name, func(t *T) { *actor(t) = v.view })
 	}
 
@@ -143,14 +154,16 @@ func unreadAxes() []*axis[Facts] {
 		}
 	}
 
-	return []*axis[Facts]{read, requestAxis(), actorAxis(func(f *Facts) *models.ActorView { return &f.Actor })}
+	actor := actorAxis(actorValues, func(f *Facts) *models.ActorView { return &f.Actor })
+
+	return []*axis[Facts]{read, requestAxis(), actor}
 }
 
 // decideAxes are the inputs of Decide, outermost first. Request kinds and agent states come from their
 // enumerators, so a new value adds a value to the golden map header.
 func decideAxes() []*axis[Facts] {
 	view := func(f *Facts) *models.IssueView { return &f.View }
-	issueState, trigger, actor := issueAxes(view, func(f *Facts) *models.ActorView { return &f.Actor })
+	issueState, trigger, actor := issueAxes(view, actorValues, func(f *Facts) *models.ActorView { return &f.Actor })
 
 	record, label := &axis[Facts]{name: "record"}, &axis[Facts]{name: "state-label"}
 	record.add("none", func(*Facts) {})
@@ -191,7 +204,8 @@ func decideAxes() []*axis[Facts] {
 // pollAxes are the inputs of Poll, outermost first.
 func pollAxes() []*axis[PollFacts] {
 	view := func(p *PollFacts) *models.IssueView { return &p.View }
-	issueState, trigger, actor := issueAxes(view, func(p *PollFacts) *models.ActorView { return &p.Actor })
+	issueState, trigger, actor := issueAxes(view, pollActorValues,
+		func(p *PollFacts) *models.ActorView { return &p.Actor })
 
 	stop := &axis[PollFacts]{name: "stop-pending"}
 	stop.add("no", func(*PollFacts) {})
