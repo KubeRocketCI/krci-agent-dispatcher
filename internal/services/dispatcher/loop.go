@@ -126,7 +126,7 @@ func (d *Dispatcher) applyPoll(ctx context.Context, log *slog.Logger, key models
 	case decide.End:
 		d.write(ctx, log, key, view, actor, pd.Writes)
 	case decide.StopNow:
-		d.stop(ctx, log, key, view, actor)
+		d.stop(ctx, log, key, view, actor, pd.Writes)
 	}
 
 	log.Info("Activation ended", "rule", string(pd.Rule), "turn", pd.Marker.Turn)

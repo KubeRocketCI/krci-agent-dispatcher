@@ -84,7 +84,7 @@ func (d *Dispatcher) execute(ctx context.Context, log *slog.Logger, key models.I
 ) {
 	switch dec.Action {
 	case decide.Stop:
-		d.stop(ctx, log, key, view, actor)
+		d.stop(ctx, log, key, view, actor, dec.Writes)
 	case decide.Create:
 		d.create(ctx, log, key, view, actor)
 	case decide.Activate, decide.Revert:
@@ -189,11 +189,11 @@ func lastMarkerID(notes []models.Note, bot string) int64 {
 	return 0
 }
 
-// stop notes the agent's merge request, deletes the actor, then records done. A running actor is deleted as it
+// stop notes the agent's merge request, deletes the actor, then applies w. A running actor is deleted as it
 // is: Substrate ends its workload and frees its worker. The note comes before the delete: a stop cut later runs
 // again from restart recovery, and the marker keeps it to one note.
 func (d *Dispatcher) stop(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	actor models.ActorView,
+	actor models.ActorView, w models.Writes,
 ) {
 	name := key.ActorName()
 
@@ -209,7 +209,7 @@ func (d *Dispatcher) stop(ctx context.Context, log *slog.Logger, key models.Issu
 		log.Info("Actor deleted", "actor", name)
 	}
 
-	d.write(ctx, log, key, view, models.ActorView{State: models.None}, stateWrites(models.Done, ""))
+	d.write(ctx, log, key, view, models.ActorView{State: models.None}, w)
 }
 
 // noteAgentMR posts the stopped note once on the agent's open merge request.

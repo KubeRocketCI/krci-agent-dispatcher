@@ -831,7 +831,8 @@ func pollCases() []pollCase {
 			Elapsed:     time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollStopPending, Action: StopNow, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 110}}},
+			PollDecision{Rule: PollStopPending, Action: StopNow, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 110},
+				Writes: record(models.Done, "")}},
 		{"stop pending at the timeout: stop", PollFacts{
 			View:        gone.v,
 			Actor:       running,
@@ -839,7 +840,7 @@ func pollCases() []pollCase {
 			Elapsed:     15 * time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollStopPending, Action: StopNow}},
+			PollDecision{Rule: PollStopPending, Action: StopNow, Writes: record(models.Done, "")}},
 		{"stop pending, actor crashed: stop", PollFacts{
 			View:        gone.v,
 			Actor:       crashed,
@@ -847,7 +848,7 @@ func pollCases() []pollCase {
 			Elapsed:     time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollStopPending, Action: StopNow}},
+			PollDecision{Rule: PollStopPending, Action: StopNow, Writes: record(models.Done, "")}},
 		{"stale stop: issue enabled again, the marker is handled normally",
 			PollFacts{View: base.marker(120, 2, 110).v, Actor: running, Since: 110, Elapsed: time.Minute, StopPending: true},
 			PollDecision{Rule: PollMarkerIdle, Action: Suspend, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 110},
