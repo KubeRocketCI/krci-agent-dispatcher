@@ -148,6 +148,19 @@ func decideCases() []decideCase {
 			Request: intake.Activate,
 		},
 			Decision{Rule: RuleDoneKept, Action: None}},
+		{"comment, record done, running actor: stop", Facts{
+			View:    open("agent", lbl(models.Done)).record(models.Done, "").v,
+			Actor:   running,
+			Request: intake.Activate,
+		},
+			Decision{Rule: RuleDoneRunningStop, Action: Stop, Writes: record(models.Done, "")}},
+		{"start, record done, running actor: stop, no refused note", Facts{
+			View:     open("agent", lbl(models.Done)).record(models.Done, "").v,
+			Actor:    running,
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			Decision{Rule: RuleDoneRunningStop, Action: Stop, Writes: record(models.Done, "")}},
 		{"record error, trigger comment: no activation, label repaired", Facts{
 			View:             open("agent").record(models.Error, models.ReasonTurnTimeout).v,
 			Actor:            suspended,

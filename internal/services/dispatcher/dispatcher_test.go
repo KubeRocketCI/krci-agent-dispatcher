@@ -2238,3 +2238,15 @@ func TestSweepRequestsAgainWhileActorStaysWithoutLane(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(e.logs.String(), "Sweep: actor without an issue lane"),
 		"an actor that stays without a lane is requested again at the next sweep")
 }
+
+func TestRecoveryStopsRunningActorOfDoneIssue(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "agent", models.StateLabel(models.Done))
+	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.run()
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "a done issue keeps no running actor")
+	assert.Contains(t, e.logs.String(), "rule=done-running-stop")
+	e.assertState(models.Done, "")
+}

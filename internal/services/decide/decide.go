@@ -79,6 +79,8 @@ const (
 	// Not enabled, no actor, record done. Label repair.
 	RuleNotEnabledDone Rule = "not-enabled-done"
 
+	// Record done, actor running, any request. Stop.
+	RuleDoneRunningStop Rule = "done-running-stop"
 	// Record done, start request. The refused note, label repair.
 	RuleDoneStartRefused Rule = "done-start-refused"
 	// Record done, any other request. Label repair.
@@ -207,6 +209,10 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	if is.hasRec && is.rec.State == models.Done {
+		if f.Actor.State == models.Running {
+			return Decision{Rule: RuleDoneRunningStop, Action: Stop, Writes: record(models.Done, "")}
+		}
+
 		if f.Request != intake.Start {
 			return is.repair(RuleDoneKept)
 		}
