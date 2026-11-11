@@ -227,24 +227,20 @@ func (d *Dispatcher) noteAgentMR(ctx context.Context, log *slog.Logger, key mode
 }
 
 // issueGone deletes the actor of an issue that GitLab no longer has, when its project is still readable (the
-// issue was deleted). A project that is not readable (deleted, or bot access lost) keeps the actor, suspended.
+// issue was deleted). Delete needs no actor read: a missing actor or part is not an error. A project that is not
+// readable (deleted, or bot access lost) keeps the actor, suspended.
 func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models.IssueKey) {
 	name := key.ActorName()
 
-	actor, err := d.sb.Inspect(ctx, name)
-	if err != nil || !actor.Exists() {
-		return
-	}
-
 	if err := d.retry(ctx, func() error { return d.gl.CheckProject(ctx, key.ProjectID) }); err != nil {
 		log.Error("Issue not found and project not readable; actor kept", "actor", name, "error", err)
-		d.suspendKept(ctx, log, name, actor)
+		d.keepActor(ctx, log, name)
 
 		return
 	}
 
 	if err := d.retry(ctx, func() error { return d.sb.Delete(ctx, name) }); err != nil {
-		log.Error("Cannot delete the actor of a deleted issue", "error", err)
+		log.Error("Cannot delete the actor of a deleted issue", "actor", name, "error", err)
 		return
 	}
 
@@ -272,23 +268,41 @@ func (d *Dispatcher) issueForbidden(ctx context.Context, log *slog.Logger, key m
 	name := key.ActorName()
 	log.Error("Restart recovery: project not readable; actor kept", "actor", name, "error", readErr)
 
+	d.keepActor(ctx, log, name)
+}
+
+// keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a
+// suspended or missing actor is left as it is.
+func (d *Dispatcher) keepActor(ctx context.Context, log *slog.Logger, name string) {
 	var actor models.ActorView
 
 	if err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
-		log.Error("Cannot read the kept actor", "actor", name, "error", err)
+		if ctx.Err() != nil {
+			log.Info("Kept actor not read; dispatcher stopping, left for restart recovery", "actor", name)
+			return
+		}
+
+		log.Error("Cannot read the kept actor; suspend requested", "actor", name, "error", err)
+		d.requestSuspend(ctx, log, name)
+
 		return
 	}
 
-	d.suspendKept(ctx, log, name, actor)
+	if actor.State == models.Running {
+		d.requestSuspend(ctx, log, name)
+	}
 }
 
-// suspendKept suspends a kept actor that is running.
-func (d *Dispatcher) suspendKept(ctx context.Context, log *slog.Logger, name string, actor models.ActorView) {
-	if actor.State != models.Running {
-		return
-	}
+// requestSuspend suspends a kept actor. A missing actor is not an error; a suspend cut by the end of ctx leaves the
+// actor for the next restart recovery.
+func (d *Dispatcher) requestSuspend(ctx context.Context, log *slog.Logger, name string) {
+	err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) })
 
-	if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
+	switch {
+	case err == nil, errors.Is(err, models.ErrActorNotFound):
+	case ctx.Err() != nil:
+		log.Info("Kept actor not suspended; dispatcher stopping, left for restart recovery", "actor", name)
+	default:
 		log.Error("Cannot suspend the kept actor", "actor", name, "error", err)
 	}
 }
