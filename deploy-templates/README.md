@@ -21,7 +21,7 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity. |
-| agentImage | string | `""` | Agent image (digest reference) of the issue actors. Required. |
+| agentImage | string | `""` | Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required. |
 | config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
 | config.pollInterval | string | `"10s"` | Marker poll interval. |
 | config.triggerLabel | string | `"agent"` | Label that enables the agent. |

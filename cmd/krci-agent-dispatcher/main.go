@@ -62,6 +62,11 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL,
 	)
 
+	if !cfg.AgentImagePinned() {
+		log.Error("Agent image is not pinned by digest; Substrate refuses actor creates",
+			"agent-image", cfg.AgentImage, "want", "<repo>[:<tag>]@sha256:<digest>")
+	}
+
 	var glOpts []gitlab.Option
 	if cfg.GitLabTokenFile != "" {
 		glOpts = append(glOpts, gitlab.WithTokenFile(cfg.GitLabTokenFile))

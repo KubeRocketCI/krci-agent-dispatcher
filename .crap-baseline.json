@@ -58,6 +58,14 @@
     },
     {
       "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/config/config.go",
+      "function": "*Config.AgentImagePinned"
+    },
+    {
+      "coverage": 100,
       "crap": 13,
       "cyclomatic": 13,
       "effective_crap": 13,
