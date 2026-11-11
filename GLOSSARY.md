@@ -143,7 +143,7 @@ Saving an actor to a snapshot and freeing its worker.
 _Avoid_: stop, pause
 
 **Actor state**:
-The Substrate lifecycle state of an actor, such as running, suspended or crashed; unknown when the actor cannot be read. An unknown actor is never taken for a missing one.
+The Substrate lifecycle state of an actor: running, suspended, crashed, or transitional (resuming, suspending, reverting, deleting, or a state Substrate does not name); unknown when the actor cannot be read. An unknown actor is never taken for a missing one.
 _Avoid_: state (alone)
 
 **Snapshot**:

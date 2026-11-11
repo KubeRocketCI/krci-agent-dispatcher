@@ -1,8 +1,8 @@
 # issue-read: gone unavailable
 # request: start activate stop clear-error recover
-# actor: none template policy-only partial partial-running partial-crashed suspended running crashed transitional unknown
-# rule issue-gone: 55 cases
-# rule issue-unavailable: 55 cases
+# actor: none template policy-only partial partial-running partial-crashed suspended running crashed resuming suspending reverting deleting unspecified unknown
+# rule issue-gone: 75 cases
+# rule issue-unavailable: 75 cases
 # issue-read  request  actor  outcome
 gone          *        *      issue-gone discard -
 unavailable   *        *      issue-unavailable keep -

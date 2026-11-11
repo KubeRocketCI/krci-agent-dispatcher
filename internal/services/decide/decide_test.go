@@ -55,7 +55,7 @@ var (
 	suspended = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Suspended}
 	running   = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Running}
 	crashed   = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Crashed}
-	moving    = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Transitional}
+	moving    = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Resuming}
 )
 
 func rec(s models.AgentState, reason string) *models.Record {

@@ -125,20 +125,30 @@ func InspectReportsParts(t *testing.T, f *substratetest.Fake, p port) {
 func InspectStateMapping(t *testing.T, f *substratetest.Fake, p port) {
 	require.NoError(t, p.Create(context.Background(), actor, spec))
 
-	for in, want := range map[ateapi.ActorState]models.ActorState{
-		ateapi.ActorState_ACTOR_STATE_RESUMING:   models.Transitional,
-		ateapi.ActorState_ACTOR_STATE_RUNNING:    models.Running,
-		ateapi.ActorState_ACTOR_STATE_SUSPENDING: models.Transitional,
-		ateapi.ActorState_ACTOR_STATE_SUSPENDED:  models.Suspended,
-		ateapi.ActorState_ACTOR_STATE_CRASHED:    models.Crashed,
-		ateapi.ActorState_ACTOR_STATE_DELETING:   models.Transitional,
-		ateapi.ActorState_ACTOR_STATE_REVERTING:  models.Transitional,
-	} {
+	want := map[ateapi.ActorState]models.ActorState{
+		ateapi.ActorState_ACTOR_STATE_UNSPECIFIED: models.Unspecified,
+		ateapi.ActorState_ACTOR_STATE_RESUMING:    models.Resuming,
+		ateapi.ActorState_ACTOR_STATE_RUNNING:     models.Running,
+		ateapi.ActorState_ACTOR_STATE_SUSPENDING:  models.Suspending,
+		ateapi.ActorState_ACTOR_STATE_SUSPENDED:   models.Suspended,
+		ateapi.ActorState_ACTOR_STATE_CRASHED:     models.Crashed,
+		ateapi.ActorState_ACTOR_STATE_DELETING:    models.Deleting,
+		ateapi.ActorState_ACTOR_STATE_REVERTING:   models.Reverting,
+	}
+
+	for n := range ateapi.ActorState_name {
+		in := ateapi.ActorState(n)
+
+		w, ok := want[in]
+		if !assert.True(t, ok, "%s is not classified: decide how it maps to a models.ActorState", in) {
+			continue
+		}
+
 		f.SetState(actor, in)
 
 		v, err := p.Inspect(context.Background(), actor)
 		require.NoError(t, err)
-		assert.Equal(t, want, v.State, in.String())
+		assert.Equal(t, w, v.State, in.String())
 	}
 
 	v, err := p.Inspect(context.Background(), "issue-12-99")
@@ -200,7 +210,7 @@ func ListByPrefix(t *testing.T, f *substratetest.Fake, p port) {
 		{Name: "issue-2-5", State: models.Suspended},
 		{Name: "issue-3-3", State: models.Running},
 		{Name: "issue-4-4", State: models.Crashed},
-		{Name: "issue-5-5", State: models.Transitional},
+		{Name: "issue-5-5", State: models.Resuming},
 	}, got, "each actor comes with its actor state")
 }
 

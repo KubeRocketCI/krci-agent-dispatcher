@@ -28,18 +28,23 @@ const (
 	listPageSize     = 100
 )
 
-// StateOf maps a Substrate actor state to the dispatcher's view.
+var actorStates = map[ateapi.ActorState]models.ActorState{
+	ateapi.ActorState_ACTOR_STATE_RUNNING:    models.Running,
+	ateapi.ActorState_ACTOR_STATE_SUSPENDED:  models.Suspended,
+	ateapi.ActorState_ACTOR_STATE_CRASHED:    models.Crashed,
+	ateapi.ActorState_ACTOR_STATE_RESUMING:   models.Resuming,
+	ateapi.ActorState_ACTOR_STATE_SUSPENDING: models.Suspending,
+	ateapi.ActorState_ACTOR_STATE_REVERTING:  models.Reverting,
+	ateapi.ActorState_ACTOR_STATE_DELETING:   models.Deleting,
+}
+
+// StateOf maps a Substrate actor state to the dispatcher's view; an unspecified or unlisted state is Unspecified.
 func StateOf(s ateapi.ActorState) models.ActorState {
-	switch s {
-	case ateapi.ActorState_ACTOR_STATE_RUNNING:
-		return models.Running
-	case ateapi.ActorState_ACTOR_STATE_SUSPENDED:
-		return models.Suspended
-	case ateapi.ActorState_ACTOR_STATE_CRASHED:
-		return models.Crashed
-	default:
-		return models.Transitional
+	if v, ok := actorStates[s]; ok {
+		return v
 	}
+
+	return models.Unspecified
 }
 
 // Deployment holds the settings shared by every issue actor.

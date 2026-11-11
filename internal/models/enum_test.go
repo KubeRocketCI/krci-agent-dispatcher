@@ -55,3 +55,24 @@ func TestRecordRoundTripsEveryAgentState(t *testing.T) {
 		}
 	}
 }
+
+func TestActorStateClasses(t *testing.T) {
+	type class struct{ transitional, settled bool }
+
+	want := map[ActorState]class{
+		None: {settled: true}, Suspended: {settled: true}, Crashed: {settled: true},
+		Running: {}, Unknown: {},
+		Resuming: {transitional: true}, Suspending: {transitional: true}, Reverting: {transitional: true},
+		Deleting: {transitional: true}, Unspecified: {transitional: true},
+	}
+
+	for _, s := range ActorStates() {
+		w, ok := want[s]
+		if !assert.True(t, ok, "%s is not classified: decide whether it is transitional or settled", s) {
+			continue
+		}
+
+		assert.Equal(t, w.transitional, s.Transitional(), "%s transitional", s)
+		assert.Equal(t, w.settled, s.Settled(), "%s settled", s)
+	}
+}

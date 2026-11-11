@@ -71,7 +71,11 @@ var actorValues = []actorValue{
 	{"suspended", suspended},
 	{"running", running},
 	{"crashed", crashed},
-	{"transitional", moving},
+	{"resuming", moving},
+	{"suspending", models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Suspending}},
+	{"reverting", models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Reverting}},
+	{"deleting", models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Deleting}},
+	{"unspecified", models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Unspecified}},
 	{"unknown", models.ActorView{State: models.Unknown}},
 }
 
