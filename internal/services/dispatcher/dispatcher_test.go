@@ -1740,6 +1740,42 @@ func TestRecoveryReadsBounded(t *testing.T) {
 	assert.LessOrEqual(t, top, dispatcher.RecoveryConcurrency)
 }
 
+func TestRecoveryForbiddenProjectKeepsAndReleases(t *testing.T) {
+	e := newEnv(t)
+
+	forbidden := make([]models.IssueKey, 0, dispatcher.RecoveryConcurrency)
+	for i := range dispatcher.RecoveryConcurrency {
+		forbidden = append(forbidden, models.IssueKey{ProjectID: 13, IID: int64(100 + i)})
+	}
+
+	others := []models.IssueKey{{ProjectID: 12, IID: 100}, {ProjectID: 12, IID: 101}}
+
+	rec := models.Record{State: models.Error, Reason: models.ReasonSubstrateError}
+
+	for _, k := range append(slices.Clone(forbidden), others...) {
+		e.gl.AddIssue(k, "krci/test-go-app", models.IssueOpened, "agent", models.StateLabel(models.Error))
+		e.gl.AddNote(k, models.Note{Author: bot, Body: models.StatusBody(rec, models.StatusView{State: rec.State})})
+		e.sb.AddComplete(k.ActorName(), ateapi.ActorState_ACTOR_STATE_RUNNING)
+	}
+
+	e.gl.SetForbidden(13)
+	e.run()
+	e.idle()
+
+	for _, k := range forbidden {
+		assert.Equal(t, 1, e.sb.Count("suspend", k.ActorName()), "a forbidden issue's actor is suspended")
+		assert.Equal(t, 0, e.sb.Count("delete-actor", k.ActorName()), "a forbidden issue's actor is kept")
+	}
+
+	for _, k := range others {
+		assert.Equal(t, 1, e.sb.Count("suspend", k.ActorName()), "the other actors are recovered")
+	}
+
+	assert.Equal(t, dispatcher.RecoveryConcurrency, strings.Count(e.logs.String(),
+		"Restart recovery: project not readable; actor kept"))
+	assert.Equal(t, 0, e.clk.count(time.Second), "a forbidden read is not retried")
+}
+
 func TestRecoveredActivationsDoNotHoldRecovery(t *testing.T) {
 	e := newEnvWith(t, func(c *dispatcher.Config) { c.TurnTimeout = 1000 * time.Hour })
 	keys := waitingIssues(e, 2*dispatcher.RecoveryConcurrency, ateapi.ActorState_ACTOR_STATE_RUNNING)
