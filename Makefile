@@ -78,7 +78,6 @@ lint-fix: golangci-lint ## Run go lint fix
 .PHONY: helm-lint
 helm-lint: ## Lint the chart with testbed-shaped required values
 	helm lint ${CHART_DIR} --set ingress.host=example.invalid --set ingress.tls.issuerRef.name=example \
-	  --set image.repository=example.invalid/krci-agent-dispatcher --set image.tag=dev \
 	  --set agentImage=example.invalid/krci-agent-go:dev@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
 	  --set gitlab.url=https://gitlab.example.invalid
 

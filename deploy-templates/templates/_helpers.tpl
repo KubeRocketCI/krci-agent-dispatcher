@@ -51,16 +51,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Image reference: repository@digest, else repository:tag.
+Image reference: repository@digest, else repository:tag, else repository:appVersion.
 */}}
 {{- define "krci-agent-dispatcher.image" -}}
 {{- $repo := required "image.repository is required" .Values.image.repository }}
 {{- if .Values.image.digest }}
 {{- printf "%s@%s" $repo .Values.image.digest }}
-{{- else if .Values.image.tag }}
-{{- printf "%s:%s" $repo .Values.image.tag }}
 {{- else }}
-{{- fail "image.tag or image.digest is required" }}
+{{- printf "%s:%s" $repo (.Values.image.tag | default .Chart.AppVersion) }}
 {{- end }}
 {{- end }}
 
