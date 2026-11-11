@@ -1556,6 +1556,122 @@ func TestIssueDeletedDeletesRunningActorWithoutSuspend(t *testing.T) {
 	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, e.sb.Ops())
 }
 
+// failing returns n copies of err, more than any retry of one call consumes.
+func failing(err error, n int) []error { return slices.Repeat([]error{err}, n) }
+
+func TestLoopIssueDeletedDeletesWithoutActorRead(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.DeleteIssue(key)
+		e.sb.Fail("inspect", failing(errRP, 20)...)
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "a deleted issue's actor is deleted even when it cannot be read")
+}
+
+func TestRequestOnDeletedIssueDeletesWithoutActorRead(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.gl.DeleteIssue(key)
+	e.sb.Fail("inspect", failing(errRP, 20)...)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor))
+}
+
+func TestIssueGoneProjectUnreadableActorUnreadableRequestsSuspend(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.DeleteIssue(key)
+		e.gl.FailProject(failing(errRP, 4)...)
+		e.sb.Fail("inspect", failing(errRP, 20)...)
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	assert.Equal(t, 1, e.sb.Count("suspend", actor), "an actor that cannot be read is suspended, not left running")
+	assert.Contains(t, e.logs.String(), "Cannot read the kept actor; suspend requested")
+}
+
+func TestKeptActorSuspendFailureLogged(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.DeleteIssue(key)
+		e.gl.FailProject(failing(errRP, 4)...)
+		e.sb.Fail("suspend", failing(errRP, 4)...)
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	assert.Contains(t, e.logs.String(), "Cannot suspend the kept actor")
+}
+
+func TestKeptActorMissingIsNotAnError(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, nil, "agent")
+	e.gl.DeleteIssue(key)
+	e.gl.FailProject(failing(errRP, 4)...)
+	e.sb.Fail("inspect", failing(errRP, 4)...)
+	e.handle(intake.Activate, dev)
+	e.run()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "Cannot read the kept actor; suspend requested")
+	assert.NotContains(t, e.logs.String(), "Cannot suspend the kept actor", "a suspend of a missing actor is no error")
+}
+
+func TestKeptActorLeftOnCancel(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.DeleteIssue(key)
+		e.gl.FailProject(failing(errRP, 4)...)
+		e.sb.Fail("inspect", failing(errRP, 20)...)
+		e.clk.setOnSleep(func(d time.Duration) {
+			if d == 4*time.Second {
+				e.cancel()
+			}
+		})
+	})
+	e.handle(intake.Activate, dev)
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(e.logs.String(), "Kept actor not read; dispatcher stopping, left for restart recovery")
+	}, 5*time.Second, time.Millisecond)
+	assert.Equal(t, 0, e.sb.Count("suspend", actor))
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+}
+
+func TestRecoveryForbiddenActorUnreadableRequestsSuspend(t *testing.T) {
+	e := newEnv(t)
+	e.issue(models.IssueOpened, nil, "agent")
+	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.gl.SetForbidden(key.ProjectID)
+	e.sb.Fail("inspect", failing(errRP, 4)...)
+	e.run()
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("suspend", actor), "a forbidden issue's unreadable actor is suspended")
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+}
+
 // --- lookup failures
 
 func TestTriggerLookupRetried(t *testing.T) {
