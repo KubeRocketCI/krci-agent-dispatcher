@@ -26,8 +26,7 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 
 	for rechecks := 0; ; rechecks++ {
 		view, err := d.load(ctx, log, r)
-		if errors.Is(err, models.ErrNotFound) {
-			d.issueGone(ctx, log, r.Key)
+		if d.readEnds(ctx, log, r, err) {
 			return
 		}
 
@@ -239,12 +238,7 @@ func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models
 
 	if err := d.retry(ctx, func() error { return d.gl.CheckProject(ctx, key.ProjectID) }); err != nil {
 		log.Error("Issue not found and project not readable; actor kept", "actor", name, "error", err)
-
-		if actor.State == models.Running {
-			if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
-				log.Error("Cannot suspend the kept actor", "actor", name, "error", err)
-			}
-		}
+		d.suspendKept(ctx, log, name, actor)
 
 		return
 	}
@@ -255,6 +249,48 @@ func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models
 	}
 
 	log.Info("Actor of a deleted issue deleted", "actor", name)
+}
+
+// readEnds reports whether the issue read error err ends r: ErrNotFound runs issueGone, ErrForbidden on a
+// recover request runs issueForbidden.
+func (d *Dispatcher) readEnds(ctx context.Context, log *slog.Logger, r intake.Request, err error) bool {
+	switch {
+	case errors.Is(err, models.ErrNotFound):
+		d.issueGone(ctx, log, r.Key)
+	case errors.Is(err, models.ErrForbidden) && r.Kind == intake.Recover:
+		d.issueForbidden(ctx, log, r.Key, err)
+	default:
+		return false
+	}
+
+	return true
+}
+
+// issueForbidden handles a recover request whose issue read the Git provider refuses: the actor is kept and
+// suspended when running.
+func (d *Dispatcher) issueForbidden(ctx context.Context, log *slog.Logger, key models.IssueKey, readErr error) {
+	name := key.ActorName()
+	log.Error("Restart recovery: project not readable; actor kept", "actor", name, "error", readErr)
+
+	var actor models.ActorView
+
+	if err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
+		log.Error("Cannot read the kept actor", "actor", name, "error", err)
+		return
+	}
+
+	d.suspendKept(ctx, log, name, actor)
+}
+
+// suspendKept suspends a kept actor that is running.
+func (d *Dispatcher) suspendKept(ctx context.Context, log *slog.Logger, name string, actor models.ActorView) {
+	if actor.State != models.Running {
+		return
+	}
+
+	if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
+		log.Error("Cannot suspend the kept actor", "actor", name, "error", err)
+	}
 }
 
 // triggerAfterLast reports whether a comment above the last marker's last= is a trigger comment. A check that
@@ -394,14 +430,15 @@ func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key model
 	d.write(ctx, log, key, view, actor, w)
 }
 
-// load reads the issue; a recover request retries read errors other than ErrNotFound with backoff until
-// ctx ends, so a GitLab outage at a dispatcher restart does not leave a running actor alone.
+// load reads the issue; a recover request retries read errors other than ErrNotFound and ErrForbidden with
+// backoff until ctx ends, so a GitLab outage at a dispatcher restart does not leave a running actor alone.
 func (d *Dispatcher) load(ctx context.Context, log *slog.Logger, r intake.Request) (models.IssueView, error) {
 	wait := retryFirstWait
 
 	for {
 		view, err := d.gl.Load(ctx, r.Key)
-		if err == nil || r.Kind != intake.Recover || errors.Is(err, models.ErrNotFound) {
+		if err == nil || r.Kind != intake.Recover || errors.Is(err, models.ErrNotFound) ||
+			errors.Is(err, models.ErrForbidden) {
 			return view, err
 		}
 

@@ -753,18 +753,26 @@
       "function": "*Dispatcher.failRPCFresh"
     },
     {
-      "coverage": 75,
-      "crap": 7.8,
-      "cyclomatic": 7,
-      "effective_crap": 7.8,
+      "coverage": 80,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.issueForbidden"
+    },
+    {
+      "coverage": 77.8,
+      "crap": 5.3,
+      "cyclomatic": 5,
+      "effective_crap": 5.3,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.issueGone"
     },
     {
       "coverage": 87.5,
-      "crap": 6.1,
-      "cyclomatic": 6,
-      "effective_crap": 6.1,
+      "crap": 7.1,
+      "cyclomatic": 7,
+      "effective_crap": 7.1,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.load"
     },
@@ -786,6 +794,14 @@
     },
     {
       "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.readEnds"
+    },
+    {
+      "coverage": 100,
       "crap": 10,
       "cyclomatic": 10,
       "effective_crap": 10,
@@ -799,6 +815,14 @@
       "effective_crap": 3,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.stop"
+    },
+    {
+      "coverage": 75,
+      "crap": 3.1,
+      "cyclomatic": 3,
+      "effective_crap": 3.1,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.suspendKept"
     },
     {
       "coverage": 100,
