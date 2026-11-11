@@ -41,9 +41,16 @@ hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseli
 
 ## Conventions
 
-- Commit titles: `EPMDEDP-<id>: <type>: <description>`, 10–85 characters (`.github/workflows/pr-validation.yml`). Sign off (`git commit -s`).
+- Commit messages: generate with `/krci-general:commit` (plugin `krci-general` from the `KubeRocketCI/claude-plugins` marketplace). Title `EPMDEDP-<id>: <type>: <description>`, 10–85 characters, type one of `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore` (`.github/workflows/pr-validation.yml`). Sign off (`git commit -s`).
+- Branch names start with the ticket key (`EPMDEDP-<id>-<slug>`); `/krci-general:commit` reads the key from the branch.
 - Ports are declared by their consumer (`dispatcher/ports.go`). Only `main` builds adapters.
 - Each port has a production adapter and an in-memory fake; one contract suite runs against both.
 - `decide` and `templates` are pure. A new rule is a new rule constant and a new table-test case.
 - Tests go through module interfaces (`Handle`, `Run`, `Decide`, `Poll`, port contracts).
 - No secret value in logs, argv, errors or test output.
+
+## Agent skills
+
+- Issue tracker: Jira project EPMDEDP through the mcp-atlassian tools; pull requests on GitHub. `docs/agents/issue-tracker.md`.
+- Triage labels: default five roles as Jira labels. `docs/agents/triage-labels.md`.
+- Domain docs: single-context, the files named at the top. `docs/agents/domain.md`.

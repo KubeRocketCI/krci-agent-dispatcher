@@ -68,6 +68,19 @@ make lint test build
 docker build -t <registry>/krci-agent-dispatcher:<tag> .
 ```
 
+## Contribute
+
+Claude Code plugins used in this repo:
+
+```
+claude plugin marketplace add KubeRocketCI/claude-plugins
+claude plugin install krci-general
+claude plugin marketplace add mattpocock/skills
+claude plugin install mattpocock-skills
+```
+
+Commit messages: `/krci-general:commit`. Conventions: `CLAUDE.md`. Issue workflow: `docs/agents/`.
+
 ## Deploy
 
 ```
