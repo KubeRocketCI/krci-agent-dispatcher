@@ -5,11 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/decide"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/templates"
 )
 
@@ -29,7 +27,7 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 
 	for rechecks := 0; ; rechecks++ {
 		view, err := d.load(ctx, log, r)
-		if errors.Is(err, gitlab.ErrNotFound) {
+		if errors.Is(err, models.ErrNotFound) {
 			d.issueGone(ctx, log, r.Key)
 			return
 		}
@@ -174,7 +172,7 @@ func (d *Dispatcher) activate(ctx context.Context, log *slog.Logger, key models.
 	err := d.retry(ctx, func() error { return d.sb.Resume(ctx, name) })
 
 	switch {
-	case errors.Is(err, substrate.ErrNoRoom):
+	case errors.Is(err, models.ErrNoRoom):
 		log.Info("No free worker", "actor", name)
 		d.writeFresh(ctx, log, key, models.Writes{Notes: []models.NewNote{{Body: models.NoRoomText}}})
 
@@ -299,7 +297,7 @@ func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, vie
 }
 
 // isDeveloper reports whether username has access level Developer or higher on the project. The lookup is
-// retried. ErrNotFound and ErrForbidden from GitLab mean no; any other lookup error is returned.
+// retried. ErrNotFound and ErrForbidden mean no; any other lookup error is returned.
 func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectID int64, username string,
 ) (bool, error) {
 	if username == "" {
@@ -311,7 +309,7 @@ func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectI
 	err := d.retry(ctx, func() (err error) { level, err = d.gl.AccessLevel(ctx, projectID, username); return err })
 
 	switch {
-	case errors.Is(err, gitlab.ErrNotFound), errors.Is(err, gitlab.ErrForbidden):
+	case errors.Is(err, models.ErrNotFound), errors.Is(err, models.ErrForbidden):
 		log.Info("GitLab shows no access level; below Developer", "user", username, "error", err)
 		return false, nil
 	case err != nil:
@@ -324,16 +322,16 @@ func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectI
 	return true, nil
 }
 
-// retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom, the ErrNotFound errors
-// and ErrForbidden.
+// retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom, ErrActorNotFound,
+// ErrNotFound and ErrForbidden.
 func (d *Dispatcher) retry(ctx context.Context, fn func() error) error {
 	wait := retryFirstWait
 
 	for attempt := 0; ; attempt++ {
 		err := fn()
-		if err == nil || attempt == retryAttempts || errors.Is(err, substrate.ErrNoRoom) ||
-			errors.Is(err, substrate.ErrNotFound) || errors.Is(err, gitlab.ErrNotFound) ||
-			errors.Is(err, gitlab.ErrForbidden) {
+		if err == nil || attempt == retryAttempts || errors.Is(err, models.ErrNoRoom) ||
+			errors.Is(err, models.ErrActorNotFound) || errors.Is(err, models.ErrNotFound) ||
+			errors.Is(err, models.ErrForbidden) {
 			return err
 		}
 
@@ -410,14 +408,14 @@ func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key model
 	d.write(ctx, log, key, view, actor, w)
 }
 
-// load reads the issue; a recover request retries read errors other than ErrNotFound with backoff until ctx ends,
-// so a GitLab outage at a dispatcher restart does not leave a running actor alone.
+// load reads the issue; a recover request retries read errors other than ErrNotFound with backoff until
+// ctx ends, so a GitLab outage at a dispatcher restart does not leave a running actor alone.
 func (d *Dispatcher) load(ctx context.Context, log *slog.Logger, r intake.Request) (models.IssueView, error) {
 	wait := retryFirstWait
 
 	for {
 		view, err := d.gl.Load(ctx, r.Key)
-		if err == nil || r.Kind != intake.Recover || errors.Is(err, gitlab.ErrNotFound) {
+		if err == nil || r.Kind != intake.Recover || errors.Is(err, models.ErrNotFound) {
 			return view, err
 		}
 

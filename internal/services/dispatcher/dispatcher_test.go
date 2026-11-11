@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
@@ -416,7 +415,7 @@ func TestStartAuthorLookupErrorNotRefused(t *testing.T) {
 }
 
 func TestStartAuthorLookupDefiniteAnswerRefused(t *testing.T) {
-	for name, err := range map[string]error{"not found": gitlab.ErrNotFound, "forbidden": gitlab.ErrForbidden} {
+	for name, err := range map[string]error{"not found": models.ErrNotFound, "forbidden": models.ErrForbidden} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
 			e.issue(models.IssueOpened, nil, "agent")

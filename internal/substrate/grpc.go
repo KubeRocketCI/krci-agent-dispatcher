@@ -22,13 +22,6 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-var (
-	// ErrNotFound is returned when the actor does not exist.
-	ErrNotFound = errors.New("not found")
-	// ErrNoRoom is returned by Resume when no worker has room for the actor.
-	ErrNoRoom = errors.New("no worker has room for the actor")
-)
-
 const (
 	egressPolicyName = "default"
 	callTimeout      = 30 * time.Second
@@ -127,7 +120,7 @@ func callCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, callTimeout)
 }
 
-// mapErr wraps NotFound as ErrNotFound and ResourceExhausted as ErrNoRoom.
+// mapErr wraps NotFound as models.ErrActorNotFound and ResourceExhausted as models.ErrNoRoom.
 func mapErr(op, name string, err error) error {
 	if err == nil {
 		return nil
@@ -135,9 +128,9 @@ func mapErr(op, name string, err error) error {
 
 	switch status.Code(err) {
 	case codes.NotFound:
-		return fmt.Errorf("%s %s: %w: %s", op, name, ErrNotFound, status.Convert(err).Message())
+		return fmt.Errorf("%s %s: %w: %s", op, name, models.ErrActorNotFound, status.Convert(err).Message())
 	case codes.ResourceExhausted:
-		return fmt.Errorf("%s %s: %w", op, name, ErrNoRoom)
+		return fmt.Errorf("%s %s: %w", op, name, models.ErrNoRoom)
 	default:
 		return fmt.Errorf("%s %s: %w", op, name, err)
 	}
@@ -258,7 +251,7 @@ func (g *GRPC) Create(ctx context.Context, name string, tmpl *ateapi.ActorTempla
 	return mapErr("create egress policy", name, created(err))
 }
 
-// Resume resumes a suspended actor; ErrNoRoom when no worker has room.
+// Resume resumes a suspended actor; models.ErrNoRoom when no worker has room.
 func (g *GRPC) Resume(ctx context.Context, name string) error {
 	ctx, cancel := callCtx(ctx)
 	defer cancel()

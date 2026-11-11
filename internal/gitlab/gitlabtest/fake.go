@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
 const (
-	messageKey  = "message"
-	notFoundMsg = "404 Not found"
+	messageKey   = "message"
+	notFoundMsg  = "404 Not found"
+	forbiddenMsg = "403 Forbidden"
 )
 
 type issue struct {
@@ -46,6 +46,7 @@ type Fake struct {
 	mu        sync.Mutex
 	bot       string
 	projects  map[int64]bool
+	forbidden map[int64]bool
 	issues    map[models.IssueKey]*issue
 	mrs       map[mrKey]*mergeRequest
 	notes     map[models.IssueKey][]models.Note
@@ -70,14 +71,15 @@ type Fake struct {
 // NewFake returns an empty fake; notes written through the port are authored by bot.
 func NewFake(bot string) *Fake {
 	return &Fake{
-		bot:      bot,
-		projects: map[int64]bool{},
-		issues:   map[models.IssueKey]*issue{},
-		mrs:      map[mrKey]*mergeRequest{},
-		notes:    map[models.IssueKey][]models.Note{},
-		members:  map[int64]map[string]int{},
-		nextID:   100,
-		clock:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		bot:       bot,
+		projects:  map[int64]bool{},
+		forbidden: map[int64]bool{},
+		issues:    map[models.IssueKey]*issue{},
+		mrs:       map[mrKey]*mergeRequest{},
+		notes:     map[models.IssueKey][]models.Note{},
+		members:   map[int64]map[string]int{},
+		nextID:    100,
+		clock:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -143,6 +145,23 @@ func (f *Fake) FailMR(errs ...error) {
 	defer f.mu.Unlock()
 
 	f.mrErr = append(f.mrErr, errs...)
+}
+
+// SetForbidden makes the fake refuse the bot user's token on projectID: the port returns models.ErrForbidden
+// and the Handler answers 403 for every request on the project.
+func (f *Fake) SetForbidden(projectID int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.forbidden[projectID] = true
+}
+
+func (f *Fake) forbiddenLocked(projectID int64) error {
+	if f.forbidden[projectID] {
+		return fmt.Errorf("project %d: %w", projectID, models.ErrForbidden)
+	}
+
+	return nil
 }
 
 // FailProject makes the next CheckProject calls return errs, one per call.
@@ -419,9 +438,13 @@ func (f *Fake) Refresh(_ context.Context, prev models.IssueView) (models.IssueVi
 }
 
 func (f *Fake) viewLocked(key models.IssueKey, notes []models.Note) (models.IssueView, error) {
+	if err := f.forbiddenLocked(key.ProjectID); err != nil {
+		return models.IssueView{}, err
+	}
+
 	is := f.issues[key]
 	if is == nil {
-		return models.IssueView{}, fmt.Errorf("issue %s: %w", key, gitlab.ErrNotFound)
+		return models.IssueView{}, fmt.Errorf("issue %s: %w", key, models.ErrNotFound)
 	}
 
 	issue := models.Issue{Key: key, ProjectPath: is.path, IssueState: is.state, Labels: slices.Clone(is.labels)}
@@ -444,9 +467,14 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 		return err
 	}
 
+	if err := f.forbiddenLocked(key.ProjectID); err != nil {
+		f.mu.Unlock()
+		return err
+	}
+
 	if f.issues[key] == nil {
 		f.mu.Unlock()
-		return fmt.Errorf("issue %s: %w", key, gitlab.ErrNotFound)
+		return fmt.Errorf("issue %s: %w", key, models.ErrNotFound)
 	}
 
 	if w.Record != nil {
@@ -499,6 +527,10 @@ func (f *Fake) AccessLevel(_ context.Context, projectID int64, username string) 
 		return 0, f.accessErr
 	}
 
+	if err := f.forbiddenLocked(projectID); err != nil {
+		return 0, err
+	}
+
 	return f.members[projectID][username], nil
 }
 
@@ -508,6 +540,10 @@ func (f *Fake) NoteMergeRequest(_ context.Context, projectID int64, sourceBranch
 	defer f.mu.Unlock()
 
 	if err := popErr(&f.mrErr); err != nil {
+		return err
+	}
+
+	if err := f.forbiddenLocked(projectID); err != nil {
 		return err
 	}
 
@@ -531,8 +567,12 @@ func (f *Fake) CheckProject(_ context.Context, projectID int64) error {
 		return err
 	}
 
+	if err := f.forbiddenLocked(projectID); err != nil {
+		return err
+	}
+
 	if !f.projects[projectID] {
-		return fmt.Errorf("project %d: %w", projectID, gitlab.ErrNotFound)
+		return fmt.Errorf("project %d: %w", projectID, models.ErrNotFound)
 	}
 
 	return nil
@@ -600,16 +640,17 @@ func (f *Fake) setLabelsLocked(key models.IssueKey, add, remove []string) {
 // Handler serves the GitLab REST subset used by the REST adapter. Requests need PRIVATE-TOKEN: token.
 func (f *Fake) Handler(token string) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v4/projects/{pid}/issues/{iid}", f.withIssue(f.getIssue))
-	mux.HandleFunc("PUT /api/v4/projects/{pid}/issues/{iid}", f.withIssue(f.putIssue))
-	mux.HandleFunc("GET /api/v4/projects/{pid}/issues/{iid}/notes", f.withIssue(f.listNotes))
-	mux.HandleFunc("POST /api/v4/projects/{pid}/issues/{iid}/notes", f.withIssue(f.postNote))
-	mux.HandleFunc("PUT /api/v4/projects/{pid}/issues/{iid}/notes/{nid}", f.withIssue(f.putNote))
-	mux.HandleFunc("GET /api/v4/projects/{pid}/members/all", f.listMembers)
-	mux.HandleFunc("GET /api/v4/projects/{pid}", f.getProject)
-	mux.HandleFunc("GET /api/v4/projects/{pid}/merge_requests", f.listMRs)
-	mux.HandleFunc("GET /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.listMRNotes))
-	mux.HandleFunc("POST /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.postMRNote))
+	handle := func(pattern string, h http.HandlerFunc) { mux.HandleFunc(pattern, f.withProject(h)) }
+	handle("GET /api/v4/projects/{pid}/issues/{iid}", f.withIssue(f.getIssue))
+	handle("PUT /api/v4/projects/{pid}/issues/{iid}", f.withIssue(f.putIssue))
+	handle("GET /api/v4/projects/{pid}/issues/{iid}/notes", f.withIssue(f.listNotes))
+	handle("POST /api/v4/projects/{pid}/issues/{iid}/notes", f.withIssue(f.postNote))
+	handle("PUT /api/v4/projects/{pid}/issues/{iid}/notes/{nid}", f.withIssue(f.putNote))
+	handle("GET /api/v4/projects/{pid}/members/all", f.listMembers)
+	handle("GET /api/v4/projects/{pid}", f.getProject)
+	handle("GET /api/v4/projects/{pid}/merge_requests", f.listMRs)
+	handle("GET /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.listMRNotes))
+	handle("POST /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.postMRNote))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("PRIVATE-TOKEN") != token {
@@ -619,6 +660,24 @@ func (f *Fake) Handler(token string) http.Handler {
 
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// withProject answers 403 for a project set with SetForbidden.
+func (f *Fake) withProject(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid, _ := strconv.ParseInt(r.PathValue("pid"), 10, 64)
+
+		f.mu.Lock()
+		forbidden := f.forbidden[pid]
+		f.mu.Unlock()
+
+		if forbidden {
+			writeJSON(w, http.StatusForbidden, map[string]string{messageKey: forbiddenMsg})
+			return
+		}
+
+		h(w, r)
+	}
 }
 
 type issueHandler func(w http.ResponseWriter, r *http.Request, key models.IssueKey)

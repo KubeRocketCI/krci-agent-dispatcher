@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/decide"
 )
@@ -55,7 +54,7 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 // poll reads the issue and the actor once and applies decide.Poll.
 func (d *Dispatcher) poll(ctx context.Context, log *slog.Logger, key models.IssueKey, a *activation) next {
 	view, err := d.read(ctx, key, a)
-	if errors.Is(err, gitlab.ErrNotFound) {
+	if errors.Is(err, models.ErrNotFound) {
 		d.issueGone(ctx, log, key)
 		return pollEnd
 	}

@@ -70,7 +70,7 @@ func TestRESTErrorHasNoToken(t *testing.T) {
 
 	_, err = c.Load(context.Background(), key)
 	require.Error(t, err)
-	require.NotErrorIs(t, err, gitlab.ErrNotFound)
+	require.NotErrorIs(t, err, models.ErrNotFound)
 	assert.NotContains(t, err.Error(), token)
 
 	_, err = c.AccessLevel(context.Background(), 12, "dev")
@@ -247,6 +247,6 @@ func TestRESTForbidden(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = c.AccessLevel(context.Background(), 12, "dev")
-	require.ErrorIs(t, err, gitlab.ErrForbidden)
+	require.ErrorIs(t, err, models.ErrForbidden)
 	assert.NotContains(t, err.Error(), token)
 }

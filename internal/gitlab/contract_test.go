@@ -62,6 +62,9 @@ func TestContract(t *testing.T) {
 		"WriteCreatesThenEditsStatusNote": WriteCreatesThenEditsStatusNote,
 		"WriteKeepsStatusRowsWithoutView": WriteKeepsStatusRowsWithoutView,
 		"WriteNotFound":                   WriteNotFound,
+		"LoadForbidden":                   LoadForbidden,
+		"WriteForbidden":                  WriteForbidden,
+		"CheckProjectForbidden":           CheckProjectForbidden,
 		"AccessLevelMember":               AccessLevelMember,
 		"AccessLevelNotMember":            AccessLevelNotMember,
 		"NoteMergeRequestPostsOnce":       NoteMergeRequestPostsOnce,
@@ -125,10 +128,10 @@ func LoadParsesRecord(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func LoadNotFound(t *testing.T, _ *gitlabtest.Fake, p port) {
 	_, err := p.Load(context.Background(), models.IssueKey{ProjectID: 12, IID: 99})
-	require.ErrorIs(t, err, gitlab.ErrNotFound)
+	require.ErrorIs(t, err, models.ErrNotFound)
 
 	_, err = p.Load(context.Background(), models.IssueKey{ProjectID: 99, IID: 7})
-	require.ErrorIs(t, err, gitlab.ErrNotFound)
+	require.ErrorIs(t, err, models.ErrNotFound)
 }
 
 func LoadIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
@@ -215,7 +218,31 @@ func WriteKeepsStatusRowsWithoutView(t *testing.T, f *gitlabtest.Fake, p port) {
 func WriteNotFound(t *testing.T, _ *gitlabtest.Fake, p port) {
 	missing := models.IssueKey{ProjectID: 12, IID: 99}
 	err := p.Write(context.Background(), missing, nil, models.Writes{Label: models.StateLabel(models.Done)})
-	require.ErrorIs(t, err, gitlab.ErrNotFound)
+	require.ErrorIs(t, err, models.ErrNotFound)
+}
+
+func LoadForbidden(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetForbidden(key.ProjectID)
+
+	_, err := p.Load(context.Background(), key)
+	require.ErrorIs(t, err, models.ErrForbidden)
+	assert.NotContains(t, err.Error(), token)
+}
+
+func WriteForbidden(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetForbidden(key.ProjectID)
+
+	err := p.Write(context.Background(), key, nil, models.Writes{
+		Record: &models.Record{State: models.Waiting}, Label: models.StateLabel(models.Waiting),
+	})
+	require.ErrorIs(t, err, models.ErrForbidden)
+	assert.Empty(t, f.Ops(), "a forbidden write changes nothing")
+}
+
+func CheckProjectForbidden(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetForbidden(key.ProjectID)
+
+	require.ErrorIs(t, p.CheckProject(context.Background(), key.ProjectID), models.ErrForbidden)
 }
 
 func AccessLevelMember(t *testing.T, f *gitlabtest.Fake, p port) {
@@ -286,7 +313,7 @@ func CheckProjectReadable(t *testing.T, f *gitlabtest.Fake, p port) {
 	f.DeleteIssue(key)
 
 	require.NoError(t, p.CheckProject(context.Background(), 12), "a deleted issue keeps its project")
-	require.ErrorIs(t, p.CheckProject(context.Background(), 99), gitlab.ErrNotFound)
+	require.ErrorIs(t, p.CheckProject(context.Background(), 99), models.ErrNotFound)
 }
 
 func NoteMergeRequestSkipsForkMR(t *testing.T, f *gitlabtest.Fake, p port) {
@@ -417,7 +444,7 @@ func RefreshNotFound(t *testing.T, f *gitlabtest.Fake, p port) {
 	f.DeleteIssue(key)
 
 	_, err = p.Refresh(context.Background(), prev)
-	require.ErrorIs(t, err, gitlab.ErrNotFound)
+	require.ErrorIs(t, err, models.ErrNotFound)
 }
 
 func WriteKnownEditsStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {

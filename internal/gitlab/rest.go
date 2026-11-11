@@ -21,13 +21,6 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-var (
-	// ErrNotFound is returned when the issue or project does not exist.
-	ErrNotFound = errors.New("not found")
-	// ErrForbidden is returned when GitLab refuses the token for the resource.
-	ErrForbidden = errors.New("forbidden")
-)
-
 const (
 	perPage        = 100
 	bodyKey        = "body"
@@ -134,8 +127,8 @@ func issuePath(key models.IssueKey) string {
 	return fmt.Sprintf("/projects/%d/issues/%d", key.ProjectID, key.IID)
 }
 
-// check turns a response into an error: ErrNotFound for 404, ErrForbidden for 403, a status error for other
-// non-2xx codes.
+// check turns a response into an error: models.ErrNotFound for 404, models.ErrForbidden for 403, a status
+// error for other non-2xx codes.
 func check(resp *resty.Response, err error, method, path string) error {
 	if err != nil {
 		return fmt.Errorf("gitlab %s %s: %w", method, path, err)
@@ -143,9 +136,9 @@ func check(resp *resty.Response, err error, method, path string) error {
 
 	switch {
 	case resp.StatusCode() == http.StatusNotFound:
-		return fmt.Errorf("gitlab %s %s: %w", method, path, ErrNotFound)
+		return fmt.Errorf("gitlab %s %s: %w", method, path, models.ErrNotFound)
 	case resp.StatusCode() == http.StatusForbidden:
-		return fmt.Errorf("gitlab %s %s: %w", method, path, ErrForbidden)
+		return fmt.Errorf("gitlab %s %s: %w", method, path, models.ErrForbidden)
 	case !resp.IsSuccess():
 		return fmt.Errorf("gitlab %s %s: status %s", method, path, resp.Status())
 	}
@@ -369,7 +362,7 @@ func (c *REST) writeStatus(ctx context.Context, key models.IssueKey, notes []mod
 	resp, err := c.client.R().SetContext(ctx).SetBody(map[string]string{bodyKey: body}).Put(path)
 
 	err = check(resp, err, http.MethodPut, path)
-	if errors.Is(err, ErrNotFound) && stale {
+	if errors.Is(err, models.ErrNotFound) && stale {
 		if notes, err = c.notes(ctx, key); err != nil {
 			return nil, err
 		}
@@ -404,7 +397,8 @@ func (c *REST) setStateLabel(ctx context.Context, key models.IssueKey, label str
 }
 
 // AccessLevel returns the access level of username on the project, including inherited membership; 0 when
-// the user is not a member. ErrNotFound and ErrForbidden mean GitLab does not show the project members to the token.
+// the user is not a member. models.ErrNotFound and models.ErrForbidden mean GitLab does not show the
+// project members to the token.
 func (c *REST) AccessLevel(ctx context.Context, projectID int64, username string) (int, error) {
 	level := 0
 	path := fmt.Sprintf("/projects/%d/members/all", projectID)
@@ -483,8 +477,8 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 	return nil
 }
 
-// CheckProject returns nil when the project is readable with the token, ErrNotFound when GitLab returns 404,
-// ErrForbidden when it returns 403.
+// CheckProject returns nil when the project is readable with the token, models.ErrNotFound when GitLab
+// returns 404, models.ErrForbidden when it returns 403.
 func (c *REST) CheckProject(ctx context.Context, projectID int64) error {
 	path := fmt.Sprintf("/projects/%d", projectID)
 	resp, err := c.client.R().SetContext(ctx).Get(path)
