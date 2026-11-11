@@ -35,7 +35,7 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 			return
 		}
 
-		enabled := view.Issue.IssueState == models.IssueOpened && models.HasLabel(view.Issue.Labels, d.cfg.TriggerLabel)
+		enabled := view.Enabled(d.cfg.TriggerLabel)
 
 		var actor models.ActorView
 
