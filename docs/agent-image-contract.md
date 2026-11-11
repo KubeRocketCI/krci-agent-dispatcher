@@ -136,7 +136,8 @@ Rules:
 | Record error | No resume. A running actor is suspended. A person removes `agent::error` to clear it. Record error `turn limit` is not cleared: `agent::error` is set again and no activation starts. |
 | Issue closed or trigger label removed | Deletes the actor in any actor state. Record done. During an activation: at the next marker, at the turn timeout, or when the actor is no longer running. |
 | Record done, actor running (for example `agent::done` set by a person) | Deletes the actor on the next request, restart recovery or sweep. Record done. |
-| Issue deleted | Deletes the actor in any actor state; nothing is written to the issue. A project that is not readable keeps the actor: a running actor, or one that cannot be read, is suspended. |
+| Issue gone: deleted, its project readable | Discards the actor: deletes it in any actor state; nothing is written to the issue. |
+| Issue unavailable: any other failed read | Keeps the actor: a running actor, or one that cannot be read, is suspended; nothing is written to the issue. |
 | Dispatcher restart | A running actor keeps running. Restart recovery continues its activation loop and reads the last marker again. |
 | Actor running or transitional with no issue lane in two sweeps in a row (`SWEEP_INTERVAL`, default 5 m) | The recover request of restart recovery: the activation loop continues, or the actor is suspended or deleted. |
 

@@ -55,7 +55,7 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 func (d *Dispatcher) poll(ctx context.Context, log *slog.Logger, key models.IssueKey, a *activation) next {
 	view, err := d.read(ctx, key, a)
 	if errors.Is(err, models.ErrNotFound) {
-		d.issueGone(ctx, log, key)
+		d.settleUnread(ctx, log, key, err)
 		return pollEnd
 	}
 
