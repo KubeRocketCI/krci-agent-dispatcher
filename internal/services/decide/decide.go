@@ -412,20 +412,20 @@ func (is facts) partial() Decision {
 func (is facts) complete() Decision {
 	f := is.f
 
-	switch f.Actor.State {
-	case models.Transitional:
+	switch st := f.Actor.State; {
+	case st.Transitional():
 		if f.Rechecks < MaxRechecks {
 			return Decision{Rule: RuleTransitionalRecheck, Action: Recheck}
 		}
 
 		return Decision{Rule: RuleActorBusy, Action: None, Writes: record(models.Error, models.ReasonActorBusy)}
-	case models.Running:
+	case st == models.Running:
 		if is.hasRec && is.rec.State == models.Working && is.labelIs(models.Working) {
 			return Decision{Rule: RuleRunningContinue, Action: Continue}
 		}
 
 		return Decision{Rule: RuleRunningContinue, Action: Continue, Writes: record(models.Working, "")}
-	case models.Crashed:
+	case st == models.Crashed:
 		if is.hasRec && is.rec.State == models.Working {
 			return Decision{
 				Rule:   RuleCrashedWorking,

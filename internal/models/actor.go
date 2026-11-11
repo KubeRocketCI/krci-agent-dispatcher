@@ -8,24 +8,36 @@ import (
 // ActorState is the Substrate actor state as the dispatcher sees it.
 type ActorState string
 
-// Actor states. Transitional covers resuming, suspending, deleting and reverting. Unknown: the actor read failed;
-// it is never taken for None.
+// Actor states. Resuming, Suspending, Reverting, Deleting and Unspecified are transitional: only the call that
+// started them, a delete, or Substrate moves them on. Unspecified: Substrate named no state, or one the dispatcher
+// does not list. Unknown: the actor read failed; it is never taken for None.
 const (
-	None         ActorState = "none"
-	Running      ActorState = "running"
-	Suspended    ActorState = "suspended"
-	Crashed      ActorState = "crashed"
-	Transitional ActorState = "transitional"
-	Unknown      ActorState = "unknown"
+	None        ActorState = "none"
+	Running     ActorState = "running"
+	Suspended   ActorState = "suspended"
+	Crashed     ActorState = "crashed"
+	Resuming    ActorState = "resuming"
+	Suspending  ActorState = "suspending"
+	Reverting   ActorState = "reverting"
+	Deleting    ActorState = "deleting"
+	Unspecified ActorState = "unspecified"
+	Unknown     ActorState = "unknown"
 )
 
-var actorStates = []ActorState{None, Running, Suspended, Crashed, Transitional, Unknown}
+var actorStates = []ActorState{
+	None, Running, Suspended, Crashed, Resuming, Suspending, Reverting, Deleting, Unspecified, Unknown,
+}
 
 // ActorStates returns every actor state.
 func ActorStates() []ActorState { return slices.Clone(actorStates) }
 
 // Settled reports whether s is none, suspended or crashed: the actor holds no worker and none is coming.
 func (s ActorState) Settled() bool { return s == None || s == Suspended || s == Crashed }
+
+// Transitional reports whether s is resuming, suspending, reverting, deleting or unspecified.
+func (s ActorState) Transitional() bool {
+	return s == Resuming || s == Suspending || s == Reverting || s == Deleting || s == Unspecified
+}
 
 // ActorSummary is one actor of a list: its name and actor state.
 type ActorSummary struct {

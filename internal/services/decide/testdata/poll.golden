@@ -1,58 +1,58 @@
 # issue: opened closed
 # trigger-label: yes no
 # stop-pending: no yes
-# actor: none template policy-only partial partial-running partial-crashed suspended running crashed transitional
+# actor: none template policy-only partial partial-running partial-crashed suspended running crashed resuming suspending reverting deleting unspecified
 # marker: none before-since at-since turn-1 turn-2 at-limit by-person
 # comment: none at-last after-last by-bot
 # elapsed: below-timeout at-timeout
 # rule actor-gone: 480 cases
 # rule crashed: 320 cases
-# rule marker-comment: 200 cases
-# rule marker-idle: 600 cases
-# rule marker-limit: 400 cases
-# rule stop-pending: 1536 cases
+# rule marker-comment: 280 cases
+# rule marker-idle: 840 cases
+# rule marker-limit: 560 cases
+# rule stop-pending: 2016 cases
 # rule suspended-by-hand: 320 cases
-# rule timeout: 240 cases
-# rule wait: 384 cases
-# issue  trigger-label  stop-pending  actor                                                                marker                                comment              elapsed        outcome
-opened   yes            *             none|template|policy-only                                            none|before-since|at-since|by-person  *                    *              actor-gone end record=error/actor-missing,label=error -
-opened   yes            *             *                                                                    turn-1                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=1/last=60
-opened   yes            *             *                                                                    turn-1                                after-last           *              marker-comment stay-resumed - marker=100/n=1/last=60
-opened   yes            *             *                                                                    turn-2                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=2/last=60
-opened   yes            *             *                                                                    turn-2                                after-last           *              marker-comment stay-resumed - marker=100/n=2/last=60
-opened   yes            *             *                                                                    at-limit                              *                    *              marker-limit suspend record=error/turn-limit,label=error marker=100/n=3/last=60
-opened   yes            *             partial|suspended                                                    none|before-since|at-since|by-person  *                    *              suspended-by-hand end record=waiting,label=waiting -
-*        *              *             partial-running|running|transitional                                 none|before-since|at-since|by-person  *                    below-timeout  wait wait - -
-opened   yes            *             partial-running|running                                              none|before-since|at-since|by-person  *                    at-timeout     timeout suspend record=error/turn-timeout,label=error -
-opened   yes            *             partial-crashed|crashed                                              none|before-since|at-since|by-person  *                    *              crashed end record=error/actor-crashed,label=error -
-opened   yes            *             transitional                                                         none|before-since|at-since|by-person  *                    at-timeout     timeout end record=error/turn-timeout,label=error -
-opened   no             no            none|template|policy-only                                            none|before-since|at-since|by-person  *                    *              actor-gone end record=error/actor-missing,label=error -
-opened   no             no            *                                                                    turn-1                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=1/last=60
-opened   no             no            *                                                                    turn-1                                after-last           *              marker-comment stay-resumed - marker=100/n=1/last=60
-opened   no             no            *                                                                    turn-2                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=2/last=60
-opened   no             no            *                                                                    turn-2                                after-last           *              marker-comment stay-resumed - marker=100/n=2/last=60
-opened   no             no            *                                                                    at-limit                              *                    *              marker-limit suspend record=error/turn-limit,label=error marker=100/n=3/last=60
-opened   no             no            partial|suspended                                                    none|before-since|at-since|by-person  *                    *              suspended-by-hand end record=waiting,label=waiting -
-opened   no             no            partial-running|running                                              none|before-since|at-since|by-person  *                    at-timeout     timeout suspend record=error/turn-timeout,label=error -
-opened   no             no            partial-crashed|crashed                                              none|before-since|at-since|by-person  *                    *              crashed end record=error/actor-crashed,label=error -
-opened   no             no            transitional                                                         none|before-since|at-since|by-person  *                    at-timeout     timeout end record=error/turn-timeout,label=error -
-opened   no             yes           none|template|policy-only|partial|partial-crashed|suspended|crashed  none|before-since|at-since|by-person  *                    *              stop-pending stop-now - -
-opened   no             yes           *                                                                    turn-1                                *                    *              stop-pending stop-now - marker=100/n=1/last=60
-opened   no             yes           *                                                                    turn-2                                *                    *              stop-pending stop-now - marker=100/n=2/last=60
-opened   no             yes           *                                                                    at-limit                              *                    *              stop-pending stop-now - marker=100/n=3/last=60
-opened   no             yes           partial-running|running|transitional                                 none|before-since|at-since|by-person  *                    at-timeout     stop-pending stop-now - -
-closed   *              no            none|template|policy-only                                            none|before-since|at-since|by-person  *                    *              actor-gone end record=error/actor-missing,label=error -
-closed   *              no            *                                                                    turn-1                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=1/last=60
-closed   *              no            *                                                                    turn-1                                after-last           *              marker-comment stay-resumed - marker=100/n=1/last=60
-closed   *              no            *                                                                    turn-2                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=2/last=60
-closed   *              no            *                                                                    turn-2                                after-last           *              marker-comment stay-resumed - marker=100/n=2/last=60
-closed   *              no            *                                                                    at-limit                              *                    *              marker-limit suspend record=error/turn-limit,label=error marker=100/n=3/last=60
-closed   *              no            partial|suspended                                                    none|before-since|at-since|by-person  *                    *              suspended-by-hand end record=waiting,label=waiting -
-closed   *              no            partial-running|running                                              none|before-since|at-since|by-person  *                    at-timeout     timeout suspend record=error/turn-timeout,label=error -
-closed   *              no            partial-crashed|crashed                                              none|before-since|at-since|by-person  *                    *              crashed end record=error/actor-crashed,label=error -
-closed   *              no            transitional                                                         none|before-since|at-since|by-person  *                    at-timeout     timeout end record=error/turn-timeout,label=error -
-closed   *              yes           none|template|policy-only|partial|partial-crashed|suspended|crashed  none|before-since|at-since|by-person  *                    *              stop-pending stop-now - -
-closed   *              yes           *                                                                    turn-1                                *                    *              stop-pending stop-now - marker=100/n=1/last=60
-closed   *              yes           *                                                                    turn-2                                *                    *              stop-pending stop-now - marker=100/n=2/last=60
-closed   *              yes           *                                                                    at-limit                              *                    *              stop-pending stop-now - marker=100/n=3/last=60
-closed   *              yes           partial-running|running|transitional                                 none|before-since|at-since|by-person  *                    at-timeout     stop-pending stop-now - -
+# rule timeout: 560 cases
+# rule wait: 896 cases
+# issue  trigger-label  stop-pending  actor                                                                       marker                                comment              elapsed        outcome
+opened   yes            *             none|template|policy-only                                                   none|before-since|at-since|by-person  *                    *              actor-gone end record=error/actor-missing,label=error -
+opened   yes            *             *                                                                           turn-1                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=1/last=60
+opened   yes            *             *                                                                           turn-1                                after-last           *              marker-comment stay-resumed - marker=100/n=1/last=60
+opened   yes            *             *                                                                           turn-2                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=2/last=60
+opened   yes            *             *                                                                           turn-2                                after-last           *              marker-comment stay-resumed - marker=100/n=2/last=60
+opened   yes            *             *                                                                           at-limit                              *                    *              marker-limit suspend record=error/turn-limit,label=error marker=100/n=3/last=60
+opened   yes            *             partial|suspended                                                           none|before-since|at-since|by-person  *                    *              suspended-by-hand end record=waiting,label=waiting -
+*        *              *             partial-running|running|resuming|suspending|reverting|deleting|unspecified  none|before-since|at-since|by-person  *                    below-timeout  wait wait - -
+opened   yes            *             partial-running|running                                                     none|before-since|at-since|by-person  *                    at-timeout     timeout suspend record=error/turn-timeout,label=error -
+opened   yes            *             partial-crashed|crashed                                                     none|before-since|at-since|by-person  *                    *              crashed end record=error/actor-crashed,label=error -
+opened   yes            *             resuming|suspending|reverting|deleting|unspecified                          none|before-since|at-since|by-person  *                    at-timeout     timeout end record=error/turn-timeout,label=error -
+opened   no             no            none|template|policy-only                                                   none|before-since|at-since|by-person  *                    *              actor-gone end record=error/actor-missing,label=error -
+opened   no             no            *                                                                           turn-1                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=1/last=60
+opened   no             no            *                                                                           turn-1                                after-last           *              marker-comment stay-resumed - marker=100/n=1/last=60
+opened   no             no            *                                                                           turn-2                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=2/last=60
+opened   no             no            *                                                                           turn-2                                after-last           *              marker-comment stay-resumed - marker=100/n=2/last=60
+opened   no             no            *                                                                           at-limit                              *                    *              marker-limit suspend record=error/turn-limit,label=error marker=100/n=3/last=60
+opened   no             no            partial|suspended                                                           none|before-since|at-since|by-person  *                    *              suspended-by-hand end record=waiting,label=waiting -
+opened   no             no            partial-running|running                                                     none|before-since|at-since|by-person  *                    at-timeout     timeout suspend record=error/turn-timeout,label=error -
+opened   no             no            partial-crashed|crashed                                                     none|before-since|at-since|by-person  *                    *              crashed end record=error/actor-crashed,label=error -
+opened   no             no            resuming|suspending|reverting|deleting|unspecified                          none|before-since|at-since|by-person  *                    at-timeout     timeout end record=error/turn-timeout,label=error -
+opened   no             yes           none|template|policy-only|partial|partial-crashed|suspended|crashed         none|before-since|at-since|by-person  *                    *              stop-pending stop-now - -
+opened   no             yes           *                                                                           turn-1                                *                    *              stop-pending stop-now - marker=100/n=1/last=60
+opened   no             yes           *                                                                           turn-2                                *                    *              stop-pending stop-now - marker=100/n=2/last=60
+opened   no             yes           *                                                                           at-limit                              *                    *              stop-pending stop-now - marker=100/n=3/last=60
+opened   no             yes           partial-running|running|resuming|suspending|reverting|deleting|unspecified  none|before-since|at-since|by-person  *                    at-timeout     stop-pending stop-now - -
+closed   *              no            none|template|policy-only                                                   none|before-since|at-since|by-person  *                    *              actor-gone end record=error/actor-missing,label=error -
+closed   *              no            *                                                                           turn-1                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=1/last=60
+closed   *              no            *                                                                           turn-1                                after-last           *              marker-comment stay-resumed - marker=100/n=1/last=60
+closed   *              no            *                                                                           turn-2                                none|at-last|by-bot  *              marker-idle suspend record=waiting,label=waiting marker=100/n=2/last=60
+closed   *              no            *                                                                           turn-2                                after-last           *              marker-comment stay-resumed - marker=100/n=2/last=60
+closed   *              no            *                                                                           at-limit                              *                    *              marker-limit suspend record=error/turn-limit,label=error marker=100/n=3/last=60
+closed   *              no            partial|suspended                                                           none|before-since|at-since|by-person  *                    *              suspended-by-hand end record=waiting,label=waiting -
+closed   *              no            partial-running|running                                                     none|before-since|at-since|by-person  *                    at-timeout     timeout suspend record=error/turn-timeout,label=error -
+closed   *              no            partial-crashed|crashed                                                     none|before-since|at-since|by-person  *                    *              crashed end record=error/actor-crashed,label=error -
+closed   *              no            resuming|suspending|reverting|deleting|unspecified                          none|before-since|at-since|by-person  *                    at-timeout     timeout end record=error/turn-timeout,label=error -
+closed   *              yes           none|template|policy-only|partial|partial-crashed|suspended|crashed         none|before-since|at-since|by-person  *                    *              stop-pending stop-now - -
+closed   *              yes           *                                                                           turn-1                                *                    *              stop-pending stop-now - marker=100/n=1/last=60
+closed   *              yes           *                                                                           turn-2                                *                    *              stop-pending stop-now - marker=100/n=2/last=60
+closed   *              yes           *                                                                           at-limit                              *                    *              stop-pending stop-now - marker=100/n=3/last=60
+closed   *              yes           partial-running|running|resuming|suspending|reverting|deleting|unspecified  none|before-since|at-since|by-person  *                    at-timeout     stop-pending stop-now - -
