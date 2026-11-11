@@ -9,7 +9,6 @@ import (
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/templates"
 )
@@ -166,7 +165,7 @@ func ResumeNoRoom(t *testing.T, f *substratetest.Fake, p port) {
 	f.SetNoRoom(true)
 
 	err := p.Resume(context.Background(), actor)
-	require.ErrorIs(t, err, substrate.ErrNoRoom)
+	require.ErrorIs(t, err, models.ErrNoRoom)
 
 	v, _ := p.Inspect(context.Background(), actor)
 	assert.Equal(t, models.Suspended, v.State)
@@ -195,9 +194,9 @@ func ResumeSuspendRevert(t *testing.T, f *substratetest.Fake, p port) {
 func NotFound(t *testing.T, _ *substratetest.Fake, p port) {
 	ctx := context.Background()
 
-	require.ErrorIs(t, p.Resume(ctx, actor), substrate.ErrNotFound)
-	require.ErrorIs(t, p.Suspend(ctx, actor), substrate.ErrNotFound)
-	require.ErrorIs(t, p.Revert(ctx, actor), substrate.ErrNotFound)
+	require.ErrorIs(t, p.Resume(ctx, actor), models.ErrActorNotFound)
+	require.ErrorIs(t, p.Suspend(ctx, actor), models.ErrActorNotFound)
+	require.ErrorIs(t, p.Revert(ctx, actor), models.ErrActorNotFound)
 }
 
 func ListByPrefix(t *testing.T, f *substratetest.Fake, p port) {

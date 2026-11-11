@@ -196,7 +196,7 @@ func (f *Fake) opLocked(op, name string) { f.ops = append(f.ops, op+" "+name) }
 var errAlreadyExists = errors.New("already exists")
 
 func notFound(kind, name string) error {
-	return fmt.Errorf("%s %s: %w", kind, name, substrate.ErrNotFound)
+	return fmt.Errorf("%s %s: %w", kind, name, models.ErrActorNotFound)
 }
 
 // Inspect implements the Substrate port.
@@ -356,7 +356,7 @@ func (f *Fake) resumeLocked(name string) error {
 	}
 
 	if f.noRoom {
-		return fmt.Errorf("resume %s: %w", name, substrate.ErrNoRoom)
+		return fmt.Errorf("resume %s: %w", name, models.ErrNoRoom)
 	}
 
 	a.state, a.pod = ateapi.ActorState_ACTOR_STATE_RUNNING, "workers-pod-0"
@@ -483,11 +483,11 @@ func toStatus(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, substrate.ErrNotFound):
+	case errors.Is(err, models.ErrActorNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, errAlreadyExists):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, substrate.ErrNoRoom):
+	case errors.Is(err, models.ErrNoRoom):
 		return status.Error(codes.ResourceExhausted, "no worker has room for the actor")
 	default:
 		return status.Error(codes.Internal, err.Error())
