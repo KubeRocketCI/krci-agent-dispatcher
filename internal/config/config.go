@@ -25,6 +25,7 @@ type Config struct {
 	HookToken        string
 	BotUsername      string
 	TriggerLabel     string
+	TriggerMinRole   models.Role
 	ATEAPIAddr       string
 	ATETokenFile     string
 	ATECAFile        string
@@ -79,6 +80,15 @@ func Load() (*Config, error) {
 		return n
 	}
 
+	role := func(name, def string) models.Role {
+		r, err := models.ParseRole(orDefault(name, def))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s %w", name, err))
+		}
+
+		return r
+	}
+
 	gitLabURL := func(name string) models.GitLabURL {
 		v := required(name)
 		if v == "" {
@@ -102,6 +112,7 @@ func Load() (*Config, error) {
 		HookToken:        required("HOOK_TOKEN"),
 		BotUsername:      orDefault("BOT_USERNAME", "krci-agent"),
 		TriggerLabel:     orDefault("TRIGGER_LABEL", "agent"),
+		TriggerMinRole:   role("TRIGGER_MIN_ROLE", "developer"),
 		ATEAPIAddr:       orDefault("ATE_API_ADDR", "api.ate-system.svc:443"),
 		ATETokenFile:     orDefault("ATE_TOKEN_FILE", "/var/run/ate/token"),
 		ATECAFile:        orDefault("ATE_CA_FILE", "/var/run/ate/ca.crt"),

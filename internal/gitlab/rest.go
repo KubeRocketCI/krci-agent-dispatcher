@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -29,18 +30,20 @@ const (
 
 // REST talks to the GitLab REST API v4 with a personal access token sent in the PRIVATE-TOKEN header.
 type REST struct {
-	client *resty.Client
-	bot    string
+	client  *resty.Client
+	bot     string
+	trigger models.Role
+	log     *slog.Logger
 }
 
 // Option configures NewREST.
-type Option func(*resty.Client)
+type Option func(*REST)
 
 // WithTokenFile reads the token from path on each request, so a rotated Secret takes effect without a restart.
 // It replaces the token argument of NewREST.
 func WithTokenFile(path string) Option {
-	return func(c *resty.Client) {
-		c.OnBeforeRequest(func(_ *resty.Client, r *resty.Request) error {
+	return func(c *REST) {
+		c.client.OnBeforeRequest(func(_ *resty.Client, r *resty.Request) error {
 			b, err := os.ReadFile(path)
 			if err != nil {
 				return fmt.Errorf("read GitLab token file: %w", err)
@@ -58,9 +61,19 @@ func WithTokenFile(path string) Option {
 	}
 }
 
+// WithLogger sets the logger; the default is slog.Default().
+func WithLogger(log *slog.Logger) Option {
+	return func(c *REST) { c.log = log }
+}
+
 // NewREST returns a REST adapter for baseURL. caFile, when set, adds a PEM CA bundle to the system roots.
-// bot is the token's user: the author of the status note and of the notes it writes.
-func NewREST(baseURL, token, caFile, bot string, opts ...Option) (*REST, error) {
+// bot is the token's user: the author of the status note and of the notes it writes. trigger is the trigger role:
+// developer, maintainer or owner.
+func NewREST(baseURL, token, caFile, bot string, trigger models.Role, opts ...Option) (*REST, error) {
+	if !trigger.IsTrigger() {
+		return nil, fmt.Errorf("trigger role %s is not developer, maintainer or owner", trigger)
+	}
+
 	client := resty.New().
 		SetBaseURL(strings.TrimRight(baseURL, "/")+"/api/v4").
 		SetHeader("Accept", "application/json").
@@ -70,8 +83,9 @@ func NewREST(baseURL, token, caFile, bot string, opts ...Option) (*REST, error) 
 		client.SetHeader("PRIVATE-TOKEN", token)
 	}
 
+	c := &REST{client: client, bot: bot, trigger: trigger, log: slog.Default()}
 	for _, o := range opts {
-		o(client)
+		o(c)
 	}
 
 	if caFile != "" {
@@ -92,7 +106,7 @@ func NewREST(baseURL, token, caFile, bot string, opts ...Option) (*REST, error) 
 		client.SetTLSClientConfig(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12})
 	}
 
-	return &REST{client: client, bot: bot}, nil
+	return c, nil
 }
 
 type apiIssue struct {
@@ -396,10 +410,31 @@ func (c *REST) setStateLabel(ctx context.Context, key models.IssueKey, label str
 	return check(resp, err, http.MethodPut, path)
 }
 
-// AccessLevel returns the access level of username on the project, including inherited membership; 0 when
-// the user is not a member. models.ErrNotFound and models.ErrForbidden mean GitLab does not show the
-// project members to the token.
-func (c *REST) AccessLevel(ctx context.Context, projectID int64, username string) (int, error) {
+// CanTrigger reports whether username, matched case-insensitively, has the trigger role or higher on the project,
+// including inherited membership. An empty username, a non-member and a members list that GitLab does not show to
+// the token (404, 403) mean false; the last is logged as a warning.
+func (c *REST) CanTrigger(ctx context.Context, projectID int64, username string) (bool, error) {
+	if username == "" {
+		return false, nil
+	}
+
+	level, err := c.accessLevel(ctx, projectID, username)
+
+	switch {
+	case errors.Is(err, models.ErrNotFound), errors.Is(err, models.ErrForbidden):
+		c.log.Warn("Project members not shown to the bot user; the user cannot trigger the agent",
+			"project", projectID, "user", username, "error", err)
+
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+
+	return models.Role(level) >= c.trigger, nil
+}
+
+// accessLevel returns the highest access level of username on the project; 0 when the user is not a member.
+func (c *REST) accessLevel(ctx context.Context, projectID int64, username string) (int, error) {
 	level := 0
 	path := fmt.Sprintf("/projects/%d/members/all", projectID)
 

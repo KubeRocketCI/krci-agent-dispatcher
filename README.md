@@ -51,11 +51,21 @@ sequenceDiagram
 
 | You do | The agent |
 |---|---|
-| Add the `agent` label to an open issue | starts and takes its first turn |
-| Comment (Developer or higher) | takes the next turn |
+| Add the `agent` label to an open issue (trigger role or higher) | starts and takes its first turn |
+| Comment (trigger role or higher) | takes the next turn |
 | Close the issue, or remove the label | stops; its sandbox is deleted |
 
 The state label shows where the agent is: `agent::working`, `agent::waiting`, `agent::done`, `agent::error`. The status note on the issue shows the details.
+
+The trigger role is the lowest GitLab project role whose users can start the agent and write trigger comments. Set it with `TRIGGER_MIN_ROLE` (chart value `config.triggerMinRole`):
+
+| Value | Who can trigger the agent |
+|---|---|
+| `developer` (default) | Developers, Maintainers, Owners |
+| `maintainer` | Maintainers, Owners |
+| `owner` | Owners |
+
+Values are case-insensitive. `guest`, `reporter` and any other value stop the dispatcher at start: the agent pushes with the bot user's token, so only users who can push trigger it.
 
 ## Limitations
 

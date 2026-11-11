@@ -13,18 +13,19 @@ import (
 // MaxRechecks is the number of re-checks of a transitional actor before the actor busy error.
 const MaxRechecks = 3
 
-// Limits are the fixed rules of one dispatcher.
+// Limits are the fixed rules of one dispatcher. TriggerRole names the role in the start-refused note.
 type Limits struct {
 	TurnLimit    int
 	Bot          string
 	TriggerLabel string
+	TriggerRole  models.Role
 	TurnTimeout  time.Duration
 }
 
 // Facts are what the issue lane read for one request.
-// TriggerAfterLast: a trigger comment (author ≥ Developer) has a note id above the last marker's last=.
-// AuthorOK: the request author has access level ≥ Developer (start and clear-error requests).
-// AuthorUnknown: the access level of the request author could not be read (start and clear-error requests).
+// TriggerAfterLast: a trigger comment has a note id above the last marker's last=.
+// AuthorOK: the request author has the trigger role or higher (start and clear-error requests).
+// AuthorUnknown: the check of the request author failed (start and clear-error requests).
 // Rechecks: how many times a transitional actor was re-read for this request.
 type Facts struct {
 	View             models.IssueView
@@ -92,12 +93,12 @@ const (
 
 	// No actor, record working or waiting. Record error, reason actor missing.
 	RuleActorMissing Rule = "actor-missing"
-	// No actor, start request, author Developer or higher. Create.
+	// No actor, start request, author can trigger. Create.
 	RuleStartCreate Rule = "start-create"
 	// No actor, no record, request other than start and clear-error. Nothing.
 	RuleNoActorIgnored Rule = "no-actor-ignored"
 
-	// Partial create, start request, author Developer or higher. Create.
+	// Partial create, start request, author can trigger. Create.
 	RuleStartPartialCreate Rule = "start-partial-create"
 	// Partial create, record working or waiting, request other than start. Record error, reason actor missing.
 	RulePartialCreateActorMissing Rule = "partial-create-actor-missing"
@@ -106,13 +107,13 @@ const (
 	// Partial create, no record, request other than start, clear-error and recover. Nothing.
 	RulePartialCreateIgnored Rule = "partial-create-ignored"
 
-	// No complete actor, start or clear-error request, author access level unknown. No create, no note; the state
+	// No complete actor, start or clear-error request, author check failed. No create, no note; the state
 	// label is set from the status note record.
 	RuleAuthorUnknown Rule = "author-unknown"
-	// No complete actor, start or clear-error request, author below Developer. The start-refused note; the state
+	// No complete actor, start or clear-error request, author cannot trigger. The start-refused note; the state
 	// label is set from the status note record.
 	RuleStartRefused Rule = "start-refused"
-	// No complete actor, clear-error request, author Developer or higher. Create.
+	// No complete actor, clear-error request, author can trigger. Create.
 	RuleClearErrorCreate Rule = "clear-error-create"
 
 	// Complete actor, transitional, re-checks below MaxRechecks. Recheck.
@@ -263,9 +264,8 @@ func (is facts) disabled() Decision {
 	return is.repair(RuleNotEnabledDone)
 }
 
-// create returns Create under rule for an author with access level ≥ Developer, the start-refused note for one
-// below it, and neither for an unknown access level. Without a create the state label is set from the record of
-// the view.
+// create returns Create under rule for an author who can trigger, the start-refused note for one who cannot, and
+// neither when that is unknown. Without a create the state label is set from the record of the view.
 func (is facts) create(rule Rule) Decision {
 	var d Decision
 
@@ -276,7 +276,8 @@ func (is facts) create(rule Rule) Decision {
 		return Decision{Rule: rule, Action: Create}
 	default:
 		d = Decision{Rule: RuleStartRefused, Action: None, Writes: models.Writes{Notes: []models.NewNote{{
-			Body: models.StartRefusedText + "\n" + models.StartRefusedMarker, Marker: models.StartRefusedMarker,
+			Body:   models.StartRefusedText(is.l.TriggerRole) + "\n" + models.StartRefusedMarker,
+			Marker: models.StartRefusedMarker,
 		}}}}
 	}
 

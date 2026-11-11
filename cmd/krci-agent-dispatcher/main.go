@@ -60,6 +60,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		"version", info.Version, "git-commit", info.GitCommit, "git-tag", info.GitTag,
 		"build-date", info.BuildDate, "go-version", info.Go, "platform", info.Platform,
 		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL.String(),
+		"trigger-role", cfg.TriggerMinRole.String(),
 	)
 
 	if !cfg.AgentImagePinned() {
@@ -67,12 +68,13 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 			"agent-image", cfg.AgentImage, "want", "<repo>[:<tag>]@sha256:<digest>")
 	}
 
-	var glOpts []gitlab.Option
+	glOpts := []gitlab.Option{gitlab.WithLogger(log)}
 	if cfg.GitLabTokenFile != "" {
 		glOpts = append(glOpts, gitlab.WithTokenFile(cfg.GitLabTokenFile))
 	}
 
-	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), cfg.GitLabToken, cfg.GitLabCAFile, cfg.BotUsername, glOpts...)
+	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), cfg.GitLabToken, cfg.GitLabCAFile, cfg.BotUsername,
+		cfg.TriggerMinRole, glOpts...)
 	if err != nil {
 		return err
 	}
@@ -88,7 +90,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	defer func() { _ = sb.Close() }()
 
 	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
-		Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel,
+		Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel, TriggerRole: cfg.TriggerMinRole,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		Logger: log,
 	})

@@ -82,8 +82,12 @@ _Avoid_: agent (for the user), service account
 An issue note written by a person. The agent reads every comment.
 _Avoid_: human note, message
 
+**Trigger role**:
+The lowest Git provider role whose users can trigger the agent; on GitLab `developer`, `maintainer` or `owner`, default `developer`.
+_Avoid_: access level, min role
+
 **Trigger comment**:
-A comment by a project member with Developer access or higher; only these resume a suspended actor.
+A comment by a user with the trigger role or higher. Only these resume a suspended actor.
 _Avoid_: authorized comment, developer comment
 
 **Reply**:

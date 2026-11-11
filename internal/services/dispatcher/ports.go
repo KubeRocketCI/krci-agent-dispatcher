@@ -8,14 +8,18 @@ import (
 )
 
 // GitLab is the dispatcher's view of the Git provider.
+//
 // Refresh returns prev with the issue fields read again and the notes created or edited since prev was read; a
-// note deleted since then stays. Write finds the status note and the marker notes in known; nil makes it read them.
+// note deleted since then stays.
+//
+// Write finds the status note and the marker notes in known; nil makes it read them.
+//
+// CanTrigger reports whether username has the trigger role or higher on the project. An empty username and a
+// project whose members are not shown to the bot user mean false.
 //
 // Errors:
 //   - Load, Refresh, Write: models.ErrNotFound when the issue or its project does not exist;
 //     models.ErrForbidden when the Git provider refuses the bot user's token.
-//   - AccessLevel: models.ErrNotFound or models.ErrForbidden when the project members are not shown to the
-//     bot user.
 //   - NoteMergeRequest, CheckProject: models.ErrNotFound when the project does not exist; models.ErrForbidden
 //     when the Git provider refuses the bot user's token.
 //   - Any other error is a failed call; the dispatcher retries it.
@@ -23,7 +27,7 @@ type GitLab interface {
 	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
 	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
 	Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error
-	AccessLevel(ctx context.Context, projectID int64, username string) (int, error)
+	CanTrigger(ctx context.Context, projectID int64, username string) (bool, error)
 	NoteMergeRequest(ctx context.Context, projectID int64, sourceBranch string, n models.NewNote) error
 	CheckProject(ctx context.Context, projectID int64) error
 }

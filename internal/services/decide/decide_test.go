@@ -18,7 +18,9 @@ import (
 
 const bot = "krci-agent"
 
-var limits = Limits{TurnLimit: 3, Bot: bot, TriggerLabel: "agent", TurnTimeout: 15 * time.Minute}
+var limits = Limits{
+	TurnLimit: 3, Bot: bot, TriggerLabel: "agent", TriggerRole: models.Developer, TurnTimeout: 15 * time.Minute,
+}
 
 var key = models.IssueKey{ProjectID: 12, IID: 7}
 
@@ -67,7 +69,7 @@ func lbl(s models.AgentState) string { return models.StateLabel(s) }
 var (
 	refusedNote      = models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
 	startRefusedNote = models.NewNote{
-		Body:   models.StartRefusedText + "\n" + models.StartRefusedMarker,
+		Body:   models.StartRefusedText(models.Developer) + "\n" + models.StartRefusedMarker,
 		Marker: models.StartRefusedMarker,
 	}
 )
@@ -693,6 +695,25 @@ func TestDecideTable(t *testing.T) {
 	for _, c := range decideCases() {
 		t.Run(c.name, func(t *testing.T) {
 			assert.Equal(t, c.want, Decide(c.facts, limits))
+		})
+	}
+}
+
+func TestDecideStartRefusedNamesTriggerRole(t *testing.T) {
+	for r, text := range map[models.Role]string{
+		models.Developer:  "Only Developers or higher can start the agent.",
+		models.Maintainer: "Only Maintainers or higher can start the agent.",
+		models.Owner:      "Only Owners or higher can start the agent.",
+	} {
+		t.Run(r.String(), func(t *testing.T) {
+			l := limits
+			l.TriggerRole = r
+
+			got := Decide(Facts{View: open("agent").v, Actor: noActor, Request: intake.Start}, l)
+
+			want := models.NewNote{Body: text + "\n" + models.StartRefusedMarker, Marker: models.StartRefusedMarker}
+			assert.Equal(t, Decision{Rule: RuleStartRefused, Action: None,
+				Writes: models.Writes{Notes: []models.NewNote{want}}}, got)
 		})
 	}
 }

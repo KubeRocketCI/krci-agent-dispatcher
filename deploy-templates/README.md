@@ -25,6 +25,7 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
 | config.pollInterval | string | `"10s"` | Marker poll interval. |
 | config.triggerLabel | string | `"agent"` | Label that enables the agent. |
+| config.triggerMinRole | string | `"developer"` | Trigger role: lowest GitLab project role that can start the agent and write trigger comments: developer, maintainer or owner. |
 | config.turnLimit | int | `20` | Turn limit per issue. |
 | config.turnTimeout | string | `"15m"` | Dispatcher wait for one turn's marker. |
 | fullnameOverride | string | `""` | Overrides the full name. |

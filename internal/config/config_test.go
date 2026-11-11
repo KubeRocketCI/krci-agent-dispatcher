@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
 const (
@@ -36,6 +38,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "krci-agents", cfg.SecretsNamespace)
 	assert.Equal(t, "krci-agent", cfg.BotUsername)
 	assert.Equal(t, "agent", cfg.TriggerLabel)
+	assert.Equal(t, models.Developer, cfg.TriggerMinRole)
 	assert.Equal(t, "api.ate-system.svc:443", cfg.ATEAPIAddr)
 	assert.Equal(t, "/var/run/ate/token", cfg.ATETokenFile)
 	assert.Equal(t, "/var/run/ate/ca.crt", cfg.ATECAFile)
@@ -180,6 +183,35 @@ func TestLoadCanonicalGitLabURL(t *testing.T) {
 			cfg, err := Load()
 			require.NoError(t, err)
 			assert.Equal(t, want, cfg.GitLabURL.String())
+		})
+	}
+}
+
+func TestLoadTriggerMinRole(t *testing.T) {
+	for name, want := range map[string]models.Role{
+		"developer": models.Developer, "maintainer": models.Maintainer, "owner": models.Owner,
+		"Developer": models.Developer, "Maintainer": models.Maintainer, " maintainer ": models.Maintainer,
+	} {
+		t.Run(name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TRIGGER_MIN_ROLE", name)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, want, cfg.TriggerMinRole)
+		})
+	}
+}
+
+func TestLoadRejectsTriggerMinRole(t *testing.T) {
+	for _, v := range []string{"guest", "reporter", "Reporter", "admin", "30"} {
+		t.Run(v, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TRIGGER_MIN_ROLE", v)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "TRIGGER_MIN_ROLE must be one of developer, maintainer, owner")
 		})
 	}
 }

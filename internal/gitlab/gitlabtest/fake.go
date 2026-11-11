@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -41,31 +42,33 @@ type mergeRequest struct {
 
 // Fake is an in-memory GitLab: projects, issues, notes, merge requests, project members. A project exists once
 // an issue of it was added; deleting the issue keeps the project. Each added or edited issue note gets a later
-// UpdatedAt than the one before. Safe for concurrent use.
+// UpdatedAt than the one before. The trigger role is models.Developer unless set. Safe for concurrent use.
 type Fake struct {
-	mu        sync.Mutex
-	bot       string
-	projects  map[int64]bool
-	forbidden map[int64]bool
-	issues    map[models.IssueKey]*issue
-	mrs       map[mrKey]*mergeRequest
-	notes     map[models.IssueKey][]models.Note
-	members   map[int64]map[string]int
-	nextID    int64
-	ops       []string
-	loadErr   []error
-	writeErr  []error
-	accessErr error
-	accessQ   []error
-	mrErr     []error
-	projErr   []error
-	accessN   int
-	loadN     int
-	refreshN  int
-	blindN    int
-	clock     time.Time
-	onWrite   func(key models.IssueKey, w models.Writes)
-	onLoad    func(key models.IssueKey)
+	mu            sync.Mutex
+	bot           string
+	projects      map[int64]bool
+	forbidden     map[int64]bool
+	issues        map[models.IssueKey]*issue
+	mrs           map[mrKey]*mergeRequest
+	notes         map[models.IssueKey][]models.Note
+	members       map[int64]map[string]int
+	trigger       models.Role
+	nextID        int64
+	ops           []string
+	loadErr       []error
+	writeErr      []error
+	canTriggerErr error
+	canTriggerQ   []error
+	mrErr         []error
+	projErr       []error
+	canTriggerN   int
+	membersN      int
+	loadN         int
+	refreshN      int
+	blindN        int
+	clock         time.Time
+	onWrite       func(key models.IssueKey, w models.Writes)
+	onLoad        func(key models.IssueKey)
 }
 
 // NewFake returns an empty fake; notes written through the port are authored by bot.
@@ -78,6 +81,7 @@ func NewFake(bot string) *Fake {
 		mrs:       map[mrKey]*mergeRequest{},
 		notes:     map[models.IssueKey][]models.Note{},
 		members:   map[int64]map[string]int{},
+		trigger:   models.Developer,
 		nextID:    100,
 		clock:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
@@ -270,20 +274,29 @@ func (f *Fake) FailWrite(errs ...error) {
 	f.writeErr = append(f.writeErr, errs...)
 }
 
-// FailAccess makes every AccessLevel call return err; nil clears it.
-func (f *Fake) FailAccess(err error) {
+// SetTriggerRole sets the lowest role that can trigger the agent.
+func (f *Fake) SetTriggerRole(r models.Role) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.accessErr = err
+	f.trigger = r
 }
 
-// FailAccessNext makes the next AccessLevel calls return errs, one per call.
-func (f *Fake) FailAccessNext(errs ...error) {
+// FailCanTrigger makes every members lookup fail with err; nil clears it. Through the port and the Handler,
+// models.ErrNotFound and models.ErrForbidden mean false, any other error is returned.
+func (f *Fake) FailCanTrigger(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.accessQ = append(f.accessQ, errs...)
+	f.canTriggerErr = err
+}
+
+// FailCanTriggerNext makes the next members lookups fail with errs, one per lookup, as FailCanTrigger.
+func (f *Fake) FailCanTriggerNext(errs ...error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.canTriggerQ = append(f.canTriggerQ, errs...)
 }
 
 // OnLoad calls fn at the start of each Load through the port, outside the fake's lock.
@@ -326,12 +339,20 @@ func (f *Fake) OnWrite(fn func(key models.IssueKey, w models.Writes)) {
 	f.onWrite = fn
 }
 
-// AccessCalls returns how many AccessLevel calls the port served.
-func (f *Fake) AccessCalls() int {
+// CanTriggerCalls returns how many CanTrigger calls the port served.
+func (f *Fake) CanTriggerCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	return f.accessN
+	return f.canTriggerN
+}
+
+// MembersLookups returns how many project members lookups the port and the Handler served.
+func (f *Fake) MembersLookups() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.membersN
 }
 
 // Labels returns the labels of an issue.
@@ -512,26 +533,51 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 	return nil
 }
 
-// AccessLevel implements the GitLab port.
-func (f *Fake) AccessLevel(_ context.Context, projectID int64, username string) (int, error) {
+// CanTrigger implements the GitLab port; usernames match case-insensitively.
+func (f *Fake) CanTrigger(_ context.Context, projectID int64, username string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.accessN++
+	f.canTriggerN++
 
-	if err := popErr(&f.accessQ); err != nil {
-		return 0, err
+	if username == "" {
+		return false, nil
 	}
 
-	if f.accessErr != nil {
-		return 0, f.accessErr
+	err := f.canTriggerFailLocked(projectID)
+
+	switch {
+	case errors.Is(err, models.ErrNotFound), errors.Is(err, models.ErrForbidden):
+		return false, nil
+	case err != nil:
+		return false, err
 	}
 
-	if err := f.forbiddenLocked(projectID); err != nil {
-		return 0, err
+	level := 0
+
+	for u, l := range f.members[projectID] {
+		if strings.EqualFold(u, username) {
+			level = max(level, l)
+		}
 	}
 
-	return f.members[projectID][username], nil
+	return models.Role(level) >= f.trigger, nil
+}
+
+// canTriggerFailLocked counts a members lookup and returns its error: the next queued one, else the sticky one,
+// else models.ErrForbidden for a project set with SetForbidden.
+func (f *Fake) canTriggerFailLocked(projectID int64) error {
+	f.membersN++
+
+	if err := popErr(&f.canTriggerQ); err != nil {
+		return err
+	}
+
+	if f.canTriggerErr != nil {
+		return f.canTriggerErr
+	}
+
+	return f.forbiddenLocked(projectID)
 }
 
 // NoteMergeRequest implements the GitLab port.
@@ -924,6 +970,14 @@ func (f *Fake) listMembers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("query")
 
 	f.mu.Lock()
+
+	if err := f.canTriggerFailLocked(pid); err != nil {
+		f.mu.Unlock()
+		writeError(w, err)
+
+		return
+	}
+
 	type member struct {
 		Username    string `json:"username"`
 		AccessLevel int    `json:"access_level"`
@@ -932,7 +986,7 @@ func (f *Fake) listMembers(w http.ResponseWriter, r *http.Request) {
 	var all []member
 
 	for u, lvl := range f.members[pid] {
-		if strings.Contains(u, query) {
+		if strings.Contains(strings.ToLower(u), strings.ToLower(query)) {
 			all = append(all, member{Username: u, AccessLevel: lvl})
 		}
 	}
@@ -995,6 +1049,18 @@ func splitList(s string) []string {
 	}
 
 	return out
+}
+
+// writeError writes err as GitLab does: 404 for models.ErrNotFound, 403 for models.ErrForbidden, else 500.
+func writeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, models.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{messageKey: notFoundMsg})
+	case errors.Is(err, models.ErrForbidden):
+		writeJSON(w, http.StatusForbidden, map[string]string{messageKey: forbiddenMsg})
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{messageKey: "500 Internal Server Error"})
+	}
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

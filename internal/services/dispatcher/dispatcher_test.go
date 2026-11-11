@@ -391,9 +391,22 @@ func TestStartRefusedForReporter(t *testing.T) {
 
 	assert.Empty(t, e.sb.Ops())
 	assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
+	assert.Equal(t, 1, e.notesWith("Only Developers or higher can start the agent."))
 	assert.Empty(t, e.stateLabels())
 	_, ok := e.gl.Record(key)
 	assert.False(t, ok)
+}
+
+func TestStartRefusedNamesTriggerRole(t *testing.T) {
+	e := newEnvWith(t, func(c *dispatcher.Config) { c.TriggerRole = models.Maintainer })
+	e.gl.SetTriggerRole(models.Maintainer)
+	e.issue(models.IssueOpened, nil, "agent")
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Empty(t, e.sb.Ops(), "a developer is below the maintainer trigger role")
+	assert.Equal(t, 1, e.notesWith("Only Maintainers or higher can start the agent."))
 }
 
 func TestStartAllowedForDeveloper(t *testing.T) {
@@ -411,7 +424,7 @@ func TestStartAllowedForDeveloper(t *testing.T) {
 func TestStartAuthorLookupRetried(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
-	e.gl.FailAccessNext(errRP, errRP)
+	e.gl.FailCanTriggerNext(errRP, errRP)
 	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.Start, dev)
@@ -425,38 +438,21 @@ func TestStartAuthorLookupRetried(t *testing.T) {
 func TestStartAuthorLookupErrorNotRefused(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
-	e.gl.FailAccess(errors.New("gitlab down"))
+	e.gl.FailCanTrigger(errors.New("gitlab down"))
 	e.run()
 	e.handle(intake.Start, dev)
 	e.idle()
 
 	assert.Empty(t, e.sb.Ops())
 	assert.Empty(t, e.gl.Ops(), "a failed lookup is not a refusal")
-	assert.Equal(t, 4, e.gl.AccessCalls())
-	assert.Contains(t, e.logs.String(), "Cannot read the access level of the request author")
-}
-
-func TestStartAuthorLookupDefiniteAnswerRefused(t *testing.T) {
-	for name, err := range map[string]error{"not found": models.ErrNotFound, "forbidden": models.ErrForbidden} {
-		t.Run(name, func(t *testing.T) {
-			e := newEnv(t)
-			e.issue(models.IssueOpened, nil, "agent")
-			e.gl.FailAccess(fmt.Errorf("members: %w", err))
-			e.run()
-			e.handle(intake.Start, dev)
-			e.idle()
-
-			assert.Empty(t, e.sb.Ops())
-			assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
-			assert.Equal(t, 1, e.gl.AccessCalls(), "a definite answer is not retried")
-		})
-	}
+	assert.Equal(t, 4, e.gl.CanTriggerCalls())
+	assert.Contains(t, e.logs.String(), "Cannot check whether the request author can trigger the agent")
 }
 
 func TestStartLookupErrorKeepsDecisionWithoutAuthor(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "agent")
-	e.gl.FailAccess(errRP)
+	e.gl.FailCanTrigger(errRP)
 	e.run()
 	e.handle(intake.Start, dev)
 	e.idle()
@@ -1404,7 +1400,7 @@ func TestNoAccessLookupForDisabledIssue(t *testing.T) {
 	e.handle(intake.Activate, dev)
 	e.idle()
 
-	assert.Equal(t, 0, e.gl.AccessCalls())
+	assert.Equal(t, 0, e.gl.CanTriggerCalls())
 }
 
 func TestRecoveredLoopLogsRecovery(t *testing.T) {
@@ -1567,7 +1563,7 @@ func TestTriggerLookupRetried(t *testing.T) {
 	e.run()
 	e.idle()
 	e.comment(dev)
-	e.gl.FailAccessNext(errRP)
+	e.gl.FailCanTriggerNext(errRP)
 	e.agentRepliesOnResume()
 	e.handle(intake.Activate, dev)
 	e.idle()
@@ -1581,14 +1577,14 @@ func TestTriggerLookupErrorLogged(t *testing.T) {
 	e.run()
 	e.idle()
 	e.comment(dev)
-	e.gl.FailAccess(errRP)
+	e.gl.FailCanTrigger(errRP)
 	e.handle(intake.Activate, dev)
 	e.idle()
 
 	assert.Equal(t, 0, e.sb.Count("resume", actor))
-	assert.Equal(t, 4, e.gl.AccessCalls())
+	assert.Equal(t, 4, e.gl.CanTriggerCalls())
 	assert.Contains(t, e.logs.String(), "level=ERROR")
-	assert.Contains(t, e.logs.String(), "Cannot read the access level of a comment author")
+	assert.Contains(t, e.logs.String(), "Cannot check whether a comment author can trigger the agent")
 	e.assertState(models.Waiting, "")
 }
 
@@ -1878,7 +1874,7 @@ func TestClearErrorMissingActorRefusedForReporter(t *testing.T) {
 func TestClearErrorLookupErrorNotRefused(t *testing.T) {
 	e := newEnv(t)
 	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
-	e.gl.FailAccess(errRP)
+	e.gl.FailCanTrigger(errRP)
 	e.run()
 	e.handle(intake.ClearError, dev)
 	e.idle()
@@ -1887,7 +1883,7 @@ func TestClearErrorLookupErrorNotRefused(t *testing.T) {
 	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
 	assert.Equal(t, []string{models.StateLabel(models.Error)}, e.stateLabels())
 	assert.Equal(t, models.Record{State: models.Error, Reason: models.ReasonActorMissing}, e.record())
-	assert.Contains(t, e.logs.String(), "Cannot read the access level of the request author")
+	assert.Contains(t, e.logs.String(), "Cannot check whether the request author can trigger the agent")
 }
 
 func TestClearErrorAtTurnLimitKeepsError(t *testing.T) {
@@ -1926,6 +1922,6 @@ func TestRecoveryCompletesPartialCreate(t *testing.T) {
 
 	assert.Equal(t, 1, e.sb.Count("create-policy", actor))
 	assert.Equal(t, 1, e.sb.Count("resume", actor))
-	assert.Equal(t, 0, e.gl.AccessCalls(), "a recover request has no author")
+	assert.Equal(t, 0, e.gl.CanTriggerCalls(), "a recover request has no author")
 	e.assertState(models.Waiting, "")
 }

@@ -15,9 +15,6 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
 
-// Developer is the lowest GitLab access level of a start author and of a trigger comment author.
-const Developer = 30
-
 // RecoveryConcurrency is the number of issue lanes that run a recover request at the same time. An activation
 // loop that a recover request continues or starts is not counted.
 const RecoveryConcurrency = 8
@@ -36,6 +33,7 @@ const (
 type Config struct {
 	Bot          string
 	TriggerLabel string
+	TriggerRole  models.Role
 	TurnLimit    int
 	TurnTimeout  time.Duration
 	PollInterval time.Duration
@@ -73,12 +71,17 @@ func New(gl GitLab, sb Substrate, clk Clock, cfg Config) *Dispatcher {
 		cfg.Logger = slog.Default()
 	}
 
+	if cfg.TriggerRole == 0 {
+		cfg.TriggerRole = models.Developer
+	}
+
 	return &Dispatcher{
 		gl: gl, sb: sb, clk: clk, cfg: cfg, log: cfg.Logger,
 		limits: decide.Limits{
 			TurnLimit:    cfg.TurnLimit,
 			Bot:          cfg.Bot,
 			TriggerLabel: cfg.TriggerLabel,
+			TriggerRole:  cfg.TriggerRole,
 			TurnTimeout:  cfg.TurnTimeout,
 		},
 		lanes:      map[models.IssueKey]*lane{},
