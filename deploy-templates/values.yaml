@@ -4,9 +4,9 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  # -- Dispatcher image repository. Required.
-  repository: ""
-  # -- Image tag. Set image.tag or image.digest.
+  # -- Dispatcher image repository.
+  repository: epamedp/krci-agent-dispatcher
+  # -- Image tag. Empty: the chart appVersion.
   tag: ""
   # -- Image digest (sha256:...); takes precedence over image.tag.
   digest: ""

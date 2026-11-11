@@ -32,8 +32,8 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | gitlab.url | string | `""` | GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required. |
 | image.digest | string | `""` | Image digest (sha256:...); takes precedence over image.tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
-| image.repository | string | `""` | Dispatcher image repository. Required. |
-| image.tag | string | `""` | Image tag. Set image.tag or image.digest. |
+| image.repository | string | `"epamedp/krci-agent-dispatcher"` | Dispatcher image repository. |
+| image.tag | string | `""` | Image tag. Empty: the chart appVersion. |
 | imagePullSecrets | list | `[]` | Image pull secrets. |
 | ingress.annotations | object | `{}` | Extra Ingress annotations. |
 | ingress.className | string | `"nginx"` | Ingress class. |
