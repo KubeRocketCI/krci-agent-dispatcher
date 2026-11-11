@@ -1,5 +1,7 @@
 package models
 
+import "errors"
+
 // ActorState is the Substrate actor state as the dispatcher sees it.
 type ActorState string
 
@@ -30,3 +32,27 @@ func (v ActorView) Partial() bool { return (v.Template || v.Actor) && !v.EgressP
 
 // Exists reports whether any part exists.
 func (v ActorView) Exists() bool { return v.Template || v.Actor || v.EgressPolicy }
+
+// ActorSpec is what the actor of one issue is created with: the issue, the session and the bot user.
+type ActorSpec struct {
+	ProjectPath string
+	IID         int64
+	SessionID   string
+	BotUsername string
+}
+
+// Validate returns an error naming the first empty field of s; IID must be positive.
+func (s ActorSpec) Validate() error {
+	switch {
+	case s.ProjectPath == "":
+		return errors.New("project path is empty")
+	case s.IID <= 0:
+		return errors.New("issue IID is not positive")
+	case s.SessionID == "":
+		return errors.New("session ID is empty")
+	case s.BotUsername == "":
+		return errors.New("bot username is empty")
+	}
+
+	return nil
+}

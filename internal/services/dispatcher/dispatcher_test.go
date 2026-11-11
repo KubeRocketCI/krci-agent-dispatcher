@@ -145,8 +145,6 @@ func newEnvWith(t *testing.T, mod func(*dispatcher.Config)) *env {
 	e.gl.SetMember(key.ProjectID, reporter, 20)
 
 	cfg := dispatcher.Config{
-		Atespace: "krci-agents", Pool: "workers", SecretsNamespace: "krci-agents",
-		Image: "localhost:5001/krci-agent-go:dev", GitLabURL: "https://gitlab.example",
 		Bot: bot, TriggerLabel: "agent", TurnLimit: 5,
 		TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-1" },
@@ -298,6 +296,30 @@ func TestStartOrder(t *testing.T) {
 	v, _ := models.ParseStatusView(n.Body)
 	assert.Equal(t, "session-1", v.Session)
 	assert.Equal(t, actor, v.Actor)
+}
+
+func TestStartActorSpec(t *testing.T) {
+	var n int
+
+	e := newEnvWith(t, func(c *dispatcher.Config) {
+		c.NewSessionID = func() string { n++; return fmt.Sprintf("session-%d", n) }
+	})
+	e.issue(models.IssueOpened, nil, "agent")
+	e.agentRepliesOnResume()
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	spec, ok := e.sb.Spec(actor)
+	require.True(t, ok, "actor created")
+	assert.Equal(t, models.ActorSpec{ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1",
+		BotUsername: bot}, spec)
+
+	note, ok := models.StatusNote(e.gl.Notes(key), bot)
+	require.True(t, ok)
+
+	v, _ := models.ParseStatusView(note.Body)
+	assert.Equal(t, spec.SessionID, v.Session, "the status note names the session the actor was created with")
 }
 
 func TestStartCleansPartial(t *testing.T) {
@@ -1444,15 +1466,22 @@ func TestFreshReadFailureKeepsStatusRows(t *testing.T) {
 	assert.Equal(t, actor, got.Actor)
 }
 
-func TestRenderErrorRecordsError(t *testing.T) {
-	e := newEnvWith(t, func(c *dispatcher.Config) { c.GitLabURL = "http://gitlab.example" })
+func TestInvalidSpecRecordsErrorWithoutRetry(t *testing.T) {
+	e := newEnv(t)
 	e.issue(models.IssueOpened, nil, "agent")
+	e.sb.Fail("create", fmt.Errorf("render actor %s: %w", actor, models.ErrInvalidSpec))
 	e.run()
 	e.handle(intake.Start, dev)
 	e.idle()
 
-	assert.Empty(t, e.sb.Ops())
+	assert.Empty(t, e.sb.Ops(), "an invalid spec is not retried")
+
+	for _, d := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
+		assert.Equal(t, 0, e.clk.count(d), "no retry backoff")
+	}
+
 	e.assertState(models.Error, models.ReasonSubstrateError)
+	assert.Contains(t, e.logs.String(), "Cannot create the actor")
 }
 
 func TestPostCreateInspectErrorRecordsError(t *testing.T) {

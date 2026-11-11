@@ -10,7 +10,6 @@ import (
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/templates"
 )
 
 const (
@@ -22,7 +21,7 @@ const (
 type port interface {
 	Inspect(ctx context.Context, name string) (models.ActorView, error)
 	List(ctx context.Context, prefix string) ([]string, error)
-	Create(ctx context.Context, name string, tmpl *ateapi.ActorTemplate, pol *ateapi.EgressPolicy) error
+	Create(ctx context.Context, name string, spec models.ActorSpec) error
 	Resume(ctx context.Context, name string) error
 	Suspend(ctx context.Context, name string) error
 	Revert(ctx context.Context, name string) error
@@ -36,18 +35,7 @@ func subjects() map[string]func(t *testing.T, f *substratetest.Fake) port {
 	}
 }
 
-func rendered(t *testing.T) (*ateapi.ActorTemplate, *ateapi.EgressPolicy) {
-	t.Helper()
-
-	tmpl, pol, err := templates.Render(templates.Params{
-		Atespace: atespace, Pool: "workers", SecretsNamespace: atespace, Name: actor,
-		Image: "localhost:5001/krci-agent-go:dev", GitLabURL: "https://gitlab.example", ProjectPath: "krci/app",
-		BotUsername: "krci-agent", SessionID: "s1", IID: 7,
-	})
-	require.NoError(t, err)
-
-	return tmpl, pol
-}
+var spec = models.ActorSpec{ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
 
 func TestContract(t *testing.T) {
 	cases := map[string]func(t *testing.T, f *substratetest.Fake, p port){
@@ -62,6 +50,8 @@ func TestContract(t *testing.T) {
 		"ListByPrefix":           ListByPrefix,
 		"CreateCompletesPartial": CreateCompletesPartial,
 		"DeleteRunning":          DeleteRunning,
+		"CreateInvalidSpec":      CreateInvalidSpec,
+		"DeleteClearsRecorded":   DeleteClearsRecorded,
 	}
 
 	for subject, build := range subjects() {
@@ -75,8 +65,7 @@ func TestContract(t *testing.T) {
 }
 
 func CreateOrder(t *testing.T, f *substratetest.Fake, p port) {
-	tmpl, pol := rendered(t)
-	require.NoError(t, p.Create(context.Background(), actor, tmpl, pol))
+	require.NoError(t, p.Create(context.Background(), actor, spec))
 
 	assert.Equal(t, []string{"create-template " + actor, "create-actor " + actor, "create-policy " + actor}, f.Ops())
 
@@ -89,8 +78,7 @@ func CreateOrder(t *testing.T, f *substratetest.Fake, p port) {
 
 func DeleteOrderOnlyPresent(t *testing.T, f *substratetest.Fake, p port) {
 	ctx := context.Background()
-	tmpl, pol := rendered(t)
-	require.NoError(t, p.Create(ctx, actor, tmpl, pol))
+	require.NoError(t, p.Create(ctx, actor, spec))
 	f.ClearOps()
 
 	require.NoError(t, p.Delete(ctx, actor))
@@ -135,8 +123,7 @@ func InspectReportsParts(t *testing.T, f *substratetest.Fake, p port) {
 }
 
 func InspectStateMapping(t *testing.T, f *substratetest.Fake, p port) {
-	tmpl, pol := rendered(t)
-	require.NoError(t, p.Create(context.Background(), actor, tmpl, pol))
+	require.NoError(t, p.Create(context.Background(), actor, spec))
 
 	for in, want := range map[ateapi.ActorState]models.ActorState{
 		ateapi.ActorState_ACTOR_STATE_RESUMING:   models.Transitional,
@@ -160,8 +147,7 @@ func InspectStateMapping(t *testing.T, f *substratetest.Fake, p port) {
 }
 
 func ResumeNoRoom(t *testing.T, f *substratetest.Fake, p port) {
-	tmpl, pol := rendered(t)
-	require.NoError(t, p.Create(context.Background(), actor, tmpl, pol))
+	require.NoError(t, p.Create(context.Background(), actor, spec))
 	f.SetNoRoom(true)
 
 	err := p.Resume(context.Background(), actor)
@@ -173,8 +159,7 @@ func ResumeNoRoom(t *testing.T, f *substratetest.Fake, p port) {
 
 func ResumeSuspendRevert(t *testing.T, f *substratetest.Fake, p port) {
 	ctx := context.Background()
-	tmpl, pol := rendered(t)
-	require.NoError(t, p.Create(ctx, actor, tmpl, pol))
+	require.NoError(t, p.Create(ctx, actor, spec))
 
 	require.NoError(t, p.Resume(ctx, actor))
 	v, _ := p.Inspect(ctx, actor)
@@ -213,8 +198,7 @@ func CreateCompletesPartial(t *testing.T, f *substratetest.Fake, p port) {
 	f.AddPartial(actor, false)
 	f.ClearOps()
 
-	tmpl, pol := rendered(t)
-	err := p.Create(context.Background(), actor, tmpl, pol)
+	err := p.Create(context.Background(), actor, spec)
 	require.NoError(t, err, "an existing template from a cut create is reused")
 	assert.Equal(t, []string{"create-actor " + actor, "create-policy " + actor}, f.Ops())
 
@@ -225,8 +209,7 @@ func CreateCompletesPartial(t *testing.T, f *substratetest.Fake, p port) {
 
 func DeleteRunning(t *testing.T, f *substratetest.Fake, p port) {
 	ctx := context.Background()
-	tmpl, pol := rendered(t)
-	require.NoError(t, p.Create(ctx, actor, tmpl, pol))
+	require.NoError(t, p.Create(ctx, actor, spec))
 	require.NoError(t, p.Resume(ctx, actor))
 	f.ClearOps()
 
@@ -237,4 +220,31 @@ func DeleteRunning(t *testing.T, f *substratetest.Fake, p port) {
 	v, err := p.Inspect(ctx, actor)
 	require.NoError(t, err)
 	assert.Equal(t, models.ActorView{State: models.None}, v)
+}
+
+func CreateInvalidSpec(t *testing.T, f *substratetest.Fake, p port) {
+	s := spec
+	s.SessionID = ""
+
+	require.ErrorIs(t, p.Create(context.Background(), actor, s), models.ErrInvalidSpec)
+	assert.Empty(t, f.Ops())
+
+	v, err := p.Inspect(context.Background(), actor)
+	require.NoError(t, err)
+	assert.False(t, v.Exists())
+}
+
+func DeleteClearsRecorded(t *testing.T, f *substratetest.Fake, p port) {
+	ctx := context.Background()
+	require.NoError(t, p.Create(ctx, actor, spec))
+
+	_, recorded := f.Spec(actor)
+	require.True(t, recorded || f.SentTemplate(actor) != nil, "the create is recorded")
+
+	require.NoError(t, p.Delete(ctx, actor))
+
+	_, recorded = f.Spec(actor)
+	assert.False(t, recorded)
+	assert.Nil(t, f.SentTemplate(actor))
+	assert.Nil(t, f.SentEgressPolicy(actor))
 }

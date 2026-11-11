@@ -2,7 +2,7 @@
 
 What the dispatcher gives the agent image and what it reads back. The dispatcher does not build the image. Terms: `GLOSSARY.md`. Decisions: `docs/adr/0003-turn-marker-signal-actor-state-lock.md`, `docs/adr/0004-status-note-record-labels-projection.md`. Rules: `internal/services/decide/decide.go`.
 
-Sources: `internal/templates/actortemplate.yaml.tmpl`, `internal/templates/egresspolicy.yaml.tmpl`, `internal/models/marker.go`, `internal/services/decide/decide.go`, `internal/services/dispatcher/loop.go`.
+Sources: `internal/substrate/templates/actortemplate.yaml.tmpl`, `internal/substrate/templates/egresspolicy.yaml.tmpl`, `internal/models/marker.go`, `internal/services/decide/decide.go`, `internal/services/dispatcher/loop.go`.
 
 ## Channels
 

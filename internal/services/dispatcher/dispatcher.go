@@ -34,18 +34,13 @@ const (
 
 // Config holds the dispatcher settings.
 type Config struct {
-	Atespace         string
-	Pool             string
-	SecretsNamespace string
-	Image            string
-	GitLabURL        string
-	Bot              string
-	TriggerLabel     string
-	TurnLimit        int
-	TurnTimeout      time.Duration
-	PollInterval     time.Duration
-	NewSessionID     func() string
-	Logger           *slog.Logger
+	Bot          string
+	TriggerLabel string
+	TurnLimit    int
+	TurnTimeout  time.Duration
+	PollInterval time.Duration
+	NewSessionID func() string
+	Logger       *slog.Logger
 }
 
 // Dispatcher serves requests on issue lanes.

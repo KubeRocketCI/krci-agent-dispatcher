@@ -12,4 +12,6 @@ var (
 	ErrActorNotFound = errors.New("actor not found")
 	// ErrNoRoom: no worker has room for the actor.
 	ErrNoRoom = errors.New("no worker has room for the actor")
+	// ErrInvalidSpec: the actor spec does not render into an actor.
+	ErrInvalidSpec = errors.New("invalid actor spec")
 )

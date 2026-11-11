@@ -1,7 +1,4 @@
 # Expected EgressPolicy of templates.Render for goldenParams (templates_test.go).
-metadata:
-  atespace: krci-agents
-  name: default
 rules:
 - https:
     hostnames: ["api.anthropic.com"]
