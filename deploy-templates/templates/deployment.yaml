@@ -77,7 +77,7 @@ spec:
             - name: SECRETS_NAMESPACE
               value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
             - name: AGENT_IMAGE
-              value: {{ required "agentImage is required" .Values.agentImage | quote }}
+              value: {{ include "krci-agent-dispatcher.agentImage" . | quote }}
             - name: TURN_TIMEOUT
               value: {{ .Values.config.turnTimeout | quote }}
             - name: POLL_INTERVAL

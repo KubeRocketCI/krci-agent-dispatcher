@@ -16,7 +16,7 @@ image:
 # -- Image pull secrets.
 imagePullSecrets: []
 
-# -- Agent image (digest reference) of the issue actors. Required.
+# -- Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required.
 agentImage: ""
 
 gitlab:

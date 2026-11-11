@@ -63,3 +63,14 @@ Image reference: repository@digest, else repository:tag.
 {{- fail "image.tag or image.digest is required" }}
 {{- end }}
 {{- end }}
+
+{{/*
+Agent image: <repo>[:<tag>]@sha256:<digest>.
+*/}}
+{{- define "krci-agent-dispatcher.agentImage" -}}
+{{- $image := required "agentImage is required" .Values.agentImage }}
+{{- if not (regexMatch "^[^[:space:]@]+@sha256:[a-f0-9]{64}$" $image) }}
+{{- fail "agentImage must be pinned by digest: <repo>[:<tag>]@sha256:<digest>" }}
+{{- end }}
+{{- $image }}
+{{- end }}

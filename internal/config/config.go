@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
+
+// Substrate accepts only actor images pinned by digest.
+var digestPinned = regexp.MustCompile(`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`)
 
 // Config holds the resolved dispatcher settings.
 type Config struct {
@@ -119,6 +123,11 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// AgentImagePinned reports whether AgentImage is <repo>[:<tag>]@sha256:<digest>.
+func (c *Config) AgentImagePinned() bool {
+	return digestPinned.MatchString(c.AgentImage)
 }
 
 func orDefault(name, def string) string {

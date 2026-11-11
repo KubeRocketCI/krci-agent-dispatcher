@@ -8,12 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testDigest = "sha256:827f0a832eaa27cf150c20cc8c54976d33e597fb9de82332fc33ccb8699e4df3"
+	testImage  = "localhost:5001/krci-agent-go:dev@" + testDigest
+)
+
 func setRequired(t *testing.T) {
 	t.Helper()
 	t.Setenv("GITLAB_URL", "https://gitlab.example")
 	t.Setenv("GITLAB_TOKEN", "glpat-test")
 	t.Setenv("HOOK_TOKEN", "hook-test")
-	t.Setenv("AGENT_IMAGE", "localhost:5001/krci-agent-go@sha256:0")
+	t.Setenv("AGENT_IMAGE", testImage)
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -38,7 +43,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "https://gitlab.example", cfg.GitLabURL)
 	assert.Equal(t, "glpat-test", cfg.GitLabToken)
 	assert.Equal(t, "hook-test", cfg.HookToken)
-	assert.Equal(t, "localhost:5001/krci-agent-go@sha256:0", cfg.AgentImage)
+	assert.Equal(t, testImage, cfg.AgentImage)
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -175,6 +180,29 @@ func TestLoadCanonicalGitLabURL(t *testing.T) {
 			cfg, err := Load()
 			require.NoError(t, err)
 			assert.Equal(t, want, cfg.GitLabURL)
+		})
+	}
+}
+
+func TestAgentImagePinned(t *testing.T) {
+	for v, want := range map[string]bool{
+		"epamedp/krci-agent-go@" + testDigest:     true,
+		"epamedp/krci-agent-go:dev@" + testDigest: true,
+		"localhost:5001/a/b:1.0@" + testDigest:    true,
+		"epamedp/krci-agent-go:dev":               false,
+		"epamedp/krci-agent-go@sha256:827f0a83":   false,
+		"epamedp/krci-agent-go@sha256:827F0A832EAA27CF150C20CC8C54976D33E597FB9DE82332FC33CCB8699E4DF3": false,
+		"epamedp/krci-agent-go@sha512:" + testDigest[len("sha256:"):]:                                   false,
+		"epamedp/krci-agent-go @" + testDigest:                                                          false,
+		"epamedp/krci-agent-go@" + testDigest + "\n":                                                    false,
+	} {
+		t.Run(v, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("AGENT_IMAGE", v)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, want, cfg.AgentImagePinned())
 		})
 	}
 }
