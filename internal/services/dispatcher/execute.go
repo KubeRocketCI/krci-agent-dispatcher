@@ -52,11 +52,12 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 			f.TriggerAfterLast = d.triggerAfterLast(ctx, log, view)
 
 			if r.Kind == intake.Start || r.Kind == intake.ClearError {
-				f.AuthorOK, err = d.isDeveloper(ctx, log, r.Key.ProjectID, r.Author)
+				f.AuthorOK, err = d.canTrigger(ctx, log, r.Key.ProjectID, r.Author)
 				if err != nil {
 					f.AuthorUnknown = true
 
-					log.Error("Cannot read the access level of the request author", "user", r.Author, "error", err)
+					log.Error("Cannot check whether the request author can trigger the agent", "user", r.Author,
+						"error", err)
 				}
 			}
 		}
@@ -256,8 +257,8 @@ func (d *Dispatcher) issueGone(ctx context.Context, log *slog.Logger, key models
 	log.Info("Actor of a deleted issue deleted", "actor", name)
 }
 
-// triggerAfterLast reports whether a comment above the last marker's last= is by a Developer or higher. An
-// access level that cannot be read ends the check with false.
+// triggerAfterLast reports whether a comment above the last marker's last= is a trigger comment. A check that
+// fails ends the search with false.
 func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, view models.IssueView) bool {
 	var last int64
 	if m, ok := models.LastMarker(view.Notes, d.cfg.Bot); ok {
@@ -273,10 +274,10 @@ func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, vie
 
 		checked[n.Author] = true
 
-		ok, err := d.isDeveloper(ctx, log, view.Issue.Key.ProjectID, n.Author)
+		ok, err := d.canTrigger(ctx, log, view.Issue.Key.ProjectID, n.Author)
 		if err != nil {
-			log.Error("Cannot read the access level of a comment author; no trigger comment found", "user", n.Author,
-				"error", err)
+			log.Error("Cannot check whether a comment author can trigger the agent; no trigger comment found",
+				"user", n.Author, "error", err)
 
 			return false
 		}
@@ -289,30 +290,22 @@ func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, vie
 	return false
 }
 
-// isDeveloper reports whether username has access level Developer or higher on the project. The lookup is
-// retried. ErrNotFound and ErrForbidden mean no; any other lookup error is returned.
-func (d *Dispatcher) isDeveloper(ctx context.Context, log *slog.Logger, projectID int64, username string,
+// canTrigger reports whether username has the trigger role or higher on the project. The check
+// is retried.
+func (d *Dispatcher) canTrigger(ctx context.Context, log *slog.Logger, projectID int64, username string,
 ) (bool, error) {
-	if username == "" {
-		return false, nil
-	}
+	var ok bool
 
-	var level int
-
-	err := d.retry(ctx, func() (err error) { level, err = d.gl.AccessLevel(ctx, projectID, username); return err })
-
-	switch {
-	case errors.Is(err, models.ErrNotFound), errors.Is(err, models.ErrForbidden):
-		log.Info("GitLab shows no access level; below Developer", "user", username, "error", err)
-		return false, nil
-	case err != nil:
+	err := d.retry(ctx, func() (err error) { ok, err = d.gl.CanTrigger(ctx, projectID, username); return err })
+	if err != nil {
 		return false, err
-	case level < Developer:
-		log.Info("Below Developer", "user", username, "level", level)
-		return false, nil
 	}
 
-	return true, nil
+	if !ok {
+		log.Info("User cannot trigger the agent", "user", username)
+	}
+
+	return ok, nil
 }
 
 // retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom, ErrActorNotFound,

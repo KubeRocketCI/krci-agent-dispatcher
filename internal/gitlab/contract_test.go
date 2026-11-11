@@ -2,8 +2,11 @@ package gitlab_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -27,22 +30,26 @@ type port interface {
 	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
 	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
 	Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error
-	AccessLevel(ctx context.Context, projectID int64, username string) (int, error)
+	CanTrigger(ctx context.Context, projectID int64, username string) (bool, error)
 	NoteMergeRequest(ctx context.Context, projectID int64, sourceBranch string, n models.NewNote) error
 	CheckProject(ctx context.Context, projectID int64) error
 }
 
 var stopped = models.NewNote{Body: models.StoppedMRText + "\n" + models.StoppedMRMarker, Marker: models.StoppedMRMarker}
 
-// subjects returns each adapter under test, built over the fake's state.
-func subjects() map[string]func(t *testing.T, f *gitlabtest.Fake) port {
+// subjects returns each adapter under test with trigger role trigger, built over the fake's state.
+func subjects(trigger models.Role) map[string]func(t *testing.T, f *gitlabtest.Fake) port {
 	return map[string]func(t *testing.T, f *gitlabtest.Fake) port{
-		"fake": func(_ *testing.T, f *gitlabtest.Fake) port { return f },
+		"fake": func(_ *testing.T, f *gitlabtest.Fake) port {
+			f.SetTriggerRole(trigger)
+
+			return f
+		},
 		"rest": func(t *testing.T, f *gitlabtest.Fake) port {
 			srv := httptest.NewServer(f.Handler(token))
 			t.Cleanup(srv.Close)
 
-			c, err := gitlab.NewREST(srv.URL, token, "", bot)
+			c, err := gitlab.NewREST(srv.URL, token, "", bot, trigger, gitlab.WithLogger(slog.New(slog.DiscardHandler)))
 			require.NoError(t, err)
 
 			return c
@@ -65,8 +72,13 @@ func TestContract(t *testing.T) {
 		"LoadForbidden":                   LoadForbidden,
 		"WriteForbidden":                  WriteForbidden,
 		"CheckProjectForbidden":           CheckProjectForbidden,
-		"AccessLevelMember":               AccessLevelMember,
-		"AccessLevelNotMember":            AccessLevelNotMember,
+		"CanTriggerDeveloperOrHigher":     CanTriggerDeveloperOrHigher,
+		"CanTriggerBelowDeveloper":        CanTriggerBelowDeveloper,
+		"CanTriggerNotMember":             CanTriggerNotMember,
+		"CanTriggerCaseVariantUsername":   CanTriggerCaseVariantUsername,
+		"CanTriggerEmptyUsername":         CanTriggerEmptyUsername,
+		"CanTriggerMembersHidden":         CanTriggerMembersHidden,
+		"CanTriggerLookupError":           CanTriggerLookupError,
 		"NoteMergeRequestPostsOnce":       NoteMergeRequestPostsOnce,
 		"NoteMergeRequestSkipsOtherMRs":   NoteMergeRequestSkipsOtherMRs,
 		"NoteMergeRequestIgnoresPerson":   NoteMergeRequestIgnoresPersonMarker,
@@ -86,7 +98,7 @@ func TestContract(t *testing.T) {
 		"WriteKnownSkipsMarkerNote":       WriteKnownSkipsMarkerNote,
 	}
 
-	for subject, build := range subjects() {
+	for subject, build := range subjects(models.Developer) {
 		for name, run := range cases {
 			t.Run(subject+"/"+name, func(t *testing.T) {
 				f := gitlabtest.NewFake(bot)
@@ -245,22 +257,117 @@ func CheckProjectForbidden(t *testing.T, f *gitlabtest.Fake, p port) {
 	require.ErrorIs(t, p.CheckProject(context.Background(), key.ProjectID), models.ErrForbidden)
 }
 
-func AccessLevelMember(t *testing.T, f *gitlabtest.Fake, p port) {
+func CanTriggerDeveloperOrHigher(t *testing.T, f *gitlabtest.Fake, p port) {
 	f.SetMember(12, "dev", 30)
-	f.SetMember(12, "developer", 40)
-	f.SetMember(13, "dev", 50)
+	f.SetMember(12, "lead", 40)
+	f.SetMember(12, "owner", 50)
 
-	lvl, err := p.AccessLevel(context.Background(), 12, "dev")
-	require.NoError(t, err)
-	assert.Equal(t, 30, lvl)
+	for _, u := range []string{"dev", "lead", "owner"} {
+		ok, err := p.CanTrigger(context.Background(), 12, u)
+		require.NoError(t, err)
+		assert.True(t, ok, u)
+	}
 }
 
-func AccessLevelNotMember(t *testing.T, f *gitlabtest.Fake, p port) {
+func CanTriggerBelowDeveloper(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetMember(12, "rep", 20)
+	f.SetMember(12, "guest", 10)
+	f.SetMember(13, "rep", 50)
+
+	for _, u := range []string{"rep", "guest"} {
+		ok, err := p.CanTrigger(context.Background(), 12, u)
+		require.NoError(t, err)
+		assert.False(t, ok, u)
+	}
+}
+
+func CanTriggerNotMember(t *testing.T, f *gitlabtest.Fake, p port) {
 	f.SetMember(12, "developer", 40)
 
-	lvl, err := p.AccessLevel(context.Background(), 12, "dev")
+	ok, err := p.CanTrigger(context.Background(), 12, "dev")
 	require.NoError(t, err)
-	assert.Equal(t, 0, lvl)
+	assert.False(t, ok, "a member whose name contains the username does not count")
+}
+
+func CanTriggerCaseVariantUsername(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetMember(12, "Dev.User", 30)
+
+	for _, u := range []string{"dev.user", "DEV.USER", "Dev.User"} {
+		ok, err := p.CanTrigger(context.Background(), 12, u)
+		require.NoError(t, err)
+		assert.True(t, ok, u)
+	}
+}
+
+func CanTriggerEmptyUsername(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetMember(12, "dev", 50)
+
+	ok, err := p.CanTrigger(context.Background(), 12, "")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Equal(t, 0, f.MembersLookups(), "no lookup for an empty username")
+}
+
+func CanTriggerMembersHidden(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetMember(12, "dev", 30)
+
+	for _, e := range []error{models.ErrNotFound, models.ErrForbidden} {
+		f.FailCanTriggerNext(fmt.Errorf("members: %w", e))
+
+		ok, err := p.CanTrigger(context.Background(), 12, "dev")
+		require.NoError(t, err, e.Error())
+		assert.False(t, ok, e.Error())
+	}
+}
+
+func CanTriggerLookupError(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetMember(12, "dev", 30)
+	f.FailCanTriggerNext(errors.New("gitlab down"))
+
+	ok, err := p.CanTrigger(context.Background(), 12, "dev")
+	require.Error(t, err, "a lookup error is an error, not false")
+	assert.False(t, ok)
+	assert.NotErrorIs(t, err, models.ErrNotFound)
+	assert.NotErrorIs(t, err, models.ErrForbidden)
+}
+
+func TestContractTriggerRole(t *testing.T) {
+	levels := map[string]int{"guest": 10, "rep": 20, "dev": 30, "lead": 40, "owner": 50}
+
+	for _, tc := range []struct {
+		trigger models.Role
+		allowed []string
+	}{
+		{models.Developer, []string{"dev", "lead", "owner"}},
+		{models.Maintainer, []string{"lead", "owner"}},
+		{models.Owner, []string{"owner"}},
+	} {
+		for subject, build := range subjects(tc.trigger) {
+			t.Run(subject+"/"+tc.trigger.String(), func(t *testing.T) {
+				f := gitlabtest.NewFake(bot)
+				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, "agent")
+
+				for u, l := range levels {
+					f.SetMember(12, u, l)
+				}
+
+				p := build(t, f)
+
+				for u := range levels {
+					ok, err := p.CanTrigger(context.Background(), 12, u)
+					require.NoError(t, err)
+					assert.Equal(t, slices.Contains(tc.allowed, u), ok, u)
+				}
+			})
+		}
+	}
+}
+
+func TestNewRESTRejectsNonTriggerRole(t *testing.T) {
+	for _, r := range []models.Role{0, models.Guest, models.Reporter, 25, 60} {
+		_, err := gitlab.NewREST("https://gitlab.example", token, "", bot, r)
+		require.Error(t, err)
+	}
 }
 
 func NoteMergeRequestPostsOnce(t *testing.T, f *gitlabtest.Fake, p port) {

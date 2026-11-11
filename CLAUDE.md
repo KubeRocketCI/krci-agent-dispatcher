@@ -27,7 +27,7 @@ Run one package: `go test -race ./internal/services/decide/... -run TestDecideTa
 cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
-internal/models/             IssueKey, Issue, Note, Marker, Record, Writes, ActorView, ActorSpec, port errors
+internal/models/             IssueKey, Issue, Note, Marker, Record, Writes, ActorView, ActorSpec, Role, port errors
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules, pure
 internal/services/dispatcher/ Handle, Run: issue lanes, execution, activation loop, restart recovery; ports.go

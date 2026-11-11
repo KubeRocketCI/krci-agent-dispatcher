@@ -125,7 +125,7 @@ Rules:
 
 | Event | Action |
 |---|---|
-| Trigger label set on an open issue by a Developer or higher | Create, then resume. |
+| Trigger label set on an open issue by a user with the trigger role or higher (`TRIGGER_MIN_ROLE`, default developer) | Create, then resume. |
 | Trigger comment on a suspended actor | Resume. Record working. |
 | Trigger comment on a crashed actor | Revert to the durable snapshot, then resume. |
 | Trigger comment, last marker `n` ≥ turn limit | No resume. Record error `turn limit`. |

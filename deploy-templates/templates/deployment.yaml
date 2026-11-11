@@ -64,6 +64,8 @@ spec:
               value: {{ .Values.config.botUsername | quote }}
             - name: TRIGGER_LABEL
               value: {{ .Values.config.triggerLabel | quote }}
+            - name: TRIGGER_MIN_ROLE
+              value: {{ .Values.config.triggerMinRole | quote }}
             - name: ATE_API_ADDR
               value: {{ .Values.substrate.addr | quote }}
             - name: ATE_TOKEN_FILE

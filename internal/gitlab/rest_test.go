@@ -1,8 +1,10 @@
 package gitlab_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/pem"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,7 +41,7 @@ func TestTokenHeaderNotInURL(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot)
+	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -48,7 +50,7 @@ func TestTokenHeaderNotInURL(t *testing.T) {
 	require.NoError(t, c.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Waiting},
 		Label: models.StateLabel(models.Waiting), Notes: []models.NewNote{{Body: "hi"}}}))
 
-	_, err = c.AccessLevel(ctx, 12, "dev")
+	_, err = c.CanTrigger(ctx, 12, "dev")
 	require.NoError(t, err)
 
 	require.NotEmpty(t, urls)
@@ -65,7 +67,7 @@ func TestRESTErrorHasNoToken(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot)
+	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
 	require.NoError(t, err)
 
 	_, err = c.Load(context.Background(), key)
@@ -73,8 +75,9 @@ func TestRESTErrorHasNoToken(t *testing.T) {
 	require.NotErrorIs(t, err, models.ErrNotFound)
 	assert.NotContains(t, err.Error(), token)
 
-	_, err = c.AccessLevel(context.Background(), 12, "dev")
-	require.Error(t, err, "a lookup error is an error, not level 0")
+	_, err = c.CanTrigger(context.Background(), 12, "dev")
+	require.Error(t, err, "a lookup error is an error, not false")
+	assert.NotContains(t, err.Error(), token)
 }
 
 func TestRESTTrustsCAFile(t *testing.T) {
@@ -84,7 +87,7 @@ func TestRESTTrustsCAFile(t *testing.T) {
 	srv := httptest.NewTLSServer(f.Handler(token))
 	t.Cleanup(srv.Close)
 
-	untrusted, err := gitlab.NewREST(srv.URL, token, "", bot)
+	untrusted, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
 	require.NoError(t, err)
 	_, err = untrusted.Load(context.Background(), key)
 	require.Error(t, err)
@@ -93,7 +96,7 @@ func TestRESTTrustsCAFile(t *testing.T) {
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
 	require.NoError(t, os.WriteFile(caFile, pemBytes, 0o600))
 
-	trusted, err := gitlab.NewREST(srv.URL, token, caFile, bot)
+	trusted, err := gitlab.NewREST(srv.URL, token, caFile, bot, models.Developer)
 	require.NoError(t, err)
 	_, err = trusted.Load(context.Background(), key)
 	require.NoError(t, err)
@@ -102,12 +105,12 @@ func TestRESTTrustsCAFile(t *testing.T) {
 func TestRESTBadCAFile(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := gitlab.NewREST("https://gitlab.example", token, filepath.Join(dir, "missing.crt"), bot)
+	_, err := gitlab.NewREST("https://gitlab.example", token, filepath.Join(dir, "missing.crt"), bot, models.Developer)
 	require.Error(t, err)
 
 	bad := filepath.Join(dir, "bad.crt")
 	require.NoError(t, os.WriteFile(bad, []byte("not a pem"), 0o600))
-	_, err = gitlab.NewREST("https://gitlab.example", token, bad, bot)
+	_, err = gitlab.NewREST("https://gitlab.example", token, bad, bot, models.Developer)
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), token))
 }
@@ -130,21 +133,21 @@ func TestTokenFileReadPerRequest(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(file, []byte("glpat-one\n"), 0o600))
 
-	c, err := gitlab.NewREST(srv.URL, "", "", bot, gitlab.WithTokenFile(file))
+	c, err := gitlab.NewREST(srv.URL, "", "", bot, models.Developer, gitlab.WithTokenFile(file))
 	require.NoError(t, err)
 
-	_, err = c.AccessLevel(context.Background(), 12, "dev")
+	_, err = c.CanTrigger(context.Background(), 12, "dev")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(file, []byte("glpat-two"), 0o600))
 
-	_, err = c.AccessLevel(context.Background(), 12, "dev")
+	_, err = c.CanTrigger(context.Background(), 12, "dev")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"glpat-one", "glpat-two"}, seen)
 
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
 
-	_, err = c.AccessLevel(context.Background(), 12, "dev")
+	_, err = c.CanTrigger(context.Background(), 12, "dev")
 	require.Error(t, err, "an empty token file is an error")
 }
 
@@ -166,7 +169,7 @@ func countingREST(t *testing.T, f *gitlabtest.Fake) (*gitlab.REST, func() []stri
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot)
+	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
 	require.NoError(t, err)
 
 	return c, func() []string {
@@ -243,10 +246,21 @@ func TestRESTForbidden(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot)
+	var logs bytes.Buffer
+
+	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer,
+		gitlab.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 	require.NoError(t, err)
 
-	_, err = c.AccessLevel(context.Background(), 12, "dev")
+	err = c.CheckProject(context.Background(), 12)
 	require.ErrorIs(t, err, models.ErrForbidden)
 	assert.NotContains(t, err.Error(), token)
+
+	ok, err := c.CanTrigger(context.Background(), 12, "dev")
+	require.NoError(t, err)
+	assert.False(t, ok, "members the token cannot see mean false")
+	assert.Contains(t, logs.String(), "level=WARN")
+	assert.Contains(t, logs.String(), "Project members not shown to the bot user")
+	assert.Contains(t, logs.String(), "forbidden")
+	assert.NotContains(t, logs.String(), token)
 }

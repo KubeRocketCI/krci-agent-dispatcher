@@ -175,7 +175,6 @@ const (
 	RefusedMarker      = "<!-- krci-agent-refused -->"
 	StartRefusedMarker = "<!-- krci-agent-start-refused -->"
 	RefusedText        = "Agent stopped for this issue. Open a new issue to start again."
-	StartRefusedText   = "Only Developers or higher can start the agent."
 	NoRoomText         = "No free worker. Comment again later."
 	StoppedMRMarker    = "<!-- krci-agent-stopped -->"
 	StoppedMRText      = "Agent stopped; this MR is no longer updated."

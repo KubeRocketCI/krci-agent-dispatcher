@@ -66,9 +66,9 @@
     },
     {
       "coverage": 100,
-      "crap": 13,
-      "cyclomatic": 13,
-      "effective_crap": 13,
+      "crap": 14,
+      "cyclomatic": 14,
+      "effective_crap": 14,
       "file": "internal/config/config.go",
       "function": "Load"
     },
@@ -81,12 +81,12 @@
       "function": "orDefault"
     },
     {
-      "coverage": 90.9,
-      "crap": 5,
-      "cyclomatic": 5,
-      "effective_crap": 5,
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
       "file": "internal/gitlab/rest.go",
-      "function": "*REST.AccessLevel"
+      "function": "*REST.CanTrigger"
     },
     {
       "coverage": 100,
@@ -127,6 +127,14 @@
       "effective_crap": 13.2,
       "file": "internal/gitlab/rest.go",
       "function": "*REST.Write"
+    },
+    {
+      "coverage": 90.9,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.accessLevel"
     },
     {
       "coverage": 100,
@@ -185,12 +193,20 @@
       "function": "*REST.writeStatus"
     },
     {
-      "coverage": 92.9,
-      "crap": 7,
-      "cyclomatic": 7,
-      "effective_crap": 7,
+      "coverage": 93.8,
+      "crap": 8,
+      "cyclomatic": 8,
+      "effective_crap": 8,
       "file": "internal/gitlab/rest.go",
       "function": "NewREST"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "WithLogger"
     },
     {
       "coverage": 87.5,
@@ -490,6 +506,38 @@
     },
     {
       "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/role.go",
+      "function": "ParseRole"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/models/role.go",
+      "function": "Role.IsTrigger"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/role.go",
+      "function": "Role.String"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/role.go",
+      "function": "StartRefusedText"
+    },
+    {
+      "coverage": 100,
       "crap": 1,
       "cyclomatic": 1,
       "effective_crap": 1,
@@ -633,10 +681,10 @@
       "function": "*Dispatcher.Run"
     },
     {
-      "coverage": 60,
-      "crap": 3.6,
-      "cyclomatic": 3,
-      "effective_crap": 3.6,
+      "coverage": 71.4,
+      "crap": 4.4,
+      "cyclomatic": 4,
+      "effective_crap": 4.4,
       "file": "internal/services/dispatcher/dispatcher.go",
       "function": "New"
     },
@@ -655,6 +703,14 @@
       "effective_crap": 5.1,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.activate"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/execute.go",
+      "function": "*Dispatcher.canTrigger"
     },
     {
       "coverage": 88.2,
@@ -695,14 +751,6 @@
       "effective_crap": 2,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.failRPCFresh"
-    },
-    {
-      "coverage": 88.9,
-      "crap": 5,
-      "cyclomatic": 5,
-      "effective_crap": 5,
-      "file": "internal/services/dispatcher/execute.go",
-      "function": "*Dispatcher.isDeveloper"
     },
     {
       "coverage": 75,
