@@ -12,9 +12,11 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-const (
-	bot   = "krci-agent"
-	label = "agent"
+const bot = "krci-bot"
+
+var (
+	agentLabels models.AgentLabels
+	label       = agentLabels.Trigger()
 )
 
 var key = models.IssueKey{ProjectID: 12, IID: 7}
@@ -25,7 +27,7 @@ func parse(t *testing.T, event, fixture string) Request {
 	body, err := os.ReadFile(filepath.Join("testdata", fixture))
 	require.NoError(t, err)
 
-	r, err := Parse(event, body, bot, label)
+	r, err := Parse(event, body, bot, agentLabels)
 	require.NoError(t, err)
 
 	return r
@@ -92,7 +94,7 @@ func TestParseUnknownEventIgnored(t *testing.T) {
 
 func TestParseInvalidJSON(t *testing.T) {
 	for _, body := range []string{"", "{", "not json", "[1,2]"} {
-		_, err := Parse(IssueHook, []byte(body), bot, label)
+		_, err := Parse(IssueHook, []byte(body), bot, agentLabels)
 		require.Error(t, err, body)
 	}
 }
@@ -100,16 +102,16 @@ func TestParseInvalidJSON(t *testing.T) {
 func TestParseMissingKeyIgnored(t *testing.T) {
 	for _, body := range []string{
 		`{}`,
-		`{"object_attributes": {"action": "open", "iid": 7}, "labels": [{"title": "agent"}]}`,
-		`{"project": {"id": 12}, "object_attributes": {"action": "open"}, "labels": [{"title": "agent"}]}`,
+		`{"object_attributes": {"action": "open", "iid": 7}, "labels": [{"title": "krci-agent"}]}`,
+		`{"project": {"id": 12}, "object_attributes": {"action": "open"}, "labels": [{"title": "krci-agent"}]}`,
 	} {
-		r, err := Parse(IssueHook, []byte(body), bot, label)
+		r, err := Parse(IssueHook, []byte(body), bot, agentLabels)
 		require.NoError(t, err)
 		assert.Equal(t, Ignore, r.Kind, body)
 	}
 
 	noIssue := `{"project": {"id": 12}, "object_attributes": {"noteable_type": "Issue"}, "user": {"username": "dev1"}}`
-	r, err := Parse(NoteHook, []byte(noIssue), bot, label)
+	r, err := Parse(NoteHook, []byte(noIssue), bot, agentLabels)
 	require.NoError(t, err)
 	assert.Equal(t, Ignore, r.Kind)
 }
@@ -122,7 +124,7 @@ func TestKindString(t *testing.T) {
 
 func TestParseIgnoreKeepsKey(t *testing.T) {
 	assert.Equal(t, Request{Key: key, Kind: Ignore, Author: "dev1"}, parse(t, IssueHook, "issue-open-no-label.json"))
-	assert.Equal(t, Request{Key: key, Kind: Ignore, Author: "krci-agent"}, parse(t, NoteHook, "note-bot.json"))
+	assert.Equal(t, Request{Key: key, Kind: Ignore, Author: "krci-bot"}, parse(t, NoteHook, "note-bot.json"))
 	mr := Request{Key: models.IssueKey{ProjectID: 12}, Kind: Ignore, Author: "dev1"}
 	assert.Equal(t, mr, parse(t, NoteHook, "note-mr.json"))
 }
@@ -165,7 +167,7 @@ func (e issueEvent) kind(t *testing.T) Kind {
 	body, err := json.Marshal(p)
 	require.NoError(t, err)
 
-	r, err := Parse(IssueHook, body, bot, label)
+	r, err := Parse(IssueHook, body, bot, agentLabels)
 	require.NoError(t, err)
 
 	return r.Kind
@@ -188,25 +190,28 @@ func noteKind(t *testing.T, labels []string) Kind {
 	})
 	require.NoError(t, err)
 
-	r, err := Parse(NoteHook, body, bot, label)
+	r, err := Parse(NoteHook, body, bot, agentLabels)
 	require.NoError(t, err)
 
 	return r.Kind
 }
 
 func TestParseBotIssueEvents(t *testing.T) {
-	none, waiting := []string{}, []string{label, "agent::waiting"}
+	none, waiting := []string{}, []string{label, agentLabels.State(models.Waiting)}
 
 	for name, c := range map[string]struct {
 		e    issueEvent
 		want Kind
 	}{
 		"state label set": {
-			issueEvent{action: "update", labels: []string{label, "agent::working"}, previous: waiting,
-				current: []string{label, "agent::working"}}, Ignore,
+			issueEvent{action: "update", labels: []string{label, agentLabels.State(models.Working)}, previous: waiting,
+				current: []string{label, agentLabels.State(models.Working)}}, Ignore,
 		},
 		"error label replaced": {
-			issueEvent{action: "update", labels: waiting, previous: []string{label, "agent::error"}, current: waiting},
+			issueEvent{
+				action: "update", labels: waiting, previous: []string{label, agentLabels.State(models.Error)},
+				current: waiting,
+			},
 			Ignore,
 		},
 		"field update":          {issueEvent{action: "update", labels: waiting}, Ignore},
@@ -228,24 +233,30 @@ func TestParseIssueEventsLabelFilter(t *testing.T) {
 		e    issueEvent
 		want Kind
 	}{
-		"update, other label only":     {issueEvent{action: "update", labels: bug}, Ignore},
-		"update, no label":             {issueEvent{action: "update", labels: none}, Ignore},
-		"update, other label change":   {issueEvent{action: "update", labels: bug, previous: none, current: bug}, Ignore},
-		"update, labels key absent":    {issueEvent{action: "update"}, Activate},
-		"update, trigger label":        {issueEvent{action: "update", labels: []string{label}}, Activate},
-		"update, state label only":     {issueEvent{action: "update", labels: []string{"agent::done"}}, Activate},
+		"update, other label only":   {issueEvent{action: "update", labels: bug}, Ignore},
+		"update, no label":           {issueEvent{action: "update", labels: none}, Ignore},
+		"update, other label change": {issueEvent{action: "update", labels: bug, previous: none, current: bug}, Ignore},
+		"update, labels key absent":  {issueEvent{action: "update"}, Activate},
+		"update, trigger label":      {issueEvent{action: "update", labels: []string{label}}, Activate},
+		"update, state label only": {
+			issueEvent{action: "update", labels: []string{agentLabels.State(models.Done)}}, Activate,
+		},
 		"update, current from changes": {issueEvent{action: "update", previous: []string{"bug", "x"}, current: bug}, Ignore},
 		"update, changes carry trigger": {
 			issueEvent{action: "update", previous: []string{label}, current: []string{label, "bug"}}, Activate,
 		},
 		"state label removed": {
-			issueEvent{action: "update", labels: bug, previous: []string{"bug", "agent::waiting"}, current: bug}, Activate,
+			issueEvent{
+				action: "update", labels: bug, previous: []string{"bug", agentLabels.State(models.Waiting)}, current: bug,
+			},
+			Activate,
 		},
 		"trigger label removed": {
 			issueEvent{action: "update", labels: bug, previous: []string{"bug", label}, current: bug}, Stop,
 		},
 		"error label removed": {
-			issueEvent{action: "update", labels: bug, previous: []string{"bug", "agent::error"}, current: bug}, ClearError,
+			issueEvent{action: "update", labels: bug, previous: []string{"bug", agentLabels.State(models.Error)}, current: bug},
+			ClearError,
 		},
 		"close, other label only": {issueEvent{action: "close", labels: bug}, Stop},
 	} {
@@ -260,9 +271,9 @@ func TestParseNoteLabelFilter(t *testing.T) {
 		want   Kind
 	}{
 		"no label":          {[]string{}, Ignore},
-		"other labels only": {[]string{"bug", "agent-like"}, Ignore},
+		"other labels only": {[]string{"bug", "krci-agent-like"}, Ignore},
 		"trigger label":     {[]string{"bug", label}, Activate},
-		"state label only":  {[]string{"agent::error"}, Activate},
+		"state label only":  {[]string{agentLabels.State(models.Error)}, Activate},
 		"labels key absent": {nil, Activate},
 	} {
 		assert.Equal(t, c.want, noteKind(t, c.labels), name)

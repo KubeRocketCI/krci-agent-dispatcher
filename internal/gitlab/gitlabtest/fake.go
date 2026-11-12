@@ -46,6 +46,7 @@ type mergeRequest struct {
 type Fake struct {
 	mu            sync.Mutex
 	bot           string
+	labels        models.AgentLabels
 	projects      map[int64]bool
 	forbidden     map[int64]bool
 	issues        map[models.IssueKey]*issue
@@ -512,7 +513,8 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 	}
 
 	if w.Label != "" {
-		f.setLabelsLocked(key, []string{w.Label}, otherStateLabels(w.Label))
+		label := f.labels.State(w.Label)
+		f.setLabelsLocked(key, []string{label}, f.otherStateLabels(label))
 	}
 
 	for _, n := range w.Notes {
@@ -639,8 +641,8 @@ func (f *Fake) openMRsLocked(projectID int64, sourceBranch string) []mrKey {
 	return out
 }
 
-func otherStateLabels(label string) []string {
-	return slices.DeleteFunc(models.StateLabels(), func(l string) bool { return l == label })
+func (f *Fake) otherStateLabels(label string) []string {
+	return slices.DeleteFunc(f.labels.States(), func(l string) bool { return l == label })
 }
 
 func (f *Fake) createNoteLocked(key models.IssueKey, body string) models.Note {

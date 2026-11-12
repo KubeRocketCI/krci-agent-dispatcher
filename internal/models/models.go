@@ -63,34 +63,6 @@ var agentStates = []AgentState{Working, Waiting, Done, Error}
 // AgentStates returns every agent state.
 func AgentStates() []AgentState { return slices.Clone(agentStates) }
 
-const stateLabelPrefix = "agent::"
-
-// StateLabel returns the state label of s, for example "agent::waiting".
-func StateLabel(s AgentState) string { return stateLabelPrefix + string(s) }
-
-// StateLabels returns every state label.
-func StateLabels() []string {
-	out := make([]string, 0, len(agentStates))
-	for _, s := range agentStates {
-		out = append(out, StateLabel(s))
-	}
-
-	return out
-}
-
-// StateFromLabels returns the agent state of the first state label in labels.
-func StateFromLabels(labels []string) (AgentState, bool) {
-	for _, l := range labels {
-		for _, s := range agentStates {
-			if l == StateLabel(s) {
-				return s, true
-			}
-		}
-	}
-
-	return "", false
-}
-
 // HasLabel reports whether labels contains label.
 func HasLabel(labels []string, label string) bool { return slices.Contains(labels, label) }
 
@@ -104,9 +76,9 @@ type IssueView struct {
 	Status    StatusView
 }
 
-// Enabled reports whether the agent is asked for: the issue is open and has trigger, the trigger label.
-func (v IssueView) Enabled(trigger string) bool {
-	return v.Issue.IssueState == IssueOpened && HasLabel(v.Issue.Labels, trigger)
+// Enabled reports whether the agent is asked for: the issue is open and has the trigger label of labels.
+func (v IssueView) Enabled(labels AgentLabels) bool {
+	return v.Issue.IssueState == IssueOpened && HasLabel(v.Issue.Labels, labels.Trigger())
 }
 
 // NewIssueView returns the view of issue with notes in note id order and the record and status rows of the bot
@@ -167,11 +139,11 @@ type NewNote struct {
 }
 
 // Writes are the GitLab changes of one write effect, applied in order: record and status note, label, notes.
-// Label is a state label to set (the others are removed); empty leaves the labels unchanged.
+// Label is the agent state whose state label to set (the others are removed); empty leaves the labels unchanged.
 type Writes struct {
 	Record *Record
 	Status *StatusView
-	Label  string
+	Label  AgentState
 	Notes  []NewNote
 }
 

@@ -23,7 +23,10 @@ const (
 	token = "glpat-contract-secret"
 )
 
-var key = models.IssueKey{ProjectID: 12, IID: 7}
+var (
+	key         = models.IssueKey{ProjectID: 12, IID: 7}
+	agentLabels models.AgentLabels
+)
 
 // port is the GitLab port as the dispatcher declares it.
 type port interface {
@@ -102,7 +105,7 @@ func TestContract(t *testing.T) {
 		for name, run := range cases {
 			t.Run(subject+"/"+name, func(t *testing.T) {
 				f := gitlabtest.NewFake(bot)
-				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, "agent")
+				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
 				run(t, f, build(t, f))
 			})
 		}
@@ -147,13 +150,13 @@ func LoadNotFound(t *testing.T, _ *gitlabtest.Fake, p port) {
 }
 
 func LoadIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
-	f.SetIssue(key, models.IssueClosed, "agent", "agent::waiting")
+	f.SetIssue(key, models.IssueClosed, agentLabels.Trigger(), agentLabels.State(models.Waiting))
 	f.AddNote(key, models.Note{Body: "label changed", Author: "owner", System: true})
 
 	v, err := p.Load(context.Background(), key)
 	require.NoError(t, err)
 	assert.Equal(t, models.Issue{Key: key, ProjectPath: "krci/test-go-app", IssueState: models.IssueClosed,
-		Labels: []string{"agent", "agent::waiting"}}, v.Issue)
+		Labels: []string{agentLabels.Trigger(), agentLabels.State(models.Waiting)}}, v.Issue)
 	assert.False(t, v.HasRecord)
 	require.Len(t, v.Notes, 1)
 	assert.True(t, v.Notes[0].System)
@@ -163,19 +166,20 @@ func LoadIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
 func WriteOrderRecordLabelNotes(t *testing.T, f *gitlabtest.Fake, p port) {
 	err := p.Write(context.Background(), key, nil, models.Writes{
 		Notes:  []models.NewNote{{Body: models.NoRoomText}},
-		Label:  models.StateLabel(models.Waiting),
+		Label:  models.Waiting,
 		Record: &models.Record{State: models.Waiting},
 		Status: &models.StatusView{Actor: key.ActorName()},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"create-status", "label agent::waiting", "note"}, f.Ops())
+	assert.Equal(t, []string{"create-status", "label krci::agent::waiting", "note"}, f.Ops())
 }
 
 func WriteSingleStateLabel(t *testing.T, f *gitlabtest.Fake, p port) {
-	f.SetIssue(key, models.IssueOpened, "agent", "bug", "agent::working", "agent::error")
+	f.SetIssue(key, models.IssueOpened, agentLabels.Trigger(), "bug",
+		agentLabels.State(models.Working), agentLabels.State(models.Error))
 
-	require.NoError(t, p.Write(context.Background(), key, nil, models.Writes{Label: models.StateLabel(models.Done)}))
-	assert.ElementsMatch(t, []string{"agent", "bug", "agent::done"}, f.Labels(key))
+	require.NoError(t, p.Write(context.Background(), key, nil, models.Writes{Label: models.Done}))
+	assert.ElementsMatch(t, []string{agentLabels.Trigger(), "bug", agentLabels.State(models.Done)}, f.Labels(key))
 }
 
 func WriteSkipsExistingMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
@@ -229,7 +233,7 @@ func WriteKeepsStatusRowsWithoutView(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteNotFound(t *testing.T, _ *gitlabtest.Fake, p port) {
 	missing := models.IssueKey{ProjectID: 12, IID: 99}
-	err := p.Write(context.Background(), missing, nil, models.Writes{Label: models.StateLabel(models.Done)})
+	err := p.Write(context.Background(), missing, nil, models.Writes{Label: models.Done})
 	require.ErrorIs(t, err, models.ErrNotFound)
 }
 
@@ -245,7 +249,7 @@ func WriteForbidden(t *testing.T, f *gitlabtest.Fake, p port) {
 	f.SetForbidden(key.ProjectID)
 
 	err := p.Write(context.Background(), key, nil, models.Writes{
-		Record: &models.Record{State: models.Waiting}, Label: models.StateLabel(models.Waiting),
+		Record: &models.Record{State: models.Waiting}, Label: models.Waiting,
 	})
 	require.ErrorIs(t, err, models.ErrForbidden)
 	assert.Empty(t, f.Ops(), "a forbidden write changes nothing")
@@ -345,7 +349,7 @@ func TestContractTriggerRole(t *testing.T) {
 		for subject, build := range subjects(tc.trigger) {
 			t.Run(subject+"/"+tc.trigger.String(), func(t *testing.T) {
 				f := gitlabtest.NewFake(bot)
-				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, "agent")
+				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
 
 				for u, l := range levels {
 					f.SetMember(12, u, l)
@@ -470,12 +474,12 @@ func RefreshReadsIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
 	prev, err := p.Load(context.Background(), key)
 	require.NoError(t, err)
 
-	f.SetIssue(key, models.IssueClosed, "agent", "agent::working")
+	f.SetIssue(key, models.IssueClosed, agentLabels.Trigger(), agentLabels.State(models.Working))
 
 	got, err := p.Refresh(context.Background(), prev)
 	require.NoError(t, err)
 	assert.Equal(t, models.IssueClosed, got.Issue.IssueState)
-	assert.Equal(t, []string{"agent", "agent::working"}, got.Issue.Labels)
+	assert.Equal(t, []string{agentLabels.Trigger(), agentLabels.State(models.Working)}, got.Issue.Labels)
 	assert.Equal(t, "krci/test-go-app", got.Issue.ProjectPath)
 }
 
@@ -563,7 +567,7 @@ func WriteKnownEditsStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
 	require.NoError(t, err)
 
 	busy := models.Record{State: models.Error, Reason: models.ReasonActorBusy}
-	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Record: &busy, Label: models.StateLabel(models.Error)}))
+	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Record: &busy, Label: models.Error}))
 
 	v, err := p.Load(ctx, key)
 	require.NoError(t, err)
@@ -571,7 +575,7 @@ func WriteKnownEditsStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
 
 	want := models.StatusView{State: models.Error, Actor: key.ActorName(), Session: "s1", Reason: models.ReasonActorBusy}
 	assert.Equal(t, want, v.Status, "rows without a new view come from the known status note")
-	assert.Equal(t, []string{"create-status", "edit-status", "label agent::error"}, f.Ops())
+	assert.Equal(t, []string{"create-status", "edit-status", "label krci::agent::error"}, f.Ops())
 }
 
 func WriteKnownWithoutStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {

@@ -32,7 +32,7 @@ const (
 // Config holds the dispatcher settings.
 type Config struct {
 	Bot           string
-	TriggerLabel  string
+	Labels        models.AgentLabels
 	TriggerRole   models.Role
 	TurnLimit     int
 	TurnTimeout   time.Duration
@@ -79,11 +79,11 @@ func New(gl GitLab, sb Substrate, clk Clock, cfg Config) *Dispatcher {
 	return &Dispatcher{
 		gl: gl, sb: sb, clk: clk, cfg: cfg, log: cfg.Logger,
 		limits: decide.Limits{
-			TurnLimit:    cfg.TurnLimit,
-			Bot:          cfg.Bot,
-			TriggerLabel: cfg.TriggerLabel,
-			TriggerRole:  cfg.TriggerRole,
-			TurnTimeout:  cfg.TurnTimeout,
+			TurnLimit:   cfg.TurnLimit,
+			Bot:         cfg.Bot,
+			Labels:      cfg.Labels,
+			TriggerRole: cfg.TriggerRole,
+			TurnTimeout: cfg.TurnTimeout,
 		},
 		lanes:      map[models.IssueKey]*lane{},
 		settling:   map[models.IssueKey]bool{},

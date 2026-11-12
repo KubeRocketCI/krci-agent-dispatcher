@@ -4,6 +4,6 @@ The agent states working and waiting follow from the Substrate actor state, but 
 
 ## Consequences
 
-- A person clears an error on purpose by removing `agent::error`; the dispatcher sees the label event and writes a new record.
+- A person clears an error on purpose by removing `krci::agent::error`; the dispatcher sees the label event and writes a new record.
 - A deleted status note loses the record; the label is then the fallback.
 - A later store holds the same record per issue, and the same decision function reconciles it.

@@ -77,12 +77,12 @@ type payload struct {
 	} `json:"issue"`
 }
 
-// Parse maps one event to a request. bot is the bot user; label is the trigger label.
+// Parse maps one event to a request. bot is the bot user; labels names the trigger label and the state labels.
 // Events other than Issue Hook and Note Hook, confidential ones included, map to an empty Ignore request.
 // An issue event by the bot user maps to Stop or Ignore. A note or an issue update maps to Ignore when the
 // payload lists the issue labels, none of them is the trigger label or a state label, and the update removed none.
 // It returns an error only when the body is not a JSON object.
-func Parse(event string, body []byte, bot, label string) (Request, error) {
+func Parse(event string, body []byte, bot string, labels models.AgentLabels) (Request, error) {
 	var p payload
 	if err := json.Unmarshal(body, &p); err != nil {
 		return Request{}, fmt.Errorf("event payload: %w", err)
@@ -90,9 +90,9 @@ func Parse(event string, body []byte, bot, label string) (Request, error) {
 
 	switch event {
 	case IssueHook:
-		return issueRequest(p, bot, label), nil
+		return issueRequest(p, bot, labels), nil
 	case NoteHook:
-		return noteRequest(p, bot, label), nil
+		return noteRequest(p, bot, labels), nil
 	default:
 		return Request{}, nil
 	}
@@ -103,11 +103,13 @@ func has(labels []apiLabel, title string) bool {
 }
 
 // hasTriggerOrStateLabel reports whether labels hold the trigger label or a state label.
-func hasTriggerOrStateLabel(labels []apiLabel, trigger string) bool {
-	return has(labels, trigger) || slices.ContainsFunc(models.StateLabels(), func(l string) bool { return has(labels, l) })
+func hasTriggerOrStateLabel(labels []apiLabel, names models.AgentLabels) bool {
+	return slices.ContainsFunc(labels, func(l apiLabel) bool {
+		return l.Title == names.Trigger() || names.IsState(l.Title)
+	})
 }
 
-func issueRequest(p payload, bot, trigger string) Request {
+func issueRequest(p payload, bot string, labels models.AgentLabels) Request {
 	key := models.IssueKey{ProjectID: p.Project.ID, IID: p.ObjectAttributes.IID}
 	r := Request{Key: key, Author: p.User.Username}
 
@@ -117,13 +119,13 @@ func issueRequest(p payload, bot, trigger string) Request {
 
 	switch p.ObjectAttributes.Action {
 	case "open", "reopen":
-		if has(deref(p.Labels), trigger) {
+		if has(deref(p.Labels), labels.Trigger()) {
 			r.Kind = Start
 		}
 	case "close":
 		r.Kind = Stop
 	case "update":
-		r.Kind = updateKind(p, trigger)
+		r.Kind = updateKind(p, labels)
 	}
 
 	if r.Author == bot && r.Kind != Stop {
@@ -141,13 +143,14 @@ func deref(labels *[]apiLabel) []apiLabel {
 	return *labels
 }
 
-func updateKind(p payload, trigger string) Kind {
+func updateKind(p payload, labels models.AgentLabels) Kind {
+	trigger := labels.Trigger()
 	now := p.Labels
 
 	var previous []apiLabel
 
 	if ch := p.Changes.Labels; ch != nil {
-		errorLabel := models.StateLabel(models.Error)
+		errorLabel := labels.State(models.Error)
 
 		switch {
 		case has(ch.Previous, trigger) && !has(ch.Current, trigger):
@@ -165,14 +168,14 @@ func updateKind(p payload, trigger string) Kind {
 		}
 	}
 
-	if now != nil && !hasTriggerOrStateLabel(*now, trigger) && !hasTriggerOrStateLabel(previous, trigger) {
+	if now != nil && !hasTriggerOrStateLabel(*now, labels) && !hasTriggerOrStateLabel(previous, labels) {
 		return Ignore
 	}
 
 	return Activate
 }
 
-func noteRequest(p payload, bot, trigger string) Request {
+func noteRequest(p payload, bot string, labels models.AgentLabels) Request {
 	r := Request{Key: models.IssueKey{ProjectID: p.Project.ID}, Author: p.User.Username}
 	if p.Issue != nil {
 		r.Key.IID = p.Issue.IID
@@ -183,7 +186,7 @@ func noteRequest(p payload, bot, trigger string) Request {
 		return r
 	}
 
-	if labels := p.Issue.Labels; labels != nil && !hasTriggerOrStateLabel(*labels, trigger) {
+	if issueLabels := p.Issue.Labels; issueLabels != nil && !hasTriggerOrStateLabel(*issueLabels, labels) {
 		return r
 	}
 

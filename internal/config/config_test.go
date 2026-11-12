@@ -39,7 +39,6 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "workers", cfg.Pool)
 	assert.Equal(t, "krci-agents", cfg.SecretsNamespace)
 	assert.Equal(t, "krci-agent", cfg.BotUsername)
-	assert.Equal(t, "agent", cfg.TriggerLabel)
 	assert.Equal(t, models.Developer, cfg.TriggerMinRole)
 	assert.Equal(t, "api.ate-system.svc:443", cfg.ATEAPIAddr)
 	assert.Equal(t, "/var/run/ate/token", cfg.ATETokenFile)

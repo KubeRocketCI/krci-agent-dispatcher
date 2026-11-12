@@ -16,6 +16,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/api"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/config"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
 )
@@ -68,7 +69,9 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 			"agent-image", cfg.AgentImage, "want", "<repo>[:<tag>]@sha256:<digest>")
 	}
 
-	glOpts := []gitlab.Option{gitlab.WithLogger(log)}
+	var labels models.AgentLabels
+
+	glOpts := []gitlab.Option{gitlab.WithLogger(log), gitlab.WithAgentLabels(labels)}
 	if cfg.GitLabTokenFile != "" {
 		glOpts = append(glOpts, gitlab.WithTokenFile(cfg.GitLabTokenFile))
 	}
@@ -90,7 +93,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	defer func() { _ = sb.Close() }()
 
 	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
-		Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel, TriggerRole: cfg.TriggerMinRole,
+		Bot: cfg.BotUsername, Labels: labels, TriggerRole: cfg.TriggerMinRole,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		SweepInterval: cfg.SweepInterval,
 		Logger:        log,
@@ -103,7 +106,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: api.NewRouter(d, api.RouterConfig{
-			HookToken: cfg.HookToken, Bot: cfg.BotUsername, TriggerLabel: cfg.TriggerLabel, Logger: httpLogger,
+			HookToken: cfg.HookToken, Bot: cfg.BotUsername, Labels: labels, Logger: httpLogger,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

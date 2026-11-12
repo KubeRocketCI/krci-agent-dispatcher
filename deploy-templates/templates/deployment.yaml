@@ -62,8 +62,6 @@ spec:
                   key: token
             - name: BOT_USERNAME
               value: {{ .Values.config.botUsername | quote }}
-            - name: TRIGGER_LABEL
-              value: {{ .Values.config.triggerLabel | quote }}
             - name: TRIGGER_MIN_ROLE
               value: {{ .Values.config.triggerMinRole | quote }}
             - name: ATE_API_ADDR
