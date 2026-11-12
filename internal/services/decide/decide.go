@@ -491,7 +491,7 @@ func (is facts) activation() Plan {
 		since = m.NoteID
 	}
 
-	p := Plan{effect(KindResume, FailErrorFresh), effect(KindReload, FailLog)}
+	p := Plan{effect(KindResume, FailNoRoom), effect(KindReload, FailLog)}
 	p = append(p, write(record(models.Working, ""))...)
 
 	return append(p, loop(since, false))

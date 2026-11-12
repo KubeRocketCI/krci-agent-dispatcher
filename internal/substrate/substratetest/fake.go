@@ -43,6 +43,7 @@ type Fake struct {
 	failures  map[string][]error
 	states    map[string][]ateapi.ActorState
 	onResume  func(name string)
+	onNoRoom  func(name string)
 	onSuspend func(name string)
 	authz     []string
 }
@@ -139,6 +140,14 @@ func (f *Fake) OnSuspend(fn func(name string)) {
 	defer f.mu.Unlock()
 
 	f.onSuspend = fn
+}
+
+// OnNoRoom calls fn after each Resume that fails with ErrNoRoom, outside the fake's lock.
+func (f *Fake) OnNoRoom(fn func(name string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.onNoRoom = fn
 }
 
 // OnResume calls fn after each successful Resume, outside the fake's lock.
@@ -397,8 +406,12 @@ func (f *Fake) Resume(_ context.Context, name string) error {
 	f.mu.Lock()
 
 	err := f.resumeLocked(name)
-	fn := f.onResume
+	fn, noRoom := f.onResume, f.onNoRoom
 	f.mu.Unlock()
+
+	if errors.Is(err, models.ErrNoRoom) && noRoom != nil {
+		noRoom(name)
+	}
 
 	if err == nil && fn != nil {
 		fn(name)

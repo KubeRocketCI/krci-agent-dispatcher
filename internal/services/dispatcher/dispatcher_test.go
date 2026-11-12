@@ -530,6 +530,20 @@ func TestActivateNoRoomPostsNote(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
+func TestNoRoomNotedWhileStopping(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.sb.SetNoRoom(true)
+	e.sb.OnNoRoom(func(string) { e.cancel() })
+	e.handle(intake.Activate, dev)
+
+	require.Eventually(t, func() bool { return e.notesWith(models.NoRoomText) == 1 }, 5*time.Second, time.Millisecond,
+		"no room is Substrate's answer, not a failure cut by the stop: the person is told")
+	e.assertState(models.Waiting, "")
+}
+
 func TestActivateTimeoutSuspendsAndErrors(t *testing.T) {
 	e := waitingIssue(t)
 	e.comment(dev)

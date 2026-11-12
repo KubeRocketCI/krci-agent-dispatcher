@@ -173,7 +173,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"start-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
-				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
 		{"start by a reporter, no actor: refused", Facts{
 			View:     open("agent").v,
 			Actor:    noActor,
@@ -195,7 +195,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"start-partial-create delete!error > create!error > inspect!error > " +
-				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=0)"},
 		{"comment, partial create, no record: nothing", Facts{
 			View:    open("agent").v,
@@ -209,7 +209,7 @@ func decideCases() []decideCase {
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			"first-activation write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+			"first-activation write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=0)"},
 		{"complete actor, no record, marker: waiting", Facts{
 			View:    open("agent").marker(110, 1, 100).v,
@@ -223,7 +223,7 @@ func decideCases() []decideCase {
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			"trigger-activate write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=110)"},
 		{"suspended, trigger comment: activation", Facts{
 			View:             open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
@@ -231,7 +231,7 @@ func decideCases() []decideCase {
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			"trigger-activate resume!error-fresh > reload!log > write(record=working,label=working)!log > " +
+			"trigger-activate resume!no-room > reload!log > write(record=working,label=working)!log > " +
 				"loop(since=110)"},
 		{"crashed, trigger comment: revert first", Facts{
 			View:             open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
@@ -239,7 +239,7 @@ func decideCases() []decideCase {
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			"trigger-activate revert!error-fresh > resume!error-fresh > reload!log > " +
+			"trigger-activate revert!error-fresh > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=110)"},
 		{"suspended, record waiting, no trigger comment: nothing", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
@@ -264,7 +264,7 @@ func decideCases() []decideCase {
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			"trigger-activate resume!error-fresh > reload!log > write(record=working,label=working)!log > " +
+			"trigger-activate resume!no-room > reload!log > write(record=working,label=working)!log > " +
 				"loop(since=130)"},
 		{"running, record working: continue", Facts{
 			View:    open("agent", lbl(models.Working)).record(models.Working, "").v,
@@ -296,7 +296,7 @@ func decideCases() []decideCase {
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			"trigger-activate write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=110)"},
 		{"crashed, record waiting, no trigger comment: nothing", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
@@ -367,7 +367,7 @@ func decideCases() []decideCase {
 			TriggerAfterLast: true,
 		},
 			"trigger-activate write(record=waiting,label=waiting)!log > revert!error-fresh > " +
-				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=110)"},
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error, complete actor, turn limit, trigger comment: error kept", Facts{
 			View:             open("agent").record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:            suspended,
@@ -410,7 +410,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"clear-error-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
-				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=110)"},
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error by a developer, partial create: create", Facts{
 			View:     open("agent").record(models.Error, models.ReasonSubstrateError).v,
 			Actor:    partial,
@@ -418,7 +418,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"clear-error-create delete!error > create!error > inspect!error > " +
-				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=0)"},
 		{"clear-error by a reporter, no actor: refused, error label restored", Facts{
 			View:    open("agent").record(models.Error, models.ReasonActorMissing).v,
@@ -446,7 +446,7 @@ func decideCases() []decideCase {
 			Request:          intake.ClearError,
 			TriggerAfterLast: true,
 		},
-			"trigger-activate write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error, no record, agent::error present, complete actor: waiting", Facts{
 			View:    open("agent", lbl(models.Error)).marker(110, 1, 100).v,
@@ -461,7 +461,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"clear-error-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
-				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=110)"},
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error by a developer, no record, agent::error present, no actor: create", Facts{
 			View:     open("agent", lbl(models.Error)).v,
 			Actor:    noActor,
@@ -469,7 +469,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"clear-error-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
-				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
 		{"clear-error by a developer, agent::error present, partial create: create", Facts{
 			View:     open("agent", lbl(models.Error)).record(models.Error, models.ReasonSubstrateError).v,
 			Actor:    partial,
@@ -477,7 +477,7 @@ func decideCases() []decideCase {
 			AuthorOK: true,
 		},
 			"clear-error-create delete!error > create!error > inspect!error > " +
-				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=0)"},
 		{"clear-error by a reporter, agent::error present, no actor: refused, error kept", Facts{
 			View:    open("agent", lbl(models.Error)).record(models.Error, models.ReasonActorMissing).v,
@@ -510,7 +510,7 @@ func decideCases() []decideCase {
 			Request: intake.Recover,
 		},
 			"recover-partial-create delete!error > create!error > inspect!error > " +
-				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=0)"},
 		{"start, author unknown, no actor: no create, no note", Facts{
 			View:          open("agent").v,

@@ -1161,7 +1161,7 @@
       "function": "*Dispatcher.loop"
     },
     {
-      "coverage": 92.3,
+      "coverage": 100,
       "crap": 8,
       "cyclomatic": 8,
       "effective_crap": 8,
@@ -1217,18 +1217,18 @@
       "function": "*Dispatcher.createActor"
     },
     {
-      "coverage": 96.4,
-      "crap": 19,
-      "cyclomatic": 19,
-      "effective_crap": 19,
+      "coverage": 95.8,
+      "crap": 18,
+      "cyclomatic": 18,
+      "effective_crap": 18,
       "file": "internal/services/dispatcher/perform.go",
       "function": "*Dispatcher.effect"
     },
     {
       "coverage": 100,
-      "crap": 7,
-      "cyclomatic": 7,
-      "effective_crap": 7,
+      "crap": 9,
+      "cyclomatic": 9,
+      "effective_crap": 9,
       "file": "internal/services/dispatcher/perform.go",
       "function": "*Dispatcher.failed"
     },
