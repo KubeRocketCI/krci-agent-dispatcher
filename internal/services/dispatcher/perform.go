@@ -116,7 +116,7 @@ func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e
 		flog.Warn("Effect failed")
 
 		if e.Kind == decide.KindInspect {
-			c.actor = models.ActorView{State: models.Unknown}
+			c.actor = unknownActor
 		}
 
 		return true
@@ -154,7 +154,7 @@ func (d *Dispatcher) reload(ctx context.Context, log *slog.Logger, c *current) {
 	if err := d.retry(ctx, func() (err error) { view, err = d.gl.Load(ctx, c.key); return err }); err != nil {
 		log.Warn("Cannot read the issue for the status rows; rows kept", "error", err)
 
-		c.view, c.actor = nil, models.ActorView{State: models.Unknown}
+		c.view, c.actor = nil, unknownActor
 
 		return
 	}
@@ -165,7 +165,7 @@ func (d *Dispatcher) reload(ctx context.Context, log *slog.Logger, c *current) {
 	if err != nil {
 		log.Warn("Cannot read the actor for the status rows; rows kept", "error", err)
 
-		c.actor = models.ActorView{State: models.Unknown}
+		c.actor = unknownActor
 
 		return
 	}

@@ -19,7 +19,8 @@ const (
 )
 
 // activation is the activation loop state across polls and turns. since is the note id of the current turn's
-// previous marker; start is the current turn start; first is true until a poll waits or a turn ends; recovered
+// previous marker; start is the current turn start; first is true until a poll that read the issue and the actor
+// waits, or a turn ends; recovered
 // marks the loop of a running actor found by restart recovery; full asks for a full read; known is the last view
 // read.
 type activation struct {
@@ -53,25 +54,9 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 // cut by the end of ctx ends the loop without a change.
 func (d *Dispatcher) poll(ctx context.Context, log *slog.Logger, key models.IssueKey, a *activation) next {
 	confirmed := a.full
-	f := decide.PollFacts{Since: a.since, Elapsed: d.clk.Now().Sub(a.start), StopPending: d.stopPending(key)}
 
-	view, err := d.read(ctx, key, a)
-	if err == nil {
-		a.known, a.full = &view, false
-		f.View = view
-
-		if f.Actor, err = d.sb.Inspect(ctx, key.ActorName()); err != nil {
-			log.Warn("Poll: cannot read the actor", "error", err)
-
-			f.Actor = models.ActorView{State: models.Unknown}
-		}
-	} else {
-		log.Warn("Poll: cannot read the issue", "error", err)
-
-		f.Issue = d.issueRead(ctx, key.ProjectID, err)
-	}
-
-	if ctx.Err() != nil {
+	f, ok := d.observePoll(ctx, log, key, a)
+	if !ok {
 		return pollEnd
 	}
 
@@ -82,23 +67,18 @@ func (d *Dispatcher) poll(ctx context.Context, log *slog.Logger, key models.Issu
 		return pollNow
 	}
 
+	if pd.Rule == decide.PollReadTimeout {
+		log.Error("Turn timeout while reads fail; suspending", "actor", key.ActorName())
+	}
+
 	d.perform(ctx, log, key, f.View, f.Actor, a, pd.Plan)
 
 	if pd.Next == decide.NextContinue {
-		a.first = false
+		a.first = a.first && (f.Issue != decide.ReadOK || f.Actor.State == models.Unknown)
 		return pollLater
 	}
 
 	log.Info("Activation ended", "rule", string(pd.Rule), "turn", pd.Marker.Turn)
 
 	return pollEnd
-}
-
-// read returns the full view of the issue, or the last view with what changed since when no full read is due.
-func (d *Dispatcher) read(ctx context.Context, key models.IssueKey, a *activation) (models.IssueView, error) {
-	if a.full || a.known == nil {
-		return d.gl.Load(ctx, key)
-	}
-
-	return d.gl.Refresh(ctx, *a.known)
 }

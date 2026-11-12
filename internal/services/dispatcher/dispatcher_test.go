@@ -1618,6 +1618,27 @@ func TestReadTimeoutCutAtSuspendWritesNothing(t *testing.T) {
 	assert.Equal(t, models.Working, e.record().State, "a suspend cut by the end of ctx records nothing")
 }
 
+func TestTriggerCheckCutByCancelDecidesNothing(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+	e.gl.FailCanTriggerNext(failing(errRP, 4)...)
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == time.Second {
+			e.cancel()
+		}
+	})
+	e.handle(intake.Activate, dev)
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(e.logs.String(), "Cannot check whether a comment author can trigger the agent")
+	}, 5*time.Second, time.Millisecond)
+	require.Eventually(t, e.d.Idle, 5*time.Second, time.Millisecond)
+	assert.NotContains(t, e.logs.String(), "request=activate rule=", "a check cut by the end of ctx is no fact")
+	e.assertState(models.Waiting, "")
+}
+
 func TestKeptActorMissingIsNotAnError(t *testing.T) {
 	e := newEnv(t)
 	e.issue(nil, "agent")
@@ -1635,8 +1656,12 @@ func TestKeptActorMissingIsNotAnError(t *testing.T) {
 func TestKeptActorLeftOnCancel(t *testing.T) {
 	e := runningUnavailable(t)
 	e.sb.Fail("inspect", failing(errRP, 20)...)
+
+	var backoffs atomic.Int32
+
 	e.clk.setOnSleep(func(d time.Duration) {
-		if d == 4*time.Second && e.sb.Count("suspend", actor) == 0 {
+		// The first 4 s backoff ends the project check, the second one is in the kept actor's read.
+		if d == 4*time.Second && backoffs.Add(1) == 2 {
 			e.cancel()
 		}
 	})

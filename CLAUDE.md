@@ -32,7 +32,7 @@ internal/api/                oapi.yaml, generated server, hook handler (port: Ha
 internal/models/             IssueKey, Issue, Note, Marker, TurnHistory, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
-internal/services/dispatcher/ Handle, Run: issue lanes, plan runner (perform), activation loop, restart recovery, sweep; ports.go
+internal/services/dispatcher/ Handle, Run: issue lanes, observation (observe), plan runner (perform), activation loop, restart recovery, sweep; ports.go
 internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contract suite
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite
 internal/substrate/templates/ ActorTemplate + EgressPolicy render, pure
