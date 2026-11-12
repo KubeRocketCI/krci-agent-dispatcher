@@ -1445,6 +1445,48 @@ func TestFreshReadFailureKeepsStatusRows(t *testing.T) {
 	assert.Equal(t, actor, got.Actor)
 }
 
+func TestTurnEndActorReadFailureKeepsStatusRows(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	working := rowsOnRecord(e, models.Working)
+
+	e.agentRepliesOnResume()
+	e.sb.OnSuspend(func(string) { e.sb.Fail("inspect", failing(errRP, 4)...) })
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	e.assertState(models.Waiting, "")
+
+	rows := working()
+	require.NotEmpty(t, rows)
+
+	want := rows[len(rows)-1]
+	want.State = models.Waiting
+	assert.Equal(t, want, statusRows(e), "an actor not read after the suspend keeps the status rows")
+}
+
+func TestRecoverySkipsActorsNotNamedForAnIssue(t *testing.T) {
+	names := []string{"issue-0-7", "issue-12-0", "issue-12", "issue-012-7"}
+
+	e := newEnv(t)
+	for _, n := range names {
+		e.sb.AddComplete(n, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	}
+
+	e.run()
+	e.idle()
+
+	for _, n := range names {
+		assert.Contains(t, e.logs.String(), `actor name is not issue-<project-id>-<iid>" actor=`+n+"\n", n)
+	}
+
+	assert.Equal(t, 0, e.gl.LoadCalls(), "an actor not named for an issue gets no issue read")
+	assert.Empty(t, e.sb.Ops(), "an actor not named for an issue is left as it is")
+}
+
 func TestInvalidSpecRecordsErrorWithoutRetry(t *testing.T) {
 	e := newEnv(t)
 	e.issue(nil, "agent")
