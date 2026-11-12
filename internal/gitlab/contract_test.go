@@ -457,7 +457,7 @@ func RefreshMergesNewAndEditedNotes(t *testing.T, f *gitlabtest.Fake, p port) {
 	assert.Equal(t, models.Working, got.Record.State)
 	assert.Equal(t, "s2", got.Status.Session)
 
-	m, ok := models.LastMarker(got.Notes, bot)
+	m, ok := models.NewTurnHistory(got.Notes, bot).Last()
 	require.True(t, ok, "a marker added by an edit is read")
 	assert.Equal(t, edited, m.NoteID)
 

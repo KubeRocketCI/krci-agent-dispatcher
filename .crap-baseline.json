@@ -354,19 +354,51 @@
     },
     {
       "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/models/marker.go",
+      "function": "NewTurnHistory"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/models/marker.go",
+      "function": "TurnHistory.After"
+    },
+    {
+      "coverage": 100,
       "crap": 1,
       "cyclomatic": 1,
       "effective_crap": 1,
       "file": "internal/models/marker.go",
-      "function": "LastMarker"
+      "function": "TurnHistory.CommentAfter"
     },
     {
       "coverage": 100,
-      "crap": 7,
-      "cyclomatic": 7,
-      "effective_crap": 7,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
       "file": "internal/models/marker.go",
-      "function": "MarkerAfter"
+      "function": "TurnHistory.Last"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/marker.go",
+      "function": "TurnHistory.PreviousID"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/models/marker.go",
+      "function": "TurnHistory.UncoveredAuthors"
     },
     {
       "coverage": 100,
@@ -383,14 +415,6 @@
       "effective_crap": 1,
       "file": "internal/models/models.go",
       "function": "AgentStates"
-    },
-    {
-      "coverage": 100,
-      "crap": 2,
-      "cyclomatic": 2,
-      "effective_crap": 2,
-      "file": "internal/models/models.go",
-      "function": "CommentAfter"
     },
     {
       "coverage": 100,
@@ -753,14 +777,6 @@
       "function": "facts.partial"
     },
     {
-      "coverage": 75,
-      "crap": 5.4,
-      "cyclomatic": 5,
-      "effective_crap": 5.4,
-      "file": "internal/services/decide/decide.go",
-      "function": "facts.previousMarkerID"
-    },
-    {
       "coverage": 100,
       "crap": 1,
       "cyclomatic": 1,
@@ -1042,9 +1058,9 @@
     },
     {
       "coverage": 100,
-      "crap": 9,
-      "cyclomatic": 9,
-      "effective_crap": 9,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.triggerAfterLast"
     },

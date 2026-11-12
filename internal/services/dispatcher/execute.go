@@ -156,24 +156,11 @@ func (d *Dispatcher) requestSuspend(ctx context.Context, log *slog.Logger, name 
 // triggerAfterLast reports whether a comment above the last marker's last= is a trigger comment. A check that
 // fails ends the search with false.
 func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, view models.IssueView) bool {
-	var last int64
-	if m, ok := models.LastMarker(view.Notes, d.cfg.Bot); ok {
-		last = m.Last
-	}
-
-	checked := map[string]bool{}
-
-	for _, n := range view.Notes {
-		if n.System || n.Author == d.cfg.Bot || n.ID <= last || checked[n.Author] {
-			continue
-		}
-
-		checked[n.Author] = true
-
-		ok, err := d.canTrigger(ctx, log, view.Issue.Key.ProjectID, n.Author)
+	for _, author := range models.NewTurnHistory(view.Notes, d.cfg.Bot).UncoveredAuthors() {
+		ok, err := d.canTrigger(ctx, log, view.Issue.Key.ProjectID, author)
 		if err != nil {
 			log.Error("Cannot check whether a comment author can trigger the agent; no trigger comment found",
-				"user", n.Author, "error", err)
+				"user", author, "error", err)
 
 			return false
 		}

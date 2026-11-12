@@ -113,6 +113,10 @@ _Avoid_: answer, response
 **Turn marker**:
 The hidden line in a reply that records the turn number, its result and the last comment it covered.
 
+**Turn history**:
+The replies with turn markers and the comments on an issue, ordered by note id.
+_Avoid_: history (alone), timeline
+
 **Status note**:
 The one note on an issue that the bot user edits to show the agent state and, in error, the reason. It holds the record.
 

@@ -1,7 +1,9 @@
 package models
 
 import (
+	"cmp"
 	"regexp"
+	"slices"
 	"strconv"
 )
 
@@ -37,27 +39,76 @@ func parseMarker(n Note) (Marker, bool) {
 	return m, true
 }
 
-// LastMarker returns the turn marker with the highest note id among the bot user's notes.
-func LastMarker(notes []Note, bot string) (Marker, bool) { return MarkerAfter(notes, bot, 0) }
+// TurnHistory is the turn markers and the comments of an issue, ordered by note id, never by turn number: a turn
+// repeated after a revert has the same n.
+type TurnHistory struct {
+	markers  []Marker
+	comments []Note
+}
 
-// MarkerAfter returns the turn marker with the highest note id above afterNoteID among the bot user's notes.
-// Markers are ordered by note id, never by turn number: a turn repeated after a revert has the same n.
-func MarkerAfter(notes []Note, bot string, afterNoteID int64) (Marker, bool) {
-	var (
-		best  Marker
-		found bool
-	)
+// NewTurnHistory reads the turn history from notes: markers from the bot user's notes, comments from the notes of
+// persons.
+func NewTurnHistory(notes []Note, bot string) TurnHistory {
+	var h TurnHistory
 
 	for _, n := range notes {
-		if !isBotNote(n, bot) || n.ID <= afterNoteID {
-			continue
-		}
-
-		m, ok := parseMarker(n)
-		if ok && (!found || m.NoteID > best.NoteID) {
-			best, found = m, true
+		switch {
+		case isComment(n, bot):
+			h.comments = append(h.comments, n)
+		case isBotNote(n, bot):
+			if m, ok := parseMarker(n); ok {
+				h.markers = append(h.markers, m)
+			}
 		}
 	}
 
-	return best, found
+	slices.SortStableFunc(h.markers, func(a, b Marker) int { return cmp.Compare(a.NoteID, b.NoteID) })
+	slices.SortStableFunc(h.comments, func(a, b Note) int { return cmp.Compare(a.ID, b.ID) })
+
+	return h
+}
+
+// Last returns the marker with the highest note id.
+func (h TurnHistory) Last() (Marker, bool) { return h.After(0) }
+
+// After returns the marker with the highest note id above since.
+func (h TurnHistory) After(since int64) (Marker, bool) {
+	if len(h.markers) == 0 || h.markers[len(h.markers)-1].NoteID <= since {
+		return Marker{}, false
+	}
+
+	return h.markers[len(h.markers)-1], true
+}
+
+// PreviousID returns the note id of the marker before the last one; 0 when there is none.
+func (h TurnHistory) PreviousID() int64 {
+	if len(h.markers) < 2 {
+		return 0
+	}
+
+	return h.markers[len(h.markers)-2].NoteID
+}
+
+// CommentAfter reports whether a comment has a note id above id.
+func (h TurnHistory) CommentAfter(id int64) bool {
+	return slices.ContainsFunc(h.comments, func(n Note) bool { return n.ID > id })
+}
+
+// UncoveredAuthors returns the distinct authors of the comments no turn covered: above the last marker's last=, or
+// every comment when there is no marker. Authors are in note id order of their first such comment.
+func (h TurnHistory) UncoveredAuthors() []string {
+	var last int64
+	if m, ok := h.Last(); ok {
+		last = m.Last
+	}
+
+	var out []string
+
+	for _, n := range h.comments {
+		if n.ID > last && !slices.Contains(out, n.Author) {
+			out = append(out, n.Author)
+		}
+	}
+
+	return out
 }

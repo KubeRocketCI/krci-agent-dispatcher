@@ -181,12 +181,11 @@ type Decision struct {
 }
 
 type facts struct {
-	f         Facts
-	l         Limits
-	rec       models.Record
-	hasRec    bool
-	marker    models.Marker
-	hasMarker bool
+	f      Facts
+	l      Limits
+	rec    models.Record
+	hasRec bool
+	turns  models.TurnHistory
 }
 
 // Decide returns the decision of the first matching rule.
@@ -196,7 +195,7 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	is := facts{f: f, l: l, rec: f.View.Record, hasRec: f.View.HasRecord}
-	is.marker, is.hasMarker = models.LastMarker(f.View.Notes, l.Bot)
+	is.turns = models.NewTurnHistory(f.View.Notes, l.Bot)
 
 	// A clear-error request ignores a record in error: the issue continues as if it had no record and no
 	// agent::error label.
@@ -330,7 +329,9 @@ func (is facts) create(rule Rule) Decision {
 
 // atTurnLimit reports whether the last marker is at the turn limit.
 func (is facts) atTurnLimit() bool {
-	return is.hasMarker && is.marker.Turn >= is.l.TurnLimit
+	m, ok := is.turns.Last()
+
+	return ok && m.Turn >= is.l.TurnLimit
 }
 
 // noActor: no actor template, no actor, no egress policy.
@@ -387,9 +388,10 @@ func (is facts) complete() Decision {
 			w = record(models.Working, "")
 		}
 
+		// The loop starts at the previous marker, so it sees the last marker as new.
 		return Decision{
 			Rule: RuleRunningContinue,
-			Plan: append(write(w), loop(is.previousMarkerID(), true)),
+			Plan: append(write(w), loop(is.turns.PreviousID(), true)),
 		}
 	case st == models.Crashed:
 		if is.hasRec && is.rec.State == models.Working {
@@ -405,7 +407,7 @@ func (is facts) complete() Decision {
 	case !is.hasRec:
 		settle, pre = RuleNoRecordWaiting, record(models.Waiting, "")
 
-		if !is.hasMarker {
+		if _, ok := is.turns.Last(); !ok {
 			return is.activate(RuleFirstActivation, pre)
 		}
 	case is.rec.State == models.Working:
@@ -470,8 +472,8 @@ func (is facts) activate(rule Rule, pre models.Writes) Decision {
 // last marker read before the resume.
 func (is facts) activation() Plan {
 	var since int64
-	if is.hasMarker {
-		since = is.marker.NoteID
+	if m, ok := is.turns.Last(); ok {
+		since = m.NoteID
 	}
 
 	p := Plan{effect(KindResume, FailErrorFresh), effect(KindReload, FailLog)}
@@ -485,26 +487,6 @@ func decision(rule Rule, w models.Writes) Decision { return Decision{Rule: rule,
 // suspendOnly applies w, then suspends the actor; no activation.
 func suspendOnly(rule Rule, w models.Writes) Decision {
 	return Decision{Rule: rule, Plan: append(write(w), effect(KindSuspend, FailAbort))}
-}
-
-// previousMarkerID returns the note id of the marker before the last one (0 if none): the loop of a running actor
-// found after a dispatcher restart then sees the last marker as new.
-func (is facts) previousMarkerID() int64 {
-	if !is.hasMarker {
-		return 0
-	}
-
-	var prev int64
-
-	for _, n := range is.f.View.Notes {
-		if n.ID < is.marker.NoteID {
-			if m, ok := models.MarkerAfter([]models.Note{n}, is.l.Bot, 0); ok {
-				prev = max(prev, m.NoteID)
-			}
-		}
-	}
-
-	return prev
 }
 
 // labelIs reports whether the only state label is the one of s.
@@ -597,7 +579,8 @@ func (d PollDecision) Waits() bool { return d.Next == NextContinue && len(d.Plan
 
 // Poll returns the activation-loop decision for one poll: the first matching rule.
 func Poll(p PollFacts, l Limits) PollDecision {
-	m, hasNew := models.MarkerAfter(p.View.Notes, l.Bot, p.Since)
+	h := models.NewTurnHistory(p.View.Notes, l.Bot)
+	m, hasNew := h.After(p.Since)
 	timedOut := p.Elapsed >= l.TurnTimeout
 	settled := p.Actor.State.Settled()
 
@@ -612,7 +595,7 @@ func Poll(p PollFacts, l Limits) PollDecision {
 	switch {
 	case hasNew && m.Turn >= l.TurnLimit:
 		return suspendThenEnd(PollMarkerLimit, m, record(models.Error, models.ReasonTurnLimit))
-	case hasNew && models.CommentAfter(p.View.Notes, l.Bot, m.Last):
+	case hasNew && h.CommentAfter(m.Last):
 		return PollDecision{Rule: PollMarkerComment, Plan: Plan{advance(m.NoteID)}, Marker: m}
 	case hasNew:
 		return suspendThenEnd(PollMarkerIdle, m, record(models.Waiting, ""))

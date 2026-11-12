@@ -272,6 +272,12 @@ func decideCases() []decideCase {
 			Request: intake.Recover,
 		},
 			"running-continue loop(since=0,recovered)"},
+		{"running after two turns: continue from the previous marker", Facts{
+			View:    open("agent", lbl(models.Working)).record(models.Working, "").marker(140, 2, 135).marker(110, 1, 100).v,
+			Actor:   running,
+			Request: intake.Recover,
+		},
+			"running-continue loop(since=110,recovered)"},
 		{"running, record waiting: record working, continue", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   running,
