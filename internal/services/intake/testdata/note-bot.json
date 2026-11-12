@@ -1,9 +1,9 @@
 {
   "object_kind": "note",
   "event_type": "note",
-  "user": {"id": 6, "name": "N", "username": "krci-agent", "email": "[REDACTED]"},
+  "user": {"id": 6, "name": "N", "username": "krci-bot", "email": "[REDACTED]"},
   "project_id": 12,
   "project": {"id": 12, "name": "test-go-app", "path_with_namespace": "krci/test-go-app", "web_url": "https://gitlab.127.0.0.1.nip.io/krci/test-go-app"},
   "object_attributes": {"id": 1201, "note": "please also add a test", "noteable_type": "Issue", "author_id": 6, "system": false, "noteable_id": 901},
-  "issue": {"id": 901, "iid": 7, "title": "Add GET /healthz", "state": "opened", "labels": [{"id": 1, "title": "agent", "type": "ProjectLabel"},{"id": 2, "title": "agent::waiting", "type": "ProjectLabel"}]}
+  "issue": {"id": 901, "iid": 7, "title": "Add GET /healthz", "state": "opened", "labels": [{"id": 1, "title": "krci-agent", "type": "ProjectLabel"},{"id": 2, "title": "krci::agent::waiting", "type": "ProjectLabel"}]}
 }

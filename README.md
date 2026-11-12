@@ -44,18 +44,18 @@ sequenceDiagram
   A->>GL: reply and turn marker
   D->>GL: poll, find the marker
   D->>A: suspend
-  D->>GL: agent::waiting
+  D->>GL: krci::agent::waiting
 ```
 
 ## Use it
 
 | You do | The agent |
 |---|---|
-| Add the `agent` label to an open issue (trigger role or higher) | starts and takes its first turn |
+| Add the `krci-agent` label to an open issue (trigger role or higher) | starts and takes its first turn |
 | Comment (trigger role or higher) | takes the next turn |
 | Close the issue, or remove the label | stops; its sandbox is deleted |
 
-The state label shows where the agent is: `agent::working`, `agent::waiting`, `agent::done`, `agent::error`. The status note on the issue shows the details.
+The state label shows where the agent is: `krci::agent::working`, `krci::agent::waiting`, `krci::agent::done`, `krci::agent::error`. The status note on the issue shows the details.
 
 The trigger role is the lowest GitLab project role whose users can start the agent and write trigger comments. Set it with `TRIGGER_MIN_ROLE` (chart value `config.triggerMinRole`):
 

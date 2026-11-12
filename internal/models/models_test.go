@@ -9,6 +9,8 @@ import (
 
 const bot = "krci-agent"
 
+var agentLabels AgentLabels
+
 func botNote(id int64, body string) Note { return Note{ID: id, Body: body, Author: bot} }
 
 func personNote(id int64, body string) Note { return Note{ID: id, Body: body, Author: "owner"} }
@@ -20,18 +22,21 @@ func TestIssueKey(t *testing.T) {
 	assert.Equal(t, "issue-12-7", k.ActorName())
 }
 
-func TestStateLabels(t *testing.T) {
-	assert.Equal(t, "agent::working", StateLabel(Working))
-	assert.Equal(t, "agent::done", StateLabel(Done))
-	assert.Equal(t, []string{"agent::working", "agent::waiting", "agent::done", "agent::error"}, StateLabels())
+func TestAgentLabelsDefaults(t *testing.T) {
+	assert.Equal(t, "krci-agent", agentLabels.Trigger())
+	assert.Equal(t, "krci::agent::working", agentLabels.State(Working))
+	assert.Equal(t, "krci::agent::done", agentLabels.State(Done))
+	assert.Equal(t,
+		[]string{"krci::agent::working", "krci::agent::waiting", "krci::agent::done", "krci::agent::error"},
+		agentLabels.States())
 }
 
-func TestStateFromLabels(t *testing.T) {
-	s, ok := StateFromLabels([]string{"agent", "agent::error", "bug"})
+func TestAgentLabelsStateFrom(t *testing.T) {
+	s, ok := agentLabels.StateFrom([]string{agentLabels.Trigger(), agentLabels.State(Error), "bug"})
 	assert.True(t, ok)
 	assert.Equal(t, Error, s)
 
-	_, ok = StateFromLabels([]string{"agent", "bug"})
+	_, ok = agentLabels.StateFrom([]string{agentLabels.Trigger(), "bug"})
 	assert.False(t, ok)
 }
 
@@ -51,8 +56,8 @@ func TestStatusNoteFindsBotRecord(t *testing.T) {
 }
 
 func TestTriggerAndHasLabel(t *testing.T) {
-	assert.True(t, HasLabel([]string{"bug", "agent"}, "agent"))
-	assert.False(t, HasLabel([]string{"agent::waiting"}, "agent"))
+	assert.True(t, HasLabel([]string{"bug", agentLabels.Trigger()}, agentLabels.Trigger()))
+	assert.False(t, HasLabel([]string{agentLabels.State(Waiting)}, agentLabels.Trigger()))
 }
 
 func TestIssueBranch(t *testing.T) {
@@ -100,7 +105,7 @@ func TestIssueViewEnabled(t *testing.T) {
 		return IssueView{Issue: Issue{IssueState: state, Labels: labels}}
 	}
 
-	assert.True(t, view(IssueOpened, "agent").Enabled("agent"))
-	assert.False(t, view(IssueOpened, "other").Enabled("agent"), "no trigger label")
-	assert.False(t, view(IssueClosed, "agent").Enabled("agent"), "closed")
+	assert.True(t, view(IssueOpened, agentLabels.Trigger()).Enabled(agentLabels))
+	assert.False(t, view(IssueOpened, "other").Enabled(agentLabels), "no trigger label")
+	assert.False(t, view(IssueClosed, agentLabels.Trigger()).Enabled(agentLabels), "closed")
 }

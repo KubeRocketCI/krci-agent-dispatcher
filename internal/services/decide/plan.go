@@ -163,7 +163,7 @@ func writesString(w models.Writes) string {
 	}
 
 	if w.Label != "" {
-		parts = append(parts, "label="+strings.TrimPrefix(w.Label, "agent::"))
+		parts = append(parts, "label="+string(w.Label))
 	}
 
 	for _, n := range w.Notes {

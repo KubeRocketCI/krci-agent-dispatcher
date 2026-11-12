@@ -151,7 +151,7 @@ func (d *Dispatcher) retry(ctx context.Context, fn func() error) error {
 }
 
 func stateWrites(s models.AgentState, reason string) models.Writes {
-	return models.Writes{Record: &models.Record{State: s, Reason: reason}, Label: models.StateLabel(s)}
+	return models.Writes{Record: &models.Record{State: s, Reason: reason}, Label: s}
 }
 
 func substrateError() models.Writes { return stateWrites(models.Error, models.ReasonSubstrateError) }

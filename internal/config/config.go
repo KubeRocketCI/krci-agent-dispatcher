@@ -24,7 +24,6 @@ type Config struct {
 	GitLabCAFile     string
 	HookToken        string
 	BotUsername      string
-	TriggerLabel     string
 	TriggerMinRole   models.Role
 	ATEAPIAddr       string
 	ATETokenFile     string
@@ -107,7 +106,6 @@ func Load() (*Config, error) {
 		GitLabCAFile:     os.Getenv("GITLAB_CA_FILE"),
 		HookToken:        required("HOOK_TOKEN"),
 		BotUsername:      orDefault("BOT_USERNAME", "krci-agent"),
-		TriggerLabel:     orDefault("TRIGGER_LABEL", "agent"),
 		TriggerMinRole:   role("TRIGGER_MIN_ROLE", "developer"),
 		ATEAPIAddr:       orDefault("ATE_API_ADDR", "api.ate-system.svc:443"),
 		ATETokenFile:     orDefault("ATE_TOKEN_FILE", "/var/run/ate/token"),

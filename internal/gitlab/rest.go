@@ -33,6 +33,7 @@ type REST struct {
 	client  *resty.Client
 	bot     string
 	trigger models.Role
+	labels  models.AgentLabels
 	log     *slog.Logger
 }
 
@@ -59,6 +60,11 @@ func WithTokenFile(path string) Option {
 			return nil
 		})
 	}
+}
+
+// WithAgentLabels sets the agent label names; the default is the zero AgentLabels.
+func WithAgentLabels(labels models.AgentLabels) Option {
+	return func(c *REST) { c.labels = labels }
 }
 
 // WithLogger sets the logger; the default is slog.Default().
@@ -400,8 +406,9 @@ func (c *REST) postNote(ctx context.Context, key models.IssueKey, body string) (
 	return models.Note{ID: n.ID, Body: body, Author: c.bot}, nil
 }
 
-func (c *REST) setStateLabel(ctx context.Context, key models.IssueKey, label string) error {
-	remove := slices.DeleteFunc(models.StateLabels(), func(l string) bool { return l == label })
+func (c *REST) setStateLabel(ctx context.Context, key models.IssueKey, s models.AgentState) error {
+	label := c.labels.State(s)
+	remove := slices.DeleteFunc(c.labels.States(), func(l string) bool { return l == label })
 	path := issuePath(key)
 
 	resp, err := c.client.R().SetContext(ctx).

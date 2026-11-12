@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v2"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
 
@@ -32,10 +33,10 @@ type RequestHandler interface {
 
 // RouterConfig configures NewRouter. HookToken is required.
 type RouterConfig struct {
-	HookToken    string
-	Bot          string
-	TriggerLabel string
-	Logger       *httplog.Logger
+	HookToken string
+	Bot       string
+	Labels    models.AgentLabels
+	Logger    *httplog.Logger
 }
 
 // NewLogger returns the JSON request and application logger. Request headers are never logged.
@@ -67,7 +68,7 @@ func NewRouter(h RequestHandler, cfg RouterConfig) http.Handler {
 	r.Use(requireToken(cfg.HookToken))
 	r.Use(limitBody)
 
-	strict := NewStrictHandlerWithOptions(&hookServer{h: h, bot: cfg.Bot, label: cfg.TriggerLabel}, nil,
+	strict := NewStrictHandlerWithOptions(&hookServer{h: h, bot: cfg.Bot, labels: cfg.Labels}, nil,
 		StrictHTTPServerOptions{RequestErrorHandlerFunc: writeProblem, ResponseErrorHandlerFunc: writeProblem})
 
 	return HandlerWithOptions(strict, ChiServerOptions{BaseRouter: r, ErrorHandlerFunc: writeProblem})
@@ -99,8 +100,9 @@ func limitBody(next http.Handler) http.Handler {
 }
 
 type hookServer struct {
-	h          RequestHandler
-	bot, label string
+	h      RequestHandler
+	bot    string
+	labels models.AgentLabels
 }
 
 // PostHook maps the event to a request, hands it to the lanes and replies 202 at once.
@@ -110,7 +112,7 @@ func (s *hookServer) PostHook(ctx context.Context, req PostHookRequestObject) (P
 		event = *req.Params.XGitlabEvent
 	}
 
-	r, err := intake.Parse(event, *req.Body, s.bot, s.label)
+	r, err := intake.Parse(event, *req.Body, s.bot, s.labels)
 	if err != nil {
 		return nil, errBadPayload
 	}

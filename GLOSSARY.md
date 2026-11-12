@@ -75,11 +75,11 @@ _Avoid_: restart
 ## GitLab
 
 **Trigger label**:
-The issue label that asks for an agent (`agent`).
+The issue label that asks for an agent (`krci-agent`).
 _Avoid_: agent label
 
 **State label**:
-The issue label that shows the agent state: `agent::working` (an activation runs), `agent::waiting` (no activation runs), `agent::done` (stopped), `agent::error` (error).
+The issue label that shows the agent state: `krci::agent::working` (an activation runs), `krci::agent::waiting` (no activation runs), `krci::agent::done` (stopped), `krci::agent::error` (error).
 _Avoid_: status label
 
 **Agent state**:

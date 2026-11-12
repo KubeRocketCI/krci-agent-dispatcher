@@ -133,9 +133,9 @@ Rules:
 | No marker within the turn timeout (`TURN_TIMEOUT`, default 15 m) from the turn start | Suspends a running actor. Record error `turn timeout`. |
 | Actor crashed during an activation | Record error `actor crashed`. |
 | Actor suspended by another caller during an activation | Record waiting. |
-| Record error | No resume. A running actor is suspended. A person removes `agent::error` to clear it. Record error `turn limit` is not cleared: `agent::error` is set again and no activation starts. |
+| Record error | No resume. A running actor is suspended. A person removes `krci::agent::error` to clear it. Record error `turn limit` is not cleared: `krci::agent::error` is set again and no activation starts. |
 | Issue closed or trigger label removed | Deletes the actor in any actor state. Record done. During an activation: at the next marker, at the turn timeout, or when the actor is no longer running. |
-| Record done, actor running (for example `agent::done` set by a person) | Deletes the actor on the next request, restart recovery or sweep. Record done. |
+| Record done, actor running (for example `krci::agent::done` set by a person) | Deletes the actor on the next request, restart recovery or sweep. Record done. |
 | Issue gone: deleted, its project readable | Discards the actor: deletes it in any actor state; nothing is written to the issue. |
 | Issue unavailable: any other failed read | On a request: keeps the actor; a running actor, or one that cannot be read, is suspended; nothing is written to the issue. During an activation: polls on; at the turn timeout suspends the actor and records error `turn timeout`. |
 | Actor cannot be read during an activation | Polls on; at the turn timeout suspends the actor and records error `turn timeout`. |

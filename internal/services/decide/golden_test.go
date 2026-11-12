@@ -114,7 +114,7 @@ func issueAxes[T any](
 	}
 
 	l = &axis[T]{name: "trigger-label"}
-	l.add("yes", func(t *T) { view(t).Issue.Labels = append(view(t).Issue.Labels, limits.TriggerLabel) })
+	l.add("yes", func(t *T) { view(t).Issue.Labels = append(view(t).Issue.Labels, limits.Labels.Trigger()) })
 	l.add("no", func(*T) {})
 
 	return s, l, actorAxis(actors, actor)
@@ -169,12 +169,12 @@ func decideAxes() []*axis[Facts] {
 
 	for _, s := range models.AgentStates() {
 		record.add(string(s), func(f *Facts) { f.View.Record, f.View.HasRecord = models.Record{State: s}, true })
-		label.add(string(s), func(f *Facts) { f.View.Issue.Labels = append(f.View.Issue.Labels, models.StateLabel(s)) })
+		label.add(string(s), func(f *Facts) { f.View.Issue.Labels = append(f.View.Issue.Labels, agentLabels.State(s)) })
 	}
 
 	for _, pair := range [][2]models.AgentState{{models.Done, models.Error}, {models.Working, models.Waiting}} {
 		label.add(string(pair[0])+"+"+string(pair[1]), func(f *Facts) {
-			f.View.Issue.Labels = append(f.View.Issue.Labels, models.StateLabel(pair[0]), models.StateLabel(pair[1]))
+			f.View.Issue.Labels = append(f.View.Issue.Labels, agentLabels.State(pair[0]), agentLabels.State(pair[1]))
 		})
 	}
 

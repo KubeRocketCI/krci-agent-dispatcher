@@ -34,11 +34,12 @@ func TestFailsListsEveryFailure(t *testing.T) {
 }
 
 func TestDecideDoneStartRefusedNote(t *testing.T) {
-	got := Decide(Facts{View: open("agent").record(models.Done, "").v, Actor: noActor, Request: intake.Start}, limits)
+	f := Facts{View: open(agentLabels.Trigger()).record(models.Done, "").v, Actor: noActor, Request: intake.Start}
+	got := Decide(f, limits)
 
 	assert.Equal(t, Decision{Rule: RuleDoneStartRefused, Plan: Plan{{
 		Kind: KindWrite, Fail: FailLog, Writes: models.Writes{
-			Label: "agent::done",
+			Label: models.Done,
 			Notes: []models.NewNote{{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}},
 		},
 	}}}, got)
@@ -66,7 +67,7 @@ func TestPlanString(t *testing.T) {
 		effect(KindNoteMR, FailLog),
 		effect(KindDelete, FailError),
 		{Kind: KindWrite, Fail: FailLog, Writes: models.Writes{
-			Record: &models.Record{State: models.Error, Reason: models.ReasonTurnLimit}, Label: "agent::error",
+			Record: &models.Record{State: models.Error, Reason: models.ReasonTurnLimit}, Label: models.Error,
 		}},
 		loop(120, true),
 	}

@@ -54,7 +54,7 @@ func newServer(t *testing.T, logs *bytes.Buffer) (*httptest.Server, *recorder) {
 
 	rec := &recorder{}
 	h := api.NewRouter(rec, api.RouterConfig{
-		HookToken: hookToken, Bot: "krci-agent", TriggerLabel: "agent", Logger: api.NewLogger(logs),
+		HookToken: hookToken, Bot: "krci-bot", Logger: api.NewLogger(logs),
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

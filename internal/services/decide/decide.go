@@ -16,11 +16,11 @@ const MaxRechecks = 3
 
 // Limits are the fixed rules of one dispatcher. TriggerRole names the role in the start-refused note.
 type Limits struct {
-	TurnLimit    int
-	Bot          string
-	TriggerLabel string
-	TriggerRole  models.Role
-	TurnTimeout  time.Duration
+	TurnLimit   int
+	Bot         string
+	Labels      models.AgentLabels
+	TriggerRole models.Role
+	TurnTimeout time.Duration
 }
 
 // IssueRead is the outcome of the issue read. ReadGone: the issue does not exist and its project is readable; the
@@ -66,8 +66,8 @@ type Facts struct {
 type Rule string
 
 // Rules of Decide. Enabled: the issue is open and has the trigger label. Record: the record of the status note;
-// a clear-error request ignores a record in error; without a record, agent::done on an enabled issue stands for
-// one, and so does agent::error unless the request is clear-error. Partial create: an actor template or actor
+// a clear-error request ignores a record in error; without a record, krci::agent::done on an enabled issue stands for
+// one, and so does krci::agent::error unless the request is clear-error. Partial create: an actor template or actor
 // without the egress policy. Complete actor: the egress policy exists. Label repair: the state label is set from
 // the record when the issue does not have exactly that one state label.
 const (
@@ -198,7 +198,7 @@ type facts struct {
 // covered is a trigger comment, and whether the request author can trigger the agent. Decide reads neither after a
 // failed issue read, for an unknown actor or on a disabled issue; the author only for start and clear-error.
 func TriggerChecks(f Facts, l Limits) (comments, author bool) {
-	if _, ok := unread(f); ok || !f.View.Enabled(l.TriggerLabel) {
+	if _, ok := unread(f, l.Labels); ok || !f.View.Enabled(l.Labels) {
 		return false, false
 	}
 
@@ -207,7 +207,7 @@ func TriggerChecks(f Facts, l Limits) (comments, author bool) {
 
 // Decide returns the decision of the first matching rule.
 func Decide(f Facts, l Limits) Decision {
-	if d, ok := unread(f); ok {
+	if d, ok := unread(f, l.Labels); ok {
 		return d
 	}
 
@@ -215,22 +215,22 @@ func Decide(f Facts, l Limits) Decision {
 	is.turns = models.NewTurnHistory(f.View.Notes, l.Bot)
 
 	// A clear-error request ignores a record in error: the issue continues as if it had no record and no
-	// agent::error label.
+	// krci::agent::error label.
 	if f.Request == intake.ClearError && is.hasRec && is.rec.State == models.Error {
 		is.hasRec = false
 	}
 
 	labels := f.View.Issue.Labels
-	enabled := f.View.Enabled(l.TriggerLabel)
+	enabled := f.View.Enabled(l.Labels)
 
 	if !enabled {
 		return is.disabled()
 	}
 
-	// ADR 0004: without a record, agent::done or agent::error is the record. A clear-error request is the evidence
-	// that agent::error was removed: the label is not a record for it, however it came back.
+	// ADR 0004: without a record, krci::agent::done or krci::agent::error is the record. A clear-error request is the
+	// evidence that krci::agent::error was removed: the label is not a record for it, however it came back.
 	if !is.hasRec {
-		is.rec, is.hasRec = labelRecord(labels, f.Request != intake.ClearError)
+		is.rec, is.hasRec = labelRecord(labels, l.Labels, f.Request != intake.ClearError)
 	}
 
 	if is.hasRec && is.rec.State == models.Done {
@@ -278,14 +278,14 @@ func Decide(f Facts, l Limits) Decision {
 }
 
 // unread decides a failed read: the issue read first, then the actor read.
-func unread(f Facts) (Decision, bool) {
+func unread(f Facts, labels models.AgentLabels) (Decision, bool) {
 	switch {
 	case f.Issue == ReadGone:
 		return Decision{Rule: RuleIssueGone, Plan: Plan{effect(KindDelete, FailAbort)}}, true
 	case f.Issue == ReadUnavailable:
 		return keep(f.Actor), true
 	case f.Actor.State == models.Unknown:
-		return actorUnknown(f.View), true
+		return actorUnknown(f.View, labels), true
 	}
 
 	return Decision{}, false
@@ -303,10 +303,10 @@ func keep(a models.ActorView) Decision {
 
 // actorUnknown: the actor read failed. A started agent, by its record or else its state label, records substrate
 // error; a stop request then runs on the next request for the issue.
-func actorUnknown(v models.IssueView) Decision {
+func actorUnknown(v models.IssueView, labels models.AgentLabels) Decision {
 	state, known := v.Record.State, v.HasRecord
 	if !known {
-		state, known = models.StateFromLabels(v.Issue.Labels)
+		state, known = labels.StateFrom(v.Issue.Labels)
 	}
 
 	if !known || state == models.Done {
@@ -318,7 +318,7 @@ func actorUnknown(v models.IssueView) Decision {
 
 // disabled: issue closed or without the trigger label.
 func (is facts) disabled() Decision {
-	state, hasLabel := models.StateFromLabels(is.f.View.Issue.Labels)
+	state, hasLabel := is.l.Labels.StateFrom(is.f.View.Issue.Labels)
 	if is.f.Actor.Exists() || (is.hasRec && is.rec.State != models.Done) || (hasLabel && state != models.Done) {
 		return Decision{Rule: RuleNotEnabledStop, Plan: stopPlan(is.f.Actor)}
 	}
@@ -348,7 +348,7 @@ func (is facts) create(rule Rule) Decision {
 	}
 
 	if is.f.View.HasRecord && !is.labelIs(is.f.View.Record.State) {
-		w.Label = models.StateLabel(is.f.View.Record.State)
+		w.Label = is.f.View.Record.State
 	}
 
 	return decision(refusal, w)
@@ -521,12 +521,12 @@ func (is facts) labelIs(s models.AgentState) bool {
 	var got []string
 
 	for _, l := range is.f.View.Issue.Labels {
-		if slices.Contains(models.StateLabels(), l) {
+		if is.l.Labels.IsState(l) {
 			got = append(got, l)
 		}
 	}
 
-	return len(got) == 1 && got[0] == models.StateLabel(s)
+	return len(got) == 1 && got[0] == is.l.Labels.State(s)
 }
 
 // repair returns rule with the state label set from the record when the labels differ from it.
@@ -536,22 +536,22 @@ func (is facts) repair(rule Rule) Decision { return decision(rule, is.repairWrit
 func (is facts) repairWrites() models.Writes {
 	var w models.Writes
 	if is.hasRec && !is.labelIs(is.rec.State) {
-		w.Label = models.StateLabel(is.rec.State)
+		w.Label = is.rec.State
 	}
 
 	return w
 }
 
 // labelRecord returns the record that the state labels stand for: done before error; working and waiting follow
-// from the actor state and are not a record. Without withError, agent::error stands for nothing.
-func labelRecord(labels []string, withError bool) (models.Record, bool) {
+// from the actor state and are not a record. Without withError, krci::agent::error stands for nothing.
+func labelRecord(labels []string, names models.AgentLabels, withError bool) (models.Record, bool) {
 	states := []models.AgentState{models.Done}
 	if withError {
 		states = append(states, models.Error)
 	}
 
 	for _, s := range states {
-		if models.HasLabel(labels, models.StateLabel(s)) {
+		if models.HasLabel(labels, names.State(s)) {
 			return models.Record{State: s}, true
 		}
 	}
@@ -561,7 +561,7 @@ func labelRecord(labels []string, withError bool) (models.Record, bool) {
 
 // record returns writes that set the record and its state label.
 func record(s models.AgentState, reason string) models.Writes {
-	return models.Writes{Record: &models.Record{State: s, Reason: reason}, Label: models.StateLabel(s)}
+	return models.Writes{Record: &models.Record{State: s, Reason: reason}, Label: s}
 }
 
 // PollFacts are what one poll of the activation loop read.
@@ -610,7 +610,7 @@ func (d PollDecision) Waits() bool { return d.Next == NextContinue && len(d.Plan
 func Poll(p PollFacts, l Limits) PollDecision {
 	timedOut := p.Elapsed >= l.TurnTimeout
 
-	if d, ok := pollUnread(p, timedOut); ok {
+	if d, ok := pollUnread(p, l.Labels, timedOut); ok {
 		return d
 	}
 
@@ -620,7 +620,7 @@ func Poll(p PollFacts, l Limits) PollDecision {
 
 	// A stop request counts only while the issue is still closed or without the trigger label; a stop that a
 	// later reopen or label made stale is handled by Decide on the lane.
-	enabled := p.View.Enabled(l.TriggerLabel)
+	enabled := p.View.Enabled(l.Labels)
 
 	if p.StopPending && !enabled && (hasNew || timedOut || settled) {
 		return PollDecision{Rule: PollStopPending, Plan: stopPlan(p.Actor), Next: NextEnd, Marker: m}
@@ -650,10 +650,10 @@ func Poll(p PollFacts, l Limits) PollDecision {
 
 // pollUnread decides a poll whose issue or actor read failed: a gone issue is discarded; any other failed read
 // waits, and at the turn timeout suspends and records turn timeout with status rows from a fresh read.
-func pollUnread(p PollFacts, timedOut bool) (PollDecision, bool) {
+func pollUnread(p PollFacts, labels models.AgentLabels, timedOut bool) (PollDecision, bool) {
 	switch {
 	case p.Issue == ReadGone:
-		d, _ := unread(Facts{Issue: ReadGone})
+		d, _ := unread(Facts{Issue: ReadGone}, labels)
 		return PollDecision{Rule: d.Rule, Plan: d.Plan, Next: NextEnd}, true
 	case p.Issue != ReadUnavailable && p.Actor.State != models.Unknown:
 		return PollDecision{}, false

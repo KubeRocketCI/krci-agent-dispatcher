@@ -60,8 +60,6 @@ config:
   turnLimit: 20
   # -- Bot user: ignored note author, marker author.
   botUsername: krci-agent
-  # -- Label that enables the agent.
-  triggerLabel: agent
   # -- Trigger role: lowest GitLab project role that can start the agent and write trigger comments: developer, maintainer or owner.
   triggerMinRole: developer
 

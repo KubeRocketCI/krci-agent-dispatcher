@@ -23,7 +23,7 @@ import (
 
 func TestTokenHeaderNotInURL(t *testing.T) {
 	f := gitlabtest.NewFake(bot)
-	f.AddIssue(key, "krci/test-go-app", models.IssueOpened, "agent")
+	f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
 
 	var (
 		mu      sync.Mutex
@@ -48,7 +48,7 @@ func TestTokenHeaderNotInURL(t *testing.T) {
 	_, err = c.Load(ctx, key)
 	require.NoError(t, err)
 	require.NoError(t, c.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Waiting},
-		Label: models.StateLabel(models.Waiting), Notes: []models.NewNote{{Body: "hi"}}}))
+		Label: models.Waiting, Notes: []models.NewNote{{Body: "hi"}}}))
 
 	_, err = c.CanTrigger(ctx, 12, "dev")
 	require.NoError(t, err)
@@ -187,7 +187,7 @@ func longIssue(t *testing.T) *gitlabtest.Fake {
 	t.Helper()
 
 	f := gitlabtest.NewFake(bot)
-	f.AddIssue(key, "krci/test-go-app", models.IssueOpened, "agent")
+	f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
 	f.AddNote(key, models.Note{Author: bot, Body: models.StatusBody(models.Record{State: models.Working},
 		models.StatusView{Session: "s1"})})
 
@@ -224,7 +224,7 @@ func TestWriteWithKnownViewReadsNoNotes(t *testing.T) {
 	f := longIssue(t)
 	c, requests := countingREST(t, f)
 	ctx := context.Background()
-	w := models.Writes{Record: &models.Record{State: models.Waiting}, Label: models.StateLabel(models.Waiting)}
+	w := models.Writes{Record: &models.Record{State: models.Waiting}, Label: models.Waiting}
 
 	require.NoError(t, c.Write(ctx, key, nil, w))
 	assert.Len(t, requests(), 7, "without a known view: five pages of notes, the status note, the label")

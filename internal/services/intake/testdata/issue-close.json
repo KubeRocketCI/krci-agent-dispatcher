@@ -4,6 +4,6 @@
   "user": {"id": 5, "name": "Dev One", "username": "dev1", "email": "[REDACTED]"},
   "project": {"id": 12, "name": "test-go-app", "path_with_namespace": "krci/test-go-app", "web_url": "https://gitlab.127.0.0.1.nip.io/krci/test-go-app"},
   "object_attributes": {"id": 901, "iid": 7, "project_id": 12, "title": "Add GET /healthz", "state": "closed", "action": "close", "author_id": 5},
-  "labels": [{"id": 1, "title": "agent", "type": "ProjectLabel"},{"id": 1, "title": "agent::waiting", "type": "ProjectLabel"}],
+  "labels": [{"id": 1, "title": "krci-agent", "type": "ProjectLabel"},{"id": 1, "title": "krci::agent::waiting", "type": "ProjectLabel"}],
   "changes": {"state_id": {"previous": 1, "current": 2}}
 }
