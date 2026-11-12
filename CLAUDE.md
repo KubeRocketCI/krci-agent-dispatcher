@@ -50,7 +50,7 @@ hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseli
 - Port errors are declared in `models`; adapters wrap them.
 - Each port has a production adapter and an in-memory fake; one contract suite runs against both.
 - `decide` and `substrate/templates` are pure. A new rule is a new rule constant, a new table-test case and a reviewed golden map diff.
-- A rule's plan holds every effect it causes, in order, with its failure handling. The dispatcher performs plans and adds only the fixed rules in `decide.Fail` and `KindResume` (cancelled ctx, no room) plus retries; behaviour changes go into `decide`.
+- A rule's plan holds every effect it causes, in order, with its failure handling. The dispatcher performs plans and adds only the failure handling named by `decide.Fail`, the cancelled-ctx rule and retries; behaviour changes go into `decide`.
 - A new request kind, agent state or actor state goes into its enumerator (`intake.Kinds`, `models.AgentStates`, `models.ActorStates`); tests fail until it is listed and the golden maps classify it.
 - Tests go through module interfaces (`Handle`, `Run`, `Decide`, `Poll`, port contracts).
 - No secret value in logs, argv, errors or test output.

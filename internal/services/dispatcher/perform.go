@@ -19,7 +19,7 @@ type current struct {
 }
 
 // perform carries out p in order, from the view and the actor the decision was made on. A failed effect follows its
-// decide.Fail; ErrNoRoom on a resume notes no room and ends the plan.
+// decide.Fail.
 func (d *Dispatcher) perform(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
 	actor models.ActorView, a *activation, p decide.Plan,
 ) {
@@ -62,16 +62,7 @@ func (d *Dispatcher) effect(ctx context.Context, log *slog.Logger, c *current, e
 	case decide.KindRevert:
 		err = d.retry(ctx, func() error { return d.sb.Revert(ctx, name) })
 	case decide.KindResume:
-		err = d.retry(ctx, func() error { return d.sb.Resume(ctx, name) })
-		if errors.Is(err, models.ErrNoRoom) {
-			log.Info("No free worker", "actor", name)
-			d.reload(ctx, log, c)
-			d.writeCurrent(ctx, log, c, models.Writes{Notes: []models.NewNote{{Body: models.NoRoomText}}})
-
-			return false
-		}
-
-		if err == nil {
+		if err = d.retry(ctx, func() error { return d.sb.Resume(ctx, name) }); err == nil {
 			log.Info("Activation started", "actor", name)
 		}
 	case decide.KindSuspend:
@@ -105,6 +96,14 @@ func (d *Dispatcher) advance(log *slog.Logger, a *activation, since int64) {
 
 // failed handles the failure of e and reports whether the plan goes on.
 func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e decide.Effect, err error) bool {
+	if e.Fail == decide.FailNoRoom && errors.Is(err, models.ErrNoRoom) {
+		log.Info("No free worker", "actor", c.key.ActorName())
+		d.reload(ctx, log, c)
+		d.writeCurrent(ctx, log, c, models.Writes{Notes: []models.NewNote{{Body: models.NoRoomText}}})
+
+		return false
+	}
+
 	flog := log.With("effect", e.Kind.String(), "error", err)
 
 	if ctx.Err() != nil {
@@ -127,7 +126,7 @@ func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e
 	switch e.Fail {
 	case decide.FailError:
 		d.writeCurrent(ctx, log, c, substrateError())
-	case decide.FailErrorFresh:
+	case decide.FailErrorFresh, decide.FailNoRoom:
 		d.reload(ctx, log, c)
 		d.writeCurrent(ctx, log, c, substrateError())
 	case decide.FailLog, decide.FailAbort:

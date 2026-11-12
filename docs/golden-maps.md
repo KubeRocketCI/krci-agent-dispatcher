@@ -22,7 +22,7 @@ They pin behaviour; they do not judge it. A row is right when a person says so i
 - `# <axis>: <values>`: one line per input, with every value.
 - `# rule <rule>: <n> cases`: cases per rule. The total is fixed by the axes; a change moves cases between rules.
 - Rows: one value set per axis, then the outcome. `*` is any value, `a|b` is either. Every case is in exactly one row.
-- `Decide` outcome: `rule plan`. A plan is `effect > effect > …`, `-` for none. An effect is `kind!fail`; a write is `write(writes)!fail`, a loop `loop(since=<note id>[,recovered])`, an advance `advance(since=<note id>)`, a recheck `recheck`. `fail` is `log` (go on), `abort` (end the plan), `error` (record substrate error, end), `error-fresh` (the same with status rows from a reload).
+- `Decide` outcome: `rule plan`. A plan is `effect > effect > …`, `-` for none. An effect is `kind!fail`; a write is `write(writes)!fail`, a loop `loop(since=<note id>[,recovered])`, an advance `advance(since=<note id>)`, a recheck `recheck`. `fail` is `log` (go on), `abort` (end the plan), `error` (record substrate error, end), `error-fresh` (the same with status rows from a reload), `no-room` (on no room, note it with status rows from a reload and end; else `error-fresh`).
 - Writes: `record=<state>[/<reason>]`, `label=<state>`, `note=<marker>`, comma-separated; `-` for none.
 - `Poll` outcome: `rule plan next=continue|end marker`; `marker=<note id>/n=<turn>/last=<note id>` or `-`.
 

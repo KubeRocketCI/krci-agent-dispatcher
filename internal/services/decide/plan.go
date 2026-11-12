@@ -14,7 +14,7 @@ import (
 // note-mr: note the agent's merge request once. reload: read the issue, then the actor; a failed read leaves the
 // value unknown. inspect: read the actor. delete: delete the actor; the current actor is then none. create:
 // create the actor with a new session; the current view then holds the session. revert, resume, suspend: the
-// Substrate call; ErrNoRoom on resume notes no room with fresh status rows and ends the plan. suspend-if-running:
+// Substrate call. suspend-if-running:
 // read the actor and suspend it when it runs or cannot be read. loop: the activation loop from Since. advance: a
 // new turn of the activation loop starts at Since; the turn timeout restarts. recheck: read the actor again after a
 // pause, then decide again; the only effect of its plan.
@@ -58,9 +58,10 @@ func EffectKinds() []EffectKind { return slices.Clone(kinds) }
 // not fail.
 //
 // FailLog: log, then the next effect. FailAbort: log, end the plan. FailError: record substrate error with the
-// current view and actor, end the plan. FailErrorFresh: FailError with status rows from a reload. A failure cut by
-// the end of ctx ends the plan and records nothing, whatever its Fail: the actor is left for the next restart
-// recovery.
+// current view and actor, end the plan. FailErrorFresh: FailError with status rows from a reload. FailNoRoom: on
+// ErrNoRoom, note no room with status rows from a reload and end the plan, also when ctx ended; on any other error,
+// FailErrorFresh. Any other failure cut by the end of ctx ends the plan and records nothing, whatever its Fail: the
+// actor is left for the next restart recovery.
 type Fail int
 
 // Failure handling.
@@ -69,11 +70,14 @@ const (
 	FailAbort
 	FailError
 	FailErrorFresh
+	FailNoRoom
 )
 
-var fails = []Fail{FailLog, FailAbort, FailError, FailErrorFresh}
+var fails = []Fail{FailLog, FailAbort, FailError, FailErrorFresh, FailNoRoom}
 
-var failNames = map[Fail]string{FailLog: "log", FailAbort: "abort", FailError: "error", FailErrorFresh: "error-fresh"}
+var failNames = map[Fail]string{
+	FailLog: "log", FailAbort: "abort", FailError: "error", FailErrorFresh: "error-fresh", FailNoRoom: "no-room",
+}
 
 func (f Fail) String() string { return failNames[f] }
 
