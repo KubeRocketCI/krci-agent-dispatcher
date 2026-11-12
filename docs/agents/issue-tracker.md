@@ -5,12 +5,12 @@ Issues and specs live in Jira project `EPMDEDP`. Use the `mcp__mcp-atlassian__ji
 ## Conventions
 
 - **Label**: every issue a skill creates carries the label `krci-agent-dispatcher`.
-- **Spec**: issue type `Story`. Link it to its parent Task with a `relates to` link when one is named.
+- **Spec**: issue type `Task` with `{"epic_link": "<epic key>"}` in `additional_fields`. Epic `EPMDEDP-17520` unless the user names another.
 - **Ticket**: issue type `Sub-task` with `{"parent": "<spec key>"}` in `additional_fields`. Sub-tasks have no children.
 - **Create**: `jira_create_issue` with `project_key: EPMDEDP`, Markdown `description`, `additional_fields: {"labels": ["krci-agent-dispatcher", ...]}`.
 - **Read**: `jira_get_issue` with `include: comments`.
 - **List**: `jira_search`, JQL `project = EPMDEDP AND labels = krci-agent-dispatcher AND statusCategory != Done AND status != "In review"`, plus `labels = <triage label>` or `parent = <spec key>`.
-- **Blocking**: `jira_create_issue_link` with `link_type: Blocks` (id 12300): the blocker `blocks` the child. After the first link of a session, `jira_get_issue` the child and confirm it shows `is_blocked_by <blocker>`; if reversed, swap `inward_issue_key` and `outward_issue_key` for the rest of the session. Remove a wrong edge with `jira_remove_issue_link`, taking the `link_id` from the issue's `issuelinks`. Also put `Blocked by: EPMDEDP-<n>, EPMDEDP-<n>` as the first line of the child description.
+- **Blocking**: `jira_create_issue_link` with `link_type: Blocks` (id 12300): the blocker `blocks` the child. After the first link of a session, `jira_get_issue` the child and confirm it shows `is_blocked_by <blocker>`; if reversed, swap `inward_issue_key` and `outward_issue_key` for the rest of the session. Remove a wrong edge with `jira_remove_issue_link`, taking the `link_id` from the issue's `issuelinks`. Also put `Blocked by: <KEY>-<n>, <KEY>-<n>` as the first line of the child description; a blocker can be in any Jira project.
 - **Count open blockers**: read each key in the `Blocked by:` line and the `is_blocked_by` links; a ticket is startable when every blocker is `In review` (its PR is merged) or has `statusCategory = Done`.
 - **Comment**: `jira_add_comment`.
 - **Labels**: `jira_update_issue` with `fields: {"labels": [...]}`. Send the full list; it replaces the existing labels.
