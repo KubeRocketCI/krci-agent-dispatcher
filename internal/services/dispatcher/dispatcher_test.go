@@ -1342,7 +1342,7 @@ func TestSuspendedActorReadFailureKeepsStatusRows(t *testing.T) {
 	e.idle()
 	e.comment(dev)
 	e.agentRepliesOnResume()
-	e.sb.OnSuspend(func(string) { e.sb.Fail("inspect", errRP) })
+	e.sb.OnSuspend(func(string) { e.sb.Fail("inspect", errRP, errRP, errRP, errRP) })
 	e.handle(intake.Activate, dev)
 	e.idle()
 
@@ -1350,8 +1350,96 @@ func TestSuspendedActorReadFailureKeepsStatusRows(t *testing.T) {
 
 	assert.Equal(t, 1, e.sb.Count("suspend", actor))
 	e.assertState(models.Waiting, "")
-	assert.NotEmpty(t, rows.ActorUID, "a failed read after the suspend keeps the status rows")
+	assert.NotEmpty(t, rows.ActorUID, "a read after the suspend that fails every retry keeps the status rows")
 	assert.NotEmpty(t, rows.Pod)
+}
+
+// rowsOnRecord returns the status rows the issue shows right after each write of a record in state s.
+func rowsOnRecord(e *env, s models.AgentState) func() []models.StatusView {
+	var (
+		mu   sync.Mutex
+		seen []models.StatusView
+	)
+
+	e.gl.OnWrite(func(_ models.IssueKey, w models.Writes) {
+		if w.Record == nil || w.Record.State != s {
+			return
+		}
+
+		if n, ok := models.StatusNote(e.gl.Notes(key), bot); ok {
+			v, _ := models.ParseStatusView(n.Body)
+
+			mu.Lock()
+			seen = append(seen, v)
+			mu.Unlock()
+		}
+	})
+
+	return func() []models.StatusView {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return slices.Clone(seen)
+	}
+}
+
+func TestResumedActorReadRetriedForStatusRows(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	working := rowsOnRecord(e, models.Working)
+
+	e.sb.OnResume(func(string) {
+		e.sb.Fail("inspect", errRP)
+		e.reply()
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	rows := working()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "workers-pod-0", rows[0].Pod, "one failed actor read after the resume is retried")
+}
+
+func TestIssueReadRetriedForStatusRows(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	working := rowsOnRecord(e, models.Working)
+
+	e.sb.OnResume(func(string) {
+		e.gl.FailLoad(errRP)
+		e.reply()
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	rows := working()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "workers-pod-0", rows[0].Pod, "one failed issue read after the resume is retried")
+}
+
+func TestSuspendedActorReadRetriedForStatusRows(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	waiting := rowsOnRecord(e, models.Waiting)
+
+	e.agentRepliesOnResume()
+	e.sb.OnSuspend(func(string) { e.sb.Fail("inspect", errRP) })
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	rows := waiting()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "uid-1", rows[0].ActorUID)
+	assert.Empty(t, rows[0].Pod, "one failed actor read after the suspend is retried")
 }
 
 func TestRecoveryRetriesListUntilSuccess(t *testing.T) {
