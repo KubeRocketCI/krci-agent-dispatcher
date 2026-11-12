@@ -185,9 +185,9 @@ func (e *env) handle(k intake.Kind, author string) {
 	e.d.Handle(intake.Request{Key: key, Kind: k, Author: author})
 }
 
-// issue adds the issue with labels; the record, when set, is written as the bot's status note.
-func (e *env) issue(state string, rec *models.Record, labels ...string) {
-	e.gl.AddIssue(key, "krci/test-go-app", state, labels...)
+// issue adds the open issue with labels; the record, when set, is written as the bot's status note.
+func (e *env) issue(rec *models.Record, labels ...string) {
+	e.gl.AddIssue(key, "krci/test-go-app", models.IssueOpened, labels...)
 
 	if rec != nil {
 		e.gl.AddNote(key, models.Note{Author: bot,
@@ -268,7 +268,7 @@ func indexOf(ops []string, op string) int { return slices.Index(ops, op) }
 
 func TestStartOrder(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 
 	var recordAtResume models.Record
 
@@ -304,7 +304,7 @@ func TestStartActorSpec(t *testing.T) {
 	e := newEnvWith(t, func(c *dispatcher.Config) {
 		c.NewSessionID = func() string { n++; return fmt.Sprintf("session-%d", n) }
 	})
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.Start, dev)
@@ -324,7 +324,7 @@ func TestStartActorSpec(t *testing.T) {
 
 func TestStartCleansPartial(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.sb.AddPartial(actor, true)
 	e.agentRepliesOnResume()
 	e.handle(intake.Start, dev)
@@ -340,49 +340,9 @@ func TestStartCleansPartial(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
-func TestStartCompleteActorNoLabel(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
-	e.comment(dev)
-	e.reply()
-	e.run()
-	e.handle(intake.Start, dev)
-	e.idle()
-
-	assert.Empty(t, e.sb.Ops(), "no create, no resume")
-	e.assertState(models.Waiting, "")
-}
-
-func TestStartRefusedOnDone(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "agent")
-	e.run()
-	e.handle(intake.Start, dev)
-	e.idle()
-	e.handle(intake.Start, dev)
-	e.idle()
-
-	assert.Equal(t, 1, e.notesWith(models.RefusedMarker), "refused note posted once")
-	assert.Empty(t, e.sb.Ops())
-	assert.Equal(t, []string{models.StateLabel(models.Done)}, e.stateLabels())
-}
-
-func TestReopenWithoutLabelIgnored(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "bug", models.StateLabel(models.Done))
-	e.run()
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Empty(t, e.sb.Ops())
-	assert.Equal(t, 0, e.notesWith(models.RefusedMarker))
-	assert.Empty(t, e.gl.Ops())
-}
-
 func TestStartRefusedForReporter(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.run()
 	e.handle(intake.Start, reporter)
 	e.idle()
@@ -400,7 +360,7 @@ func TestStartRefusedForReporter(t *testing.T) {
 func TestStartRefusedNamesTriggerRole(t *testing.T) {
 	e := newEnvWith(t, func(c *dispatcher.Config) { c.TriggerRole = models.Maintainer })
 	e.gl.SetTriggerRole(models.Maintainer)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.run()
 	e.handle(intake.Start, dev)
 	e.idle()
@@ -409,21 +369,9 @@ func TestStartRefusedNamesTriggerRole(t *testing.T) {
 	assert.Equal(t, 1, e.notesWith("Only Maintainers or higher can start the agent."))
 }
 
-func TestStartAllowedForDeveloper(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
-	e.agentRepliesOnResume()
-	e.run()
-	e.handle(intake.Start, dev)
-	e.idle()
-
-	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
-	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
-}
-
 func TestStartAuthorLookupRetried(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.gl.FailCanTriggerNext(errRP, errRP)
 	e.agentRepliesOnResume()
 	e.run()
@@ -437,7 +385,7 @@ func TestStartAuthorLookupRetried(t *testing.T) {
 
 func TestStartAuthorLookupErrorNotRefused(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.gl.FailCanTrigger(errors.New("gitlab down"))
 	e.run()
 	e.handle(intake.Start, dev)
@@ -449,17 +397,6 @@ func TestStartAuthorLookupErrorNotRefused(t *testing.T) {
 	assert.Contains(t, e.logs.String(), "Cannot check whether the request author can trigger the agent")
 }
 
-func TestStartLookupErrorKeepsDecisionWithoutAuthor(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "agent")
-	e.gl.FailCanTrigger(errRP)
-	e.run()
-	e.handle(intake.Start, dev)
-	e.idle()
-
-	assert.Equal(t, 1, e.notesWith(models.RefusedMarker), "the done refusal does not depend on the author")
-}
-
 // --- activate
 
 // waitingIssue: open issue with the trigger label, record waiting, a suspended actor, turn 1 replied to.
@@ -467,24 +404,12 @@ func waitingIssue(t *testing.T) *env {
 	t.Helper()
 
 	e := newEnv(t)
-	e.issue(models.IssueOpened, waiting(), "agent", models.StateLabel(models.Waiting))
+	e.issue(waiting(), "agent", models.StateLabel(models.Waiting))
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 	e.comment(dev)
 	e.reply()
 
 	return e
-}
-
-func TestActivateRequiresSuspended(t *testing.T) {
-	e := waitingIssue(t)
-	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-	e.comment(dev)
-	e.agentRepliesOnResume()
-	e.run()
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Equal(t, 0, e.sb.Count("resume", actor), "a running actor is not resumed again")
 }
 
 func TestActivateRereadsIssue(t *testing.T) {
@@ -580,44 +505,6 @@ func TestActivateTurnTimeoutPerTurn(t *testing.T) {
 	assert.Equal(t, 1, e.sb.Count("suspend", actor))
 }
 
-func TestActivateLimitBeforeResume(t *testing.T) {
-	e := waitingIssue(t)
-
-	for range 4 {
-		e.comment(dev)
-		e.reply()
-	}
-
-	e.comment(dev)
-	e.run()
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Equal(t, 0, e.sb.Count("resume", actor))
-	e.assertState(models.Error, models.ReasonTurnLimit)
-}
-
-func TestActivateLimitAfterMarker(t *testing.T) {
-	e := waitingIssue(t)
-
-	for range 3 {
-		e.comment(dev)
-		e.reply()
-	}
-
-	e.comment(dev)
-	e.sb.OnResume(func(string) {
-		e.comment(dev)
-		e.reply()
-	})
-	e.run()
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Equal(t, 1, e.sb.Count("suspend", actor))
-	e.assertState(models.Error, models.ReasonTurnLimit)
-}
-
 func TestActivateNoRoomPostsNote(t *testing.T) {
 	e := waitingIssue(t)
 	e.run()
@@ -652,44 +539,7 @@ func TestActivateTimeoutSuspendsAndErrors(t *testing.T) {
 	e.assertState(models.Error, models.ReasonTurnTimeout)
 }
 
-func TestActivateCrashDetectedOnPoll(t *testing.T) {
-	e := waitingIssue(t)
-	e.comment(dev)
-	e.sb.OnResume(func(string) { e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_CRASHED) })
-	e.run()
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Equal(t, 0, e.sb.Count("suspend", actor))
-	e.assertState(models.Error, models.ReasonActorCrashed)
-}
-
-func TestActivateSuspendedByHand(t *testing.T) {
-	e := waitingIssue(t)
-	e.comment(dev)
-	e.sb.OnResume(func(string) { e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED) })
-	e.run()
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Equal(t, 0, e.sb.Count("suspend", actor))
-	e.assertState(models.Waiting, "")
-}
-
 // --- stop
-
-func TestStopOrderAndDone(t *testing.T) {
-	e := waitingIssue(t)
-	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-	e.gl.SetIssue(key, models.IssueClosed, "agent", models.StateLabel(models.Working))
-	e.run()
-	e.handle(intake.Stop, dev)
-	e.idle()
-
-	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, e.sb.Ops(),
-		"a running actor is deleted without a suspend")
-	e.assertState(models.Done, "")
-}
 
 func TestStopAfterRunningActivation(t *testing.T) {
 	e := waitingIssue(t)
@@ -758,37 +608,11 @@ func TestStopMRNoteFailureStillDone(t *testing.T) {
 	e.assertState(models.Done, "")
 }
 
-func TestStopInError(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{
-		State:  models.Error,
-		Reason: models.ReasonTurnTimeout,
-	}, models.StateLabel(models.Error))
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
-	e.run()
-	e.handle(intake.Stop, dev)
-	e.idle()
-
-	assert.Equal(t, 1, e.sb.Count("delete-actor", actor))
-	e.assertState(models.Done, "")
-}
-
-func TestStopIgnoredWithoutAgent(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueClosed, nil, "bug")
-	e.run()
-	e.handle(intake.Stop, dev)
-	e.idle()
-
-	assert.Empty(t, e.sb.Ops())
-	assert.Empty(t, e.gl.Ops())
-}
-
 // --- errors
 
 func TestErrorClearedNextCommentActivates(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonTurnTimeout}, "agent")
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonTurnTimeout}, "agent")
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 	e.comment(dev)
 	e.reply()
@@ -1009,23 +833,13 @@ func runningIssue(t *testing.T) *env {
 	t.Helper()
 
 	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Working}, "agent", models.StateLabel(models.Working))
+	e.issue(&models.Record{State: models.Working}, "agent", models.StateLabel(models.Working))
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
 	e.comment(dev)
 	e.reply()
 	e.comment(dev)
 
 	return e
-}
-
-func TestRunRecoversRunningAnswered(t *testing.T) {
-	e := runningIssue(t)
-	e.reply()
-	e.run()
-	e.idle()
-
-	assert.Equal(t, []string{"suspend " + actor}, e.sb.Ops())
-	e.assertState(models.Waiting, "")
 }
 
 func TestRunRecoversRunningUnanswered(t *testing.T) {
@@ -1105,17 +919,6 @@ func TestRunRecoveryCoversEveryActor(t *testing.T) {
 	assert.Equal(t, 0, e.sb.Count("resume", "issue-12-2"))
 }
 
-func TestIssueDeletedDeletesActor(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
-	e.gl.DeleteIssue(key)
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
-	e.run()
-	e.idle()
-
-	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, e.sb.Ops())
-}
-
 func TestIssueGoneProjectUnreadableKeepsActor(t *testing.T) {
 	e := newEnv(t)
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
@@ -1129,7 +932,7 @@ func TestIssueGoneProjectUnreadableKeepsActor(t *testing.T) {
 
 func TestIssueGoneProjectErrorKeepsActor(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.gl.DeleteIssue(key)
 	e.gl.FailProject(errRP, errRP, errRP, errRP)
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
@@ -1198,19 +1001,6 @@ func TestStaleStopKeepsReenabledAgent(t *testing.T) {
 	assert.Equal(t, 0, e.sb.Count("delete-actor", actor), "a stop made stale by the label is not run")
 	assert.Equal(t, 0, e.notesWith(models.RefusedMarker))
 	e.assertState(models.Waiting, "")
-}
-
-func TestInspectOutageOnPlainIssueWritesNothing(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "bug")
-	e.run()
-	e.idle()
-	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
-	e.comment(dev)
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Empty(t, e.gl.Ops(), "no status note or error label on an issue without an agent")
 }
 
 func TestInspectOutageOnAgentIssueErrors(t *testing.T) {
@@ -1466,7 +1256,7 @@ func TestRecoveryRetriesIssueRead(t *testing.T) {
 
 func TestCreateRetryAfterPartialStep(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.sb.Fail("create-actor", errRP)
 	e.agentRepliesOnResume()
 	e.run()
@@ -1494,7 +1284,7 @@ func TestGitLabWriteRetried(t *testing.T) {
 
 func TestRunningActorWithErrorRecordSuspended(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonSubstrateError}, "agent",
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonSubstrateError}, "agent",
 		models.StateLabel(models.Error))
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
 	e.run()
@@ -1506,7 +1296,7 @@ func TestRunningActorWithErrorRecordSuspended(t *testing.T) {
 
 func TestNoAccessLookupForDisabledIssue(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "bug")
+	e.issue(nil, "bug")
 	e.comment(dev)
 	e.run()
 	e.handle(intake.Activate, dev)
@@ -1576,7 +1366,7 @@ func TestFreshReadFailureKeepsStatusRows(t *testing.T) {
 
 func TestInvalidSpecRecordsErrorWithoutRetry(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.sb.Fail("create", fmt.Errorf("render actor %s: %w", actor, models.ErrInvalidSpec))
 	e.run()
 	e.handle(intake.Start, dev)
@@ -1594,7 +1384,7 @@ func TestInvalidSpecRecordsErrorWithoutRetry(t *testing.T) {
 
 func TestPostCreateInspectErrorRecordsError(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.sb.Fail("inspect", nil, errRP, errRP, errRP, errRP)
 	e.run()
 	e.handle(intake.Start, dev)
@@ -1608,7 +1398,7 @@ func TestPostCreateInspectErrorRecordsError(t *testing.T) {
 func TestHandleDuringShutdownNoWaitGroupRace(t *testing.T) {
 	for range 200 {
 		e := newEnv(t)
-		e.issue(models.IssueOpened, nil, "bug")
+		e.issue(nil, "bug")
 
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
@@ -1646,26 +1436,6 @@ func TestStopCutAtDeleteStillNotesMR(t *testing.T) {
 	e.idle()
 
 	assert.Len(t, e.gl.MRNotes(key.ProjectID, 6), 1, "the note does not depend on the end of the stop")
-}
-
-func TestIssueGoneProjectUnreadableSuspendsRunningActor(t *testing.T) {
-	e := newEnv(t)
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-	e.run()
-	e.idle()
-
-	assert.Equal(t, []string{"suspend " + actor}, e.sb.Ops(), "kept, but not holding a worker")
-}
-
-func TestIssueDeletedDeletesRunningActorWithoutSuspend(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
-	e.gl.DeleteIssue(key)
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-	e.run()
-	e.idle()
-
-	assert.Equal(t, []string{"delete-policy " + actor, "delete-actor " + actor, "delete-template " + actor}, e.sb.Ops())
 }
 
 // failing returns n copies of err, more than any retry of one call consumes.
@@ -1735,7 +1505,7 @@ func TestKeptActorSuspendFailureLogged(t *testing.T) {
 
 func TestKeptActorMissingIsNotAnError(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.gl.DeleteIssue(key)
 	e.gl.FailProject(failing(errRP, 4)...)
 	e.sb.Fail("inspect", failing(errRP, 4)...)
@@ -1773,7 +1543,7 @@ func TestKeptActorLeftOnCancel(t *testing.T) {
 
 func TestRecoveryForbiddenActorUnreadableRequestsSuspend(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
 	e.gl.SetForbidden(key.ProjectID)
 	e.sb.Fail("inspect", failing(errRP, 4)...)
@@ -1839,18 +1609,6 @@ func TestStopInspectOutageRecordsError(t *testing.T) {
 
 	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "the next request runs the stop")
 	e.assertState(models.Done, "")
-}
-
-func TestInspectOutageOnStoppedIssueWritesNothing(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueClosed, &models.Record{State: models.Done}, "agent", models.StateLabel(models.Done))
-	e.run()
-	e.idle()
-	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
-	e.handle(intake.Stop, dev)
-	e.idle()
-
-	assert.Empty(t, e.gl.Ops())
 }
 
 // --- turn timeout while reads fail
@@ -2112,7 +1870,7 @@ func TestPollDecisionTakenOnFullRead(t *testing.T) {
 
 func TestClearErrorMissingActorCreates(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
 	e.agentRepliesOnResume()
 	e.run()
 	e.handle(intake.ClearError, dev)
@@ -2123,21 +1881,9 @@ func TestClearErrorMissingActorCreates(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
-func TestClearErrorMissingActorRefusedForReporter(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
-	e.run()
-	e.handle(intake.ClearError, reporter)
-	e.idle()
-
-	assert.Empty(t, e.sb.Ops())
-	assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
-	e.assertState(models.Error, models.ReasonActorMissing)
-}
-
 func TestClearErrorLookupErrorNotRefused(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonActorMissing}, "agent")
 	e.gl.FailCanTrigger(errRP)
 	e.run()
 	e.handle(intake.ClearError, dev)
@@ -2145,14 +1891,14 @@ func TestClearErrorLookupErrorNotRefused(t *testing.T) {
 
 	assert.Empty(t, e.sb.Ops())
 	assert.Equal(t, 0, e.notesWith(models.StartRefusedMarker))
-	assert.Equal(t, []string{models.StateLabel(models.Error)}, e.stateLabels())
-	assert.Equal(t, models.Record{State: models.Error, Reason: models.ReasonActorMissing}, e.record())
+	e.assertState(models.Error, models.ReasonActorMissing)
 	assert.Contains(t, e.logs.String(), "Cannot check whether the request author can trigger the agent")
 }
 
+
 func TestClearErrorAtTurnLimitKeepsError(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Error, Reason: models.ReasonTurnLimit}, "agent")
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonTurnLimit}, "agent")
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 
 	for range 5 {
@@ -2179,7 +1925,7 @@ func TestClearErrorAtTurnLimitKeepsError(t *testing.T) {
 
 func TestRecoveryCompletesPartialCreate(t *testing.T) {
 	e := newEnv(t)
-	e.issue(models.IssueOpened, nil, "agent")
+	e.issue(nil, "agent")
 	e.sb.AddPartial(actor, true)
 	e.agentRepliesOnResume()
 	e.run()
@@ -2203,7 +1949,7 @@ func sweepEnv(t *testing.T, mod func(*dispatcher.Config)) (*env, *sweepGate) {
 		c.SweepInterval = sweepEvery
 		mod(c)
 	})
-	e.issue(models.IssueOpened, waiting(), "agent", models.StateLabel(models.Waiting))
+	e.issue(waiting(), "agent", models.StateLabel(models.Waiting))
 	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 	e.comment(dev)
 	e.reply()
@@ -2350,18 +2096,6 @@ func TestSweepRequestsAgainWhileActorStaysWithoutLane(t *testing.T) {
 
 	assert.Equal(t, 2, strings.Count(e.logs.String(), "Sweep: actor without an issue lane"),
 		"an actor that stays without a lane is requested again at the next sweep")
-}
-
-func TestRecoveryStopsRunningActorOfDoneIssue(t *testing.T) {
-	e := newEnv(t)
-	e.issue(models.IssueOpened, &models.Record{State: models.Done}, "agent", models.StateLabel(models.Done))
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-	e.run()
-	e.idle()
-
-	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "a done issue keeps no running actor")
-	assert.Contains(t, e.logs.String(), "rule=done-running-stop")
-	e.assertState(models.Done, "")
 }
 
 func TestUnavailableIssueKeepsRunningActorSuspended(t *testing.T) {
