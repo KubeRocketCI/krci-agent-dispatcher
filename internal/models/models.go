@@ -211,8 +211,3 @@ func isBotNote(n Note, bot string) bool { return !n.System && n.Author == bot }
 func HasMarker(notes []Note, bot, marker string) bool {
 	return slices.ContainsFunc(notes, func(n Note) bool { return isBotNote(n, bot) && strings.Contains(n.Body, marker) })
 }
-
-// CommentAfter reports whether a comment (a non-system note by a person) has a note id above after.
-func CommentAfter(notes []Note, bot string, after int64) bool {
-	return slices.ContainsFunc(notes, func(n Note) bool { return isComment(n, bot) && n.ID > after })
-}

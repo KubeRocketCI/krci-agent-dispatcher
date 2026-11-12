@@ -29,7 +29,7 @@ Rewrite the golden maps after an intended change to `Decide` or `Poll`: `go test
 cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
-internal/models/             IssueKey, Issue, Note, Marker, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
+internal/models/             IssueKey, Issue, Note, Marker, TurnHistory, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
 internal/services/dispatcher/ Handle, Run: issue lanes, plan runner (perform), activation loop, restart recovery, sweep; ports.go
