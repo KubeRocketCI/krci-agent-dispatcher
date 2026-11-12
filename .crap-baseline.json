@@ -1026,9 +1026,9 @@
     },
     {
       "coverage": 91.7,
-      "crap": 8,
-      "cyclomatic": 8,
-      "effective_crap": 8,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.load"
     },
@@ -1105,7 +1105,7 @@
       "function": "*Dispatcher.enqueueLocked"
     },
     {
-      "coverage": 100,
+      "coverage": 91.7,
       "crap": 6,
       "cyclomatic": 6,
       "effective_crap": 6,

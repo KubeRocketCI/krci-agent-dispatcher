@@ -53,3 +53,4 @@ They pin behaviour; they do not judge it. A row is right when a person says so i
 - A plan states what the dispatcher does and how it handles a failed effect. Which effect fails, and the retries, are dispatcher behaviour, tested through `Handle` and `Run`.
 - Which issue read outcome applies, gone or unavailable, is classified in the dispatcher (`issueRead`), outside `decide`.
 - A failed actor read is the actor value `unknown` in `decide.golden`, `decide-unread.golden` and `poll.golden`. The actor of a gone issue is not read.
+- A request reads with retry. A poll reads the issue and the actor once, without retry: a failed read waits, and the next poll is the retry, until the turn timeout.
