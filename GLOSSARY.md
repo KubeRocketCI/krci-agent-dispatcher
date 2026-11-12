@@ -61,7 +61,7 @@ An issue that GitLab no longer has while its project is still readable; its acto
 _Avoid_: deleted, missing (for the read outcome)
 
 **Unavailable**:
-An issue that cannot be read for any other reason; its actor is kept.
+An issue that cannot be read for any other reason. On a request its actor is kept; during an activation the dispatcher polls on until the turn timeout.
 _Avoid_: forbidden, down (for the read outcome)
 
 **Keep**:

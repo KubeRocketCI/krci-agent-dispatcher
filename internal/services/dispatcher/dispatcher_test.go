@@ -1537,16 +1537,23 @@ func TestRequestOnDeletedIssueDeletesWithoutActorRead(t *testing.T) {
 	assert.Equal(t, 1, e.sb.Count("delete-actor", actor))
 }
 
-func TestIssueGoneProjectUnreadableActorUnreadableRequestsSuspend(t *testing.T) {
+// runningUnavailable leaves a running actor whose issue is not found while its project cannot be read.
+func runningUnavailable(t *testing.T) *env {
+	t.Helper()
+
 	e := waitingIssue(t)
 	e.run()
 	e.idle()
-	e.comment(dev)
-	e.sb.OnResume(func(string) {
-		e.gl.DeleteIssue(key)
-		e.gl.FailProject(failing(errRP, 4)...)
-		e.sb.Fail("inspect", failing(errRP, 20)...)
-	})
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.gl.DeleteIssue(key)
+	e.gl.FailProject(failing(errRP, 4)...)
+
+	return e
+}
+
+func TestIssueGoneProjectUnreadableActorUnreadableRequestsSuspend(t *testing.T) {
+	e := runningUnavailable(t)
+	e.sb.Fail("inspect", failing(errRP, 20)...)
 	e.handle(intake.Activate, dev)
 	e.idle()
 
@@ -1556,20 +1563,59 @@ func TestIssueGoneProjectUnreadableActorUnreadableRequestsSuspend(t *testing.T) 
 }
 
 func TestKeptActorSuspendFailureLogged(t *testing.T) {
+	e := runningUnavailable(t)
+	e.sb.Fail("suspend", failing(errRP, 4)...)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	assert.Contains(t, e.logs.String(), "Cannot suspend the kept actor")
+}
+
+func TestLoopIssueUnavailableWaitsForTurnTimeout(t *testing.T) {
 	e := waitingIssue(t)
 	e.run()
 	e.idle()
 	e.comment(dev)
 	e.sb.OnResume(func(string) {
 		e.gl.DeleteIssue(key)
-		e.gl.FailProject(failing(errRP, 4)...)
-		e.sb.Fail("suspend", failing(errRP, 4)...)
+		e.gl.FailProject(failing(errRP, 1000)...)
 	})
+
+	start := e.clk.Now()
 	e.handle(intake.Activate, dev)
 	e.idle()
 
-	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
-	assert.Contains(t, e.logs.String(), "Cannot suspend the kept actor")
+	assert.GreaterOrEqual(t, e.clk.Now().Sub(start), 15*time.Minute, "polls go on until the turn timeout")
+	assert.Equal(t, 1, e.sb.Count("suspend", actor))
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor), "an unavailable issue does not discard its actor")
+	assert.Contains(t, e.logs.String(), "rule=read-timeout")
+}
+
+func TestReadTimeoutCutAtSuspendWritesNothing(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	timeout := e.clk.Now().Add(15 * time.Minute)
+
+	e.sb.OnResume(func(string) {
+		e.gl.FailLoad(failing(errRP, 10000)...)
+		e.sb.Fail("suspend", failing(errRP, 4)...)
+		e.clk.setOnSleep(func(d time.Duration) {
+			if d == time.Second && !e.clk.Now().Before(timeout) {
+				e.cancel()
+			}
+		})
+	})
+	e.handle(intake.Activate, dev)
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(e.logs.String(), "effect=suspend")
+	}, 5*time.Second, time.Millisecond)
+	assert.Contains(t, e.logs.String(), `msg="Effect failed; dispatcher stopping, left for restart recovery"`)
+	assert.Equal(t, models.Working, e.record().State, "a suspend cut by the end of ctx records nothing")
 }
 
 func TestKeptActorMissingIsNotAnError(t *testing.T) {
@@ -1587,19 +1633,12 @@ func TestKeptActorMissingIsNotAnError(t *testing.T) {
 }
 
 func TestKeptActorLeftOnCancel(t *testing.T) {
-	e := waitingIssue(t)
-	e.run()
-	e.idle()
-	e.comment(dev)
-	e.sb.OnResume(func(string) {
-		e.gl.DeleteIssue(key)
-		e.gl.FailProject(failing(errRP, 4)...)
-		e.sb.Fail("inspect", failing(errRP, 20)...)
-		e.clk.setOnSleep(func(d time.Duration) {
-			if d == 4*time.Second {
-				e.cancel()
-			}
-		})
+	e := runningUnavailable(t)
+	e.sb.Fail("inspect", failing(errRP, 20)...)
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == 4*time.Second && e.sb.Count("suspend", actor) == 0 {
+			e.cancel()
+		}
 	})
 	e.handle(intake.Activate, dev)
 

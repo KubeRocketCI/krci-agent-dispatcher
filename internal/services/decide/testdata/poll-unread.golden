@@ -1,0 +1,10 @@
+# issue-read: gone unavailable
+# actor: none template policy-only partial partial-running partial-crashed suspended running crashed resuming suspending reverting deleting unspecified unknown
+# elapsed: below-timeout at-timeout
+# rule issue-gone: 30 cases
+# rule read-timeout: 15 cases
+# rule wait: 15 cases
+# issue-read  actor  elapsed        outcome
+gone          *      *              issue-gone delete!abort next=end -
+unavailable   *      below-timeout  wait - next=continue -
+unavailable   *      at-timeout     read-timeout suspend!log > reload!log > write(record=error/turn-timeout,label=error)!log next=end -

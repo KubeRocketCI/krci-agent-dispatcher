@@ -13,6 +13,7 @@ The golden maps are the truth table of that lookup table:
 - `internal/services/decide/testdata/decide.golden`: `Decide`, every combination of its inputs.
 - `internal/services/decide/testdata/decide-unread.golden`: `Decide` after a failed issue read; the read outcome alone decides.
 - `internal/services/decide/testdata/poll.golden`: `Poll`, one poll of the activation loop.
+- `internal/services/decide/testdata/poll-unread.golden`: `Poll` after a failed issue read; the read outcome and the turn timeout alone decide.
 
 They pin behaviour; they do not judge it. A row is right when a person says so in review.
 
@@ -29,12 +30,12 @@ They pin behaviour; they do not judge it. A row is right when a person says so i
 
 | Task | Do |
 |---|---|
-| Check | `make test`; `TestDecideGolden`, `TestDecideUnreadGolden` and `TestPollGolden` fail on any difference and print the diff. |
+| Check | `make test`; `TestDecideGolden`, `TestDecideUnreadGolden`, `TestPollGolden` and `TestPollUnreadGolden` fail on any difference and print the diff. |
 | Accept an intended change | `go test ./internal/services/decide -run Golden -update`, then review the diff and commit the `.golden` files with the change. |
 | Review a diff | Read the `# rule` counts first: which rules lost or gained cases, and whether the numbers match the intended scope. Then read the rows. A rule at 0 cases is unreachable. |
 | Refactor `decide` | The maps must not change. |
 | Add a request kind, agent state or actor state | Add the constant and its enumerator entry (`intake.Kinds`, `models.AgentStates`, `models.ActorStates`). An actor state also needs a value in `actorValues`. Run `-update`; the header shows the new value, the rows show where it lands by default. Decide whether that is right. |
-| Add an issue read outcome | Add the `IssueRead` constant and its `issueReads` entry; `unreadAxes` picks it up. |
+| Add an issue read outcome | Add the `IssueRead` constant and its `issueReads` entry; `unreadAxes` and `pollUnreadAxes` pick it up. |
 | Add an input to `Decide` or `Poll` | Add an axis in `golden_test.go` (`decideAxes`, `pollAxes`) with every value class the code distinguishes. |
 
 ## Guards
@@ -50,5 +51,5 @@ They pin behaviour; they do not judge it. A row is right when a person says so i
 
 - Inputs are value classes, not every possible value: one marker note id, one comment, a turn at each step up to the limit.
 - A plan states what the dispatcher does and how it handles a failed effect. Which effect fails, and the retries, are dispatcher behaviour, tested through `Handle` and `Run`.
-- Which issue read outcome applies, gone or unavailable, is classified in the dispatcher (`settleUnread`), outside `decide`.
-- A failed actor read is the actor value `unknown` in `decide.golden`. `Poll` never sees it: a failed read in the activation loop ends in the turn timeout. Other failed issue reads in the activation loop end there too, outside the maps.
+- Which issue read outcome applies, gone or unavailable, is classified in the dispatcher (`issueRead`), outside `decide`.
+- A failed actor read is the actor value `unknown` in `decide.golden` and `poll.golden`.
