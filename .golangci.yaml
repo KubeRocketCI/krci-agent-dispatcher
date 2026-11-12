@@ -36,7 +36,12 @@ formatters:
   enable:
     - gofmt
     - gci
+    - golines
   settings:
+    golines:
+      # Same limit as lll: 120 columns, a tab counts as 1.
+      max-len: 120
+      tab-len: 1
     gci:
       # Section configuration to compare against.
       # Section names are case-insensitive and may contain parameters in ().
