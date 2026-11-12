@@ -51,7 +51,7 @@ func (d *Dispatcher) loop(ctx context.Context, log *slog.Logger, key models.Issu
 	}
 }
 
-// poll reads the issue and the actor once and applies decide.Poll.
+// poll reads the issue and the actor once, then performs the plan of decide.Poll made on a full read.
 func (d *Dispatcher) poll(ctx context.Context, log *slog.Logger, key models.IssueKey, a *activation) next {
 	view, err := d.read(ctx, key, a)
 	if errors.Is(err, models.ErrNotFound) {
@@ -78,56 +78,16 @@ func (d *Dispatcher) poll(ctx context.Context, log *slog.Logger, key models.Issu
 		View: view, Actor: actor, Since: a.since, Elapsed: d.clk.Now().Sub(a.start), StopPending: d.stopPending(key),
 	}, d.limits)
 
-	if pd.Action != decide.Wait && !confirmed {
+	if !pd.Waits() && !confirmed {
 		a.full = true
 		return pollNow
 	}
 
-	return d.applyPoll(ctx, log, key, a, view, actor, pd)
-}
+	d.perform(ctx, log, key, view, actor, a, pd.Plan)
 
-// applyPoll executes a poll decision made on a full read.
-func (d *Dispatcher) applyPoll(ctx context.Context, log *slog.Logger, key models.IssueKey, a *activation,
-	view models.IssueView, actor models.ActorView, pd decide.PollDecision,
-) next {
-	switch pd.Action {
-	case decide.Wait:
+	if pd.Next == decide.NextContinue {
 		a.first = false
-
 		return pollLater
-	case decide.StayResumed:
-		if a.recovered && a.first {
-			log.Info("Recovered activation; waiting for the next marker", "after_turn", pd.Marker.Turn)
-		} else {
-			log.Info("Turn ended; comments after it, staying resumed", "turn", pd.Marker.Turn)
-		}
-
-		a.since, a.start, a.first = pd.Marker.NoteID, d.clk.Now(), false
-
-		return pollLater
-	case decide.Suspend:
-		name := key.ActorName()
-
-		if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
-			d.failRPC(ctx, log, key, view, actor, "Cannot suspend the actor", err)
-
-			return pollEnd
-		}
-
-		var suspended models.ActorView
-
-		if err := d.retry(ctx, func() (err error) { suspended, err = d.sb.Inspect(ctx, name); return err }); err != nil {
-			log.Warn("Cannot read the suspended actor for the status rows; rows kept", "error", err)
-			d.put(ctx, log, key, &view, pd.Writes)
-
-			break
-		}
-
-		d.write(ctx, log, key, view, suspended, pd.Writes)
-	case decide.End:
-		d.write(ctx, log, key, view, actor, pd.Writes)
-	case decide.StopNow:
-		d.stop(ctx, log, key, view, actor, pd.Writes)
 	}
 
 	log.Info("Activation ended", "rule", string(pd.Rule), "turn", pd.Marker.Turn)

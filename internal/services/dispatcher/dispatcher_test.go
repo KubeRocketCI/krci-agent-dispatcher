@@ -1589,7 +1589,7 @@ func TestInvalidSpecRecordsErrorWithoutRetry(t *testing.T) {
 	}
 
 	e.assertState(models.Error, models.ReasonSubstrateError)
-	assert.Contains(t, e.logs.String(), "Cannot create the actor")
+	assert.Contains(t, e.logs.String(), "msg=\"Effect failed\" issue=12/7 request=start effect=create")
 }
 
 func TestPostCreateInspectErrorRecordsError(t *testing.T) {

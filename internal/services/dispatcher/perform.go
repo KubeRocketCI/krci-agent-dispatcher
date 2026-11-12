@@ -9,19 +9,21 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/decide"
 )
 
-// current is the view and the actor that the effects of a plan read and update. A nil view is unknown.
+// current is the view and the actor that the effects of a plan read and update, and the activation loop state of a
+// poll decision (nil otherwise). A nil view is unknown.
 type current struct {
 	key   models.IssueKey
 	view  *models.IssueView
 	actor models.ActorView
+	act   *activation
 }
 
 // perform carries out p in order, from the view and the actor the decision was made on. A failed effect follows its
 // decide.Fail; ErrNoRoom on a resume notes no room and ends the plan.
 func (d *Dispatcher) perform(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	actor models.ActorView, p decide.Plan,
+	actor models.ActorView, a *activation, p decide.Plan,
 ) {
-	c := &current{key: key, view: &view, actor: actor}
+	c := &current{key: key, view: &view, actor: actor, act: a}
 
 	for _, e := range p {
 		if !d.effect(ctx, log, c, e) {
@@ -46,7 +48,7 @@ func (d *Dispatcher) effect(ctx context.Context, log *slog.Logger, c *current, e
 	case decide.KindInspect:
 		var actor models.ActorView
 
-		if err = d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err == nil {
+		if actor, err = d.inspect(ctx, name); err == nil {
 			c.actor = actor
 		}
 	case decide.KindDelete:
@@ -78,6 +80,8 @@ func (d *Dispatcher) effect(ctx context.Context, log *slog.Logger, c *current, e
 		d.keepActor(ctx, log, name)
 	case decide.KindLoop:
 		d.loop(ctx, log, c.key, e.Since, e.Recovered)
+	case decide.KindAdvance:
+		d.advance(log, c.act, e.Since)
 	case decide.KindRecheck:
 	}
 
@@ -88,21 +92,23 @@ func (d *Dispatcher) effect(ctx context.Context, log *slog.Logger, c *current, e
 	return d.failed(ctx, log, c, e, err)
 }
 
-var failMessages = map[decide.EffectKind]string{
-	decide.KindInspect: "Cannot read the actor",
-	decide.KindDelete:  "Cannot delete the actor",
-	decide.KindCreate:  "Cannot create the actor",
-	decide.KindRevert:  "Cannot revert the actor",
-	decide.KindResume:  "Cannot resume the actor",
-	decide.KindSuspend: "Cannot suspend the actor",
+// advance starts the next turn of the activation loop at since.
+func (d *Dispatcher) advance(log *slog.Logger, a *activation, since int64) {
+	if a.recovered && a.first {
+		log.Info("Recovered activation; waiting for the next marker", "since", since)
+	} else {
+		log.Info("Turn ended; comments after it, staying resumed", "since", since)
+	}
+
+	a.since, a.start = since, d.clk.Now()
 }
 
 // failed handles the failure of e and reports whether the plan goes on.
 func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e decide.Effect, err error) bool {
-	msg := failMessages[e.Kind]
+	flog := log.With("effect", e.Kind.String(), "error", err)
 
 	if e.Fail == decide.FailLog {
-		log.Warn(msg, "error", err)
+		flog.Warn("Effect failed")
 
 		if e.Kind == decide.KindInspect {
 			c.actor = models.ActorView{State: models.Unknown}
@@ -112,11 +118,11 @@ func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e
 	}
 
 	if ctx.Err() != nil {
-		log.Info(msg+"; dispatcher stopping, left for restart recovery", "error", err)
+		flog.Info("Effect failed; dispatcher stopping, left for restart recovery")
 		return false
 	}
 
-	log.Error(msg, "error", err)
+	flog.Error("Effect failed")
 
 	switch e.Fail {
 	case decide.FailError:
@@ -155,11 +161,8 @@ func (d *Dispatcher) reload(ctx context.Context, log *slog.Logger, c *current) {
 
 	c.view = &view
 
-	var actor models.ActorView
-
-	name := c.key.ActorName()
-
-	if err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
+	actor, err := d.inspect(ctx, c.key.ActorName())
+	if err != nil {
 		log.Warn("Cannot read the actor for the status rows; rows kept", "error", err)
 
 		c.actor = models.ActorView{State: models.Unknown}

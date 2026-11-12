@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,10 +58,6 @@ var (
 	crashed   = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Crashed}
 	moving    = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Resuming}
 )
-
-func rec(s models.AgentState, reason string) *models.Record {
-	return &models.Record{State: s, Reason: reason}
-}
 
 func lbl(s models.AgentState) string { return models.StateLabel(s) }
 
@@ -636,7 +633,7 @@ func TestDecideStartRefusedNamesTriggerRole(t *testing.T) {
 type pollCase struct {
 	name string
 	p    PollFacts
-	want PollDecision
+	want string
 }
 
 func pollCases() []pollCase {
@@ -645,7 +642,7 @@ func pollCases() []pollCase {
 
 	return []pollCase{
 		{"no marker yet: wait", PollFacts{View: base.v, Actor: running, Since: 110, Elapsed: time.Minute},
-			PollDecision{Rule: PollWait, Action: Wait}},
+			"wait - next=continue -"},
 		{"new marker by note id with repeated n, no comment: suspend → waiting",
 			PollFacts{
 				View:    base.note(115, "dev1", "more").marker(120, 1, 115).v,
@@ -653,8 +650,8 @@ func pollCases() []pollCase {
 				Since:   110,
 				Elapsed: time.Minute,
 			},
-			PollDecision{Rule: PollMarkerIdle, Action: Suspend, Marker: models.Marker{NoteID: 120, Turn: 1, Last: 115},
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)}}},
+			"marker-idle suspend!error > inspect!log > " +
+				"write(record=waiting,label=waiting)!log next=end marker=120/n=1/last=115"},
 		{"new marker, comment after last=: stay resumed",
 			PollFacts{
 				View:    base.note(115, "dev1", "more").note(118, "reporter", "and this").marker(120, 2, 115).v,
@@ -662,7 +659,7 @@ func pollCases() []pollCase {
 				Since:   110,
 				Elapsed: time.Minute,
 			},
-			PollDecision{Rule: PollMarkerComment, Action: StayResumed, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 115}}},
+			"marker-comment advance(since=120) next=continue marker=120/n=2/last=115"},
 		{"comment by any person keeps it resumed",
 			PollFacts{
 				View:    base.marker(120, 2, 110).note(121, "reporter", "hi").v,
@@ -670,7 +667,7 @@ func pollCases() []pollCase {
 				Since:   110,
 				Elapsed: time.Minute,
 			},
-			PollDecision{Rule: PollMarkerComment, Action: StayResumed, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 110}}},
+			"marker-comment advance(since=120) next=continue marker=120/n=2/last=110"},
 		{"marker reaches the turn limit: suspend → error",
 			PollFacts{
 				View:    base.note(115, "dev1", "more").note(118, "dev1", "and more").marker(120, 3, 115).v,
@@ -678,26 +675,14 @@ func pollCases() []pollCase {
 				Since:   110,
 				Elapsed: time.Minute,
 			},
-			PollDecision{Rule: PollMarkerLimit, Action: Suspend, Marker: models.Marker{NoteID: 120, Turn: 3, Last: 115},
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)}}},
+			"marker-limit suspend!error > inspect!log > " +
+				"write(record=error/turn-limit,label=error)!log next=end marker=120/n=3/last=115"},
 		{"crashed: error, no suspend", PollFacts{View: base.v, Actor: crashed, Since: 110, Elapsed: time.Minute},
-			PollDecision{
-				Rule:   PollCrashed,
-				Action: End,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorCrashed), Label: lbl(models.Error)},
-			}},
+			"crashed write(record=error/actor-crashed,label=error)!log next=end -"},
 		{"suspended by hand, no marker: waiting", PollFacts{View: base.v, Actor: suspended, Since: 110, Elapsed: time.Minute},
-			PollDecision{
-				Rule:   PollSuspendedByHand,
-				Action: End,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"suspended-by-hand write(record=waiting,label=waiting)!log next=end -"},
 		{"actor gone: actor missing", PollFacts{View: base.v, Actor: noActor, Since: 110, Elapsed: time.Minute},
-			PollDecision{
-				Rule:   PollActorGone,
-				Action: End,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorMissing), Label: lbl(models.Error)},
-			}},
+			"actor-gone write(record=error/actor-missing,label=error)!log next=end -"},
 		{"stop pending waits for the marker", PollFacts{
 			View:        gone.v,
 			Actor:       running,
@@ -705,7 +690,7 @@ func pollCases() []pollCase {
 			Elapsed:     time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollWait, Action: Wait}},
+			"wait - next=continue -"},
 		{"stop pending after the marker: stop", PollFacts{
 			View:        gone.marker(120, 2, 110).note(121, "dev1", "x").v,
 			Actor:       running,
@@ -713,8 +698,8 @@ func pollCases() []pollCase {
 			Elapsed:     time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollStopPending, Action: StopNow, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 110},
-				Writes: record(models.Done, "")}},
+			"stop-pending note-mr!log > delete!error > " +
+				"write(record=done,label=done)!log next=end marker=120/n=2/last=110"},
 		{"stop pending at the timeout: stop", PollFacts{
 			View:        gone.v,
 			Actor:       running,
@@ -722,7 +707,7 @@ func pollCases() []pollCase {
 			Elapsed:     15 * time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollStopPending, Action: StopNow, Writes: record(models.Done, "")}},
+			"stop-pending note-mr!log > delete!error > write(record=done,label=done)!log next=end -"},
 		{"stop pending, actor crashed: stop", PollFacts{
 			View:        gone.v,
 			Actor:       crashed,
@@ -730,59 +715,56 @@ func pollCases() []pollCase {
 			Elapsed:     time.Minute,
 			StopPending: true,
 		},
-			PollDecision{Rule: PollStopPending, Action: StopNow, Writes: record(models.Done, "")}},
+			"stop-pending note-mr!log > delete!error > write(record=done,label=done)!log next=end -"},
 		{"stale stop: issue enabled again, the marker is handled normally",
 			PollFacts{View: base.marker(120, 2, 110).v, Actor: running, Since: 110, Elapsed: time.Minute, StopPending: true},
-			PollDecision{Rule: PollMarkerIdle, Action: Suspend, Marker: models.Marker{NoteID: 120, Turn: 2, Last: 110},
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)}}},
+			"marker-idle suspend!error > inspect!log > " +
+				"write(record=waiting,label=waiting)!log next=end marker=120/n=2/last=110"},
 		{"stale stop: issue enabled again, no marker yet: wait",
 			PollFacts{View: base.v, Actor: running, Since: 110, Elapsed: time.Minute, StopPending: true},
-			PollDecision{Rule: PollWait, Action: Wait}},
+			"wait - next=continue -"},
 		{"timeout while running: suspend → error", PollFacts{
 			View:    base.v,
 			Actor:   running,
 			Since:   110,
 			Elapsed: 15 * time.Minute,
 		},
-			PollDecision{
-				Rule:   PollTimeout,
-				Action: Suspend,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnTimeout), Label: lbl(models.Error)},
-			}},
+			"timeout suspend!error > inspect!log > write(record=error/turn-timeout,label=error)!log next=end -"},
 		{"timeout while transitional: error without suspend", PollFacts{
 			View:    base.v,
 			Actor:   moving,
 			Since:   110,
 			Elapsed: 16 * time.Minute,
 		},
-			PollDecision{
-				Rule:   PollTimeout,
-				Action: End,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnTimeout), Label: lbl(models.Error)},
-			}},
+			"timeout write(record=error/turn-timeout,label=error)!log next=end -"},
 		{"transitional before the timeout: wait", PollFacts{View: base.v, Actor: moving, Since: 110, Elapsed: time.Minute},
-			PollDecision{Rule: PollWait, Action: Wait}},
+			"wait - next=continue -"},
 		{"a person's forged marker is not a marker", PollFacts{
 			View:    base.note(120, "dev1", "<!-- krci-agent-turn n=2 exit=0 last=119 -->").v,
 			Actor:   running,
 			Since:   110,
 			Elapsed: time.Minute,
 		},
-			PollDecision{Rule: PollWait, Action: Wait}},
+			"wait - next=continue -"},
 	}
 }
 
 func TestPollTable(t *testing.T) {
 	for _, c := range pollCases() {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, Poll(c.p, limits))
+			assert.Equal(t, c.want, pollOutcome(Poll(c.p, limits)))
 		})
 	}
 }
 
-func TestActionNames(t *testing.T) {
-	assert.Equal(t, "suspend", Suspend.String())
-	assert.Equal(t, "stop-now", StopNow.String())
+// pollOutcome renders a poll decision as rule, plan, next and the new marker.
+func pollOutcome(d PollDecision) string {
+	marker := "-"
+	if d.Marker.NoteID != 0 {
+		marker = fmt.Sprintf("marker=%d/n=%d/last=%d", d.Marker.NoteID, d.Marker.Turn, d.Marker.Last)
+	}
+
+	return fmt.Sprintf("%s %s next=%s %s", d.Rule, d.Plan, d.Next, marker)
 }
 
 func TestIssueReadsListsEveryIssueRead(t *testing.T) {
@@ -823,7 +805,8 @@ func TestEveryRuleHasATableCase(t *testing.T) {
 	}
 
 	for _, c := range pollCases() {
-		pollRules[c.want.Rule] = true
+		rule, _, _ := strings.Cut(c.want, " ")
+		pollRules[Rule(rule)] = true
 	}
 
 	declared := declaredRules(t)

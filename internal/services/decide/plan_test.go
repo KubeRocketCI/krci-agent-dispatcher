@@ -44,6 +44,23 @@ func TestDecideDoneStartRefusedNote(t *testing.T) {
 	}}}, got)
 }
 
+func TestPollDecisionWaits(t *testing.T) {
+	assert.True(t, PollDecision{Rule: PollWait}.Waits())
+	assert.False(t, PollDecision{Rule: PollMarkerComment, Plan: Plan{advance(120)}}.Waits())
+	assert.False(t, PollDecision{Rule: PollActorGone, Next: NextEnd}.Waits())
+}
+
+func TestNextsListsEveryNext(t *testing.T) {
+	consts, err := consttest.Declared("decide.go", "Next")
+	require.NoError(t, err)
+	require.Len(t, Nexts(), len(consts), "a Next constant is missing from nexts")
+
+	for i, n := range Nexts() {
+		assert.Equal(t, Next(i), n, "nexts is not in declaration order")
+		assert.NotEmpty(t, n.String(), "%s has no name", consts[i].Name)
+	}
+}
+
 func TestPlanString(t *testing.T) {
 	p := Plan{
 		effect(KindNoteMR, FailLog),
@@ -57,6 +74,6 @@ func TestPlanString(t *testing.T) {
 	assert.Equal(t, "note-mr!log > delete!error > write(record=error/turn-limit,label=error)!log > "+
 		"loop(since=120,recovered)", p.String())
 	assert.Equal(t, "-", Plan(nil).String())
-	assert.True(t, Plan{{Kind: KindRecheck}}.IsRecheck())
-	assert.False(t, Plan{{Kind: KindRecheck}, loop(0, false)}.IsRecheck())
+	assert.True(t, Plan{recheck()}.IsRecheck())
+	assert.False(t, Plan{recheck(), loop(0, false)}.IsRecheck())
 }
