@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -517,6 +518,7 @@ func TestActivateNoRoomPostsNote(t *testing.T) {
 	assert.Equal(t, 1, e.notesWith(models.NoRoomText))
 	e.assertState(models.Waiting, "")
 	assert.Equal(t, 0, e.clk.count(time.Second), "no room is not retried")
+	assert.Equal(t, 0, e.clk.count(10*time.Second), "no room ends the plan before the activation loop")
 
 	e.sb.SetNoRoom(false)
 	e.agentRepliesOnResume()
@@ -608,6 +610,24 @@ func TestStopMRNoteFailureStillDone(t *testing.T) {
 	e.assertState(models.Done, "")
 }
 
+func TestDiscardDeleteFailureWritesNothing(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.gl.DeleteIssue(key)
+	e.sb.Fail("delete", failing(errRP, 4)...)
+
+	ops := len(e.gl.Ops())
+
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	assert.Len(t, e.gl.Ops(), ops, "a discard writes nothing to the issue, also when its delete fails")
+	assert.NotContains(t, e.logs.String(), "Cannot write to GitLab", "a failed discard tries no write")
+	assert.Contains(t, e.logs.String(), `level=ERROR msg="Effect failed" issue=12/7 request=activate effect=delete`)
+}
+
 // --- errors
 
 func TestErrorClearedNextCommentActivates(t *testing.T) {
@@ -647,6 +667,37 @@ func TestCrashedRevertedBeforeResume(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
+// replaceActorDuringRetry swaps the actor for a new one with state s at the first retry backoff, so a reload
+// after the failure reads another actor UID than the decision did.
+func (e *env) replaceActorDuringRetry(s ateapi.ActorState) {
+	var once sync.Once
+
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == time.Second {
+			once.Do(func() {
+				e.sb.RemoveActor(actor)
+				e.sb.AddComplete(actor, s)
+			})
+		}
+	})
+}
+
+func TestRevertFailureRecordsSubstrateError(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_CRASHED)
+	e.comment(dev)
+	e.sb.Fail("revert", failing(errRP, 4)...)
+	e.replaceActorDuringRetry(ateapi.ActorState_ACTOR_STATE_CRASHED)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("resume", actor), "a failed revert ends the plan before the resume")
+	e.assertState(models.Error, models.ReasonSubstrateError)
+	assert.Equal(t, "uid-2", statusRows(e).ActorUID, "the error is recorded with status rows from a reload")
+}
+
 func TestRPCRetryThenSubstrateError(t *testing.T) {
 	t.Run("recovers on the last retry", func(t *testing.T) {
 		e := waitingIssue(t)
@@ -668,14 +719,17 @@ func TestRPCRetryThenSubstrateError(t *testing.T) {
 
 	t.Run("fails after three retries", func(t *testing.T) {
 		e := waitingIssue(t)
-		e.comment(dev)
-		e.sb.Fail("resume", errRP, errRP, errRP, errRP)
 		e.run()
+		e.idle()
+		e.comment(dev)
+		e.sb.Fail("resume", failing(errRP, 4)...)
+		e.replaceActorDuringRetry(ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 		e.handle(intake.Activate, dev)
 		e.idle()
 
 		assert.Equal(t, 0, e.sb.Count("resume", actor))
 		e.assertState(models.Error, models.ReasonSubstrateError)
+		assert.Equal(t, "uid-2", statusRows(e).ActorUID, "the error is recorded with status rows from a reload")
 	})
 }
 
@@ -1294,6 +1348,19 @@ func TestRunningActorWithErrorRecordSuspended(t *testing.T) {
 	e.assertState(models.Error, models.ReasonSubstrateError)
 }
 
+func TestSuspendInErrorFailureKeepsError(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonTurnLimit}, "agent", models.StateLabel(models.Error))
+	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+	e.sb.Fail("suspend", failing(errRP, 4)...)
+	e.run()
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("suspend", actor))
+	e.assertState(models.Error, models.ReasonTurnLimit)
+	assert.Contains(t, e.logs.String(), `level=ERROR msg="Effect failed" issue=12/7 request=recover effect=suspend`)
+}
+
 func TestNoAccessLookupForDisabledIssue(t *testing.T) {
 	e := newEnv(t)
 	e.issue(nil, "bug")
@@ -1431,11 +1498,13 @@ func TestStopCutAtDeleteStillNotesMR(t *testing.T) {
 	e.run()
 	e.idle()
 	e.gl.SetIssue(key, models.IssueClosed, "agent", models.StateLabel(models.Waiting))
-	e.sb.Fail("delete", errRP, errRP, errRP, errRP)
+	e.sb.Fail("delete", failing(errRP, 4)...)
 	e.handle(intake.Stop, dev)
 	e.idle()
 
 	assert.Len(t, e.gl.MRNotes(key.ProjectID, 6), 1, "the note does not depend on the end of the stop")
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	e.assertState(models.Error, models.ReasonSubstrateError)
 }
 
 // failing returns n copies of err, more than any retry of one call consumes.
@@ -1675,6 +1744,32 @@ func TestTurnTimeoutWhileReadsFailKeepsStatusRows(t *testing.T) {
 	})
 }
 
+func TestTurnTimeoutRecordedWithFreshStatusRows(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	var down atomic.Bool
+
+	e.gl.OnLoad(func(models.IssueKey) {
+		if down.Load() {
+			e.gl.FailLoad(errRP)
+		}
+	})
+	e.sb.OnSuspend(func(string) { down.Store(false) })
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == 10*time.Second {
+			down.CompareAndSwap(false, e.sb.Count("suspend", actor) == 0)
+		}
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	e.assertState(models.Error, models.ReasonTurnTimeout)
+	assert.Empty(t, statusRows(e).Pod, "the turn timeout is recorded with status rows read after the suspend")
+}
+
 // --- restart recovery load
 
 // waitingIssues adds n settled issues: record waiting, a suspended actor, nothing to do.
@@ -1894,7 +1989,6 @@ func TestClearErrorLookupErrorNotRefused(t *testing.T) {
 	e.assertState(models.Error, models.ReasonActorMissing)
 	assert.Contains(t, e.logs.String(), "Cannot check whether the request author can trigger the agent")
 }
-
 
 func TestClearErrorAtTurnLimitKeepsError(t *testing.T) {
 	e := newEnv(t)
