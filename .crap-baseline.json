@@ -658,9 +658,9 @@
     },
     {
       "coverage": 100,
-      "crap": 17,
-      "cyclomatic": 17,
-      "effective_crap": 17,
+      "crap": 18,
+      "cyclomatic": 18,
+      "effective_crap": 18,
       "file": "internal/services/decide/decide.go",
       "function": "Poll"
     },
@@ -671,6 +671,14 @@
       "effective_crap": 2,
       "file": "internal/services/decide/decide.go",
       "function": "PollDecision.Waits"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "TriggerChecks"
     },
     {
       "coverage": 100,
@@ -799,6 +807,14 @@
       "effective_crap": 4,
       "file": "internal/services/decide/decide.go",
       "function": "labelRecord"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/services/decide/decide.go",
+      "function": "pollUnread"
     },
     {
       "coverage": 100,
@@ -977,10 +993,10 @@
       "function": "New"
     },
     {
-      "coverage": 92.9,
-      "crap": 14.1,
-      "cyclomatic": 14,
-      "effective_crap": 14.1,
+      "coverage": 86.7,
+      "crap": 7.1,
+      "cyclomatic": 7,
+      "effective_crap": 7.1,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.act"
     },
@@ -1049,14 +1065,6 @@
       "function": "*Dispatcher.retry"
     },
     {
-      "coverage": 90.9,
-      "crap": 5,
-      "cyclomatic": 5,
-      "effective_crap": 5,
-      "file": "internal/services/dispatcher/execute.go",
-      "function": "*Dispatcher.settleUnread"
-    },
-    {
       "coverage": 100,
       "crap": 4,
       "cyclomatic": 4,
@@ -1074,11 +1082,11 @@
     },
     {
       "coverage": 100,
-      "crap": 1,
-      "cyclomatic": 1,
-      "effective_crap": 1,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
       "file": "internal/services/dispatcher/execute.go",
-      "function": "*Dispatcher.writeFresh"
+      "function": "logDecision"
     },
     {
       "coverage": 100,
@@ -1153,28 +1161,44 @@
       "function": "*Dispatcher.loop"
     },
     {
+      "coverage": 92.3,
+      "crap": 8,
+      "cyclomatic": 8,
+      "effective_crap": 8,
+      "file": "internal/services/dispatcher/loop.go",
+      "function": "*Dispatcher.poll"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/dispatcher/observe.go",
+      "function": "*Dispatcher.issueRead"
+    },
+    {
       "coverage": 100,
       "crap": 7,
       "cyclomatic": 7,
       "effective_crap": 7,
-      "file": "internal/services/dispatcher/loop.go",
-      "function": "*Dispatcher.poll"
+      "file": "internal/services/dispatcher/observe.go",
+      "function": "*Dispatcher.observe"
     },
     {
       "coverage": 100,
       "crap": 3,
       "cyclomatic": 3,
       "effective_crap": 3,
-      "file": "internal/services/dispatcher/loop.go",
-      "function": "*Dispatcher.read"
+      "file": "internal/services/dispatcher/observe.go",
+      "function": "*Dispatcher.observePoll"
     },
     {
-      "coverage": 77.8,
-      "crap": 4.2,
-      "cyclomatic": 4,
-      "effective_crap": 4.2,
-      "file": "internal/services/dispatcher/loop.go",
-      "function": "*Dispatcher.timedOut"
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/observe.go",
+      "function": "*Dispatcher.read"
     },
     {
       "coverage": 100,

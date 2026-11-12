@@ -10,11 +10,10 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
 
-// act runs one request: gather facts, decide, perform the plan. Transitional actors are re-read up to MaxRechecks.
+// act runs one request: observe, decide, perform the plan. Transitional actors are re-read up to MaxRechecks.
 // A recover request holds a recovery slot until it ends or its activation loop starts.
 func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 	log := d.log.With("issue", r.Key.String(), "request", r.Kind.String())
-	name := r.Key.ActorName()
 
 	if r.Kind == intake.Recover {
 		if !d.holdRecovery(ctx, r.Key) {
@@ -25,44 +24,14 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 	}
 
 	for rechecks := 0; ; rechecks++ {
-		view, err := d.load(ctx, log, r)
-		if err != nil {
-			d.settleUnread(ctx, log, r.Key, err)
+		o, ok := d.observe(ctx, log, r, rechecks)
+		if !ok {
 			return
 		}
 
-		enabled := view.Enabled(d.cfg.TriggerLabel)
-
-		actor, err := d.inspect(ctx, name)
-		if err != nil {
-			if ctx.Err() != nil {
-				log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
-				return
-			}
-
-			log.Error("Cannot read the actor", "error", err)
-
-			actor = models.ActorView{State: models.Unknown}
-		}
-
-		f := decide.Facts{View: view, Actor: actor, Request: r.Kind, Rechecks: rechecks}
-
-		if enabled && actor.State != models.Unknown {
-			f.TriggerAfterLast = d.triggerAfterLast(ctx, log, view)
-
-			if r.Kind == intake.Start || r.Kind == intake.ClearError {
-				f.AuthorOK, err = d.canTrigger(ctx, log, r.Key.ProjectID, r.Author)
-				if err != nil {
-					f.AuthorUnknown = true
-
-					log.Error("Cannot check whether the request author can trigger the agent", "user", r.Author,
-						"error", err)
-				}
-			}
-		}
-
+		f := o.facts
 		dec := decide.Decide(f, d.limits)
-		log.Info("Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "actor_state", string(actor.State))
+		logDecision(ctx, log, o, dec)
 
 		if dec.Plan.IsRecheck() {
 			if d.clk.Sleep(ctx, recheckPause) != nil {
@@ -72,7 +41,7 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 			continue
 		}
 
-		d.perform(ctx, log, r.Key, view, actor, nil, dec.Plan)
+		d.perform(ctx, log, r.Key, f.View, f.Actor, nil, dec.Plan)
 
 		return
 	}
@@ -91,37 +60,23 @@ func (d *Dispatcher) noteAgentMR(ctx context.Context, log *slog.Logger, key mode
 	}
 }
 
-// settleUnread decides a failed issue read and performs the plan. The issue is gone when GitLab does not have it
-// and its project is readable; any other failure leaves it unavailable. A read cut by the end of ctx decides nothing.
-func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key models.IssueKey, readErr error) {
-	if ctx.Err() != nil {
+// logDecision logs dec: with the actor state, or after a failed issue read with the read outcome and its error, at
+// error level when the issue is unavailable.
+func logDecision(ctx context.Context, log *slog.Logger, o observation, dec decide.Decision) {
+	if o.facts.Issue == decide.ReadOK {
+		log.Info("Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "actor_state",
+			string(o.facts.Actor.State))
+
 		return
 	}
 
-	read := d.issueRead(ctx, key.ProjectID, readErr)
-
-	dec := decide.Decide(decide.Facts{Issue: read}, d.limits)
-
 	level := slog.LevelInfo
-	if dec.Rule == decide.RuleIssueUnavailable {
+	if o.facts.Issue == decide.ReadUnavailable {
 		level = slog.LevelError
 	}
 
 	log.Log(ctx, level, "Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "issue_read",
-		read.String(), "error", readErr)
-
-	d.perform(ctx, log, key, models.IssueView{}, models.ActorView{}, nil, dec.Plan)
-}
-
-// issueRead classifies a failed issue read: gone when GitLab does not have the issue and its project is readable,
-// unavailable otherwise.
-func (d *Dispatcher) issueRead(ctx context.Context, projectID int64, readErr error) decide.IssueRead {
-	if errors.Is(readErr, models.ErrNotFound) &&
-		d.retry(ctx, func() error { return d.gl.CheckProject(ctx, projectID) }) == nil {
-		return decide.ReadGone
-	}
-
-	return decide.ReadUnavailable
+		o.facts.Issue.String(), "error", o.readErr)
 }
 
 // keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a

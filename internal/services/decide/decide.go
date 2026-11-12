@@ -192,6 +192,17 @@ type facts struct {
 	turns  models.TurnHistory
 }
 
+// TriggerChecks reports which trigger checks Decide reads for f, the facts without them: whether a comment no turn
+// covered is a trigger comment, and whether the request author can trigger the agent. Decide reads neither after a
+// failed issue read, for an unknown actor or on a disabled issue; the author only for start and clear-error.
+func TriggerChecks(f Facts, l Limits) (comments, author bool) {
+	if _, ok := unread(f); ok || !f.View.Enabled(l.TriggerLabel) {
+		return false, false
+	}
+
+	return true, f.Request == intake.Start || f.Request == intake.ClearError
+}
+
 // Decide returns the decision of the first matching rule.
 func Decide(f Facts, l Limits) Decision {
 	if d, ok := unread(f); ok {

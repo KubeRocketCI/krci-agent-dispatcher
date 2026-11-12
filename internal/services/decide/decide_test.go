@@ -616,6 +616,32 @@ func TestDecideTable(t *testing.T) {
 	}
 }
 
+func TestTriggerChecks(t *testing.T) {
+	enabled := open("agent", lbl(models.Waiting)).record(models.Waiting, "").v
+
+	for _, c := range []struct {
+		name              string
+		facts             Facts
+		comments, authors bool
+	}{
+		{"issue gone", Facts{Issue: ReadGone, Request: intake.Start}, false, false},
+		{"issue unavailable", Facts{Issue: ReadUnavailable, Request: intake.Start}, false, false},
+		{"actor unknown", Facts{View: enabled, Actor: models.ActorView{State: models.Unknown}, Request: intake.Start},
+			false, false},
+		{"closed issue", Facts{View: closed("agent").v, Actor: suspended, Request: intake.Start}, false, false},
+		{"no trigger label", Facts{View: open().v, Actor: suspended, Request: intake.Start}, false, false},
+		{"activate", Facts{View: enabled, Actor: suspended, Request: intake.Activate}, true, false},
+		{"recover", Facts{View: enabled, Actor: running, Request: intake.Recover}, true, false},
+		{"start", Facts{View: enabled, Actor: noActor, Request: intake.Start}, true, true},
+		{"clear-error", Facts{View: enabled, Actor: noActor, Request: intake.ClearError}, true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			comments, authors := TriggerChecks(c.facts, limits)
+			assert.Equal(t, [2]bool{c.comments, c.authors}, [2]bool{comments, authors})
+		})
+	}
+}
+
 func TestDecideStartRefusedNamesTriggerRole(t *testing.T) {
 	for r, text := range map[models.Role]string{
 		models.Developer:  "Only Developers or higher can start the agent.",

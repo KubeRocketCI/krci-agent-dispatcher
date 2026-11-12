@@ -488,6 +488,52 @@ func TestPollUnreadGolden(t *testing.T) {
 	assertGolden(t, "poll-unread.golden", got)
 }
 
+// TestTriggerChecksCoverDecide: where TriggerChecks names a check as not read, its fact does not change Decide.
+// The trigger-after-last and author axes are left out of the walk and set inside each case.
+func TestTriggerChecksCoverDecide(t *testing.T) {
+	zero := func() Facts { return Facts{View: models.IssueView{Issue: models.Issue{Key: key}}} }
+	axes := slices.DeleteFunc(decideAxes(), func(a *axis[Facts]) bool {
+		return a.name == "trigger-after-last" || a.name == "author"
+	})
+	authors := []func(*Facts){
+		func(f *Facts) { f.AuthorOK = true },
+		func(*Facts) {},
+		func(f *Facts) { f.AuthorUnknown = true },
+	}
+
+	evaluate(axes, zero, func(f Facts) string {
+		comments, author := TriggerChecks(f, limits)
+
+		var got [2][3]string
+
+		for tal := range 2 {
+			for a, set := range authors {
+				g := f
+				g.TriggerAfterLast = tal == 1
+				set(&g)
+
+				d := Decide(g, limits)
+				got[tal][a] = string(d.Rule) + " " + d.Plan.String()
+			}
+		}
+
+		for a := range authors {
+			if !comments {
+				assert.Equal(t, got[0][a], got[1][a], "TriggerAfterLast changes Decide where TriggerChecks skips it: %+v", f)
+			}
+		}
+
+		for tal := range 2 {
+			if !author {
+				assert.Equal(t, got[tal][0], got[tal][1], "the author check changes Decide where TriggerChecks skips it: %+v", f)
+				assert.Equal(t, got[tal][0], got[tal][2], "the author check changes Decide where TriggerChecks skips it: %+v", f)
+			}
+		}
+
+		return ""
+	})
+}
+
 func TestActorAxisCoversEveryActorState(t *testing.T) {
 	covered := map[models.ActorState]bool{}
 	for _, a := range actorValues {
