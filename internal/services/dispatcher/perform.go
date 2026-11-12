@@ -67,8 +67,6 @@ func (d *Dispatcher) effect(ctx context.Context, log *slog.Logger, c *current, e
 		}
 	case decide.KindSuspend:
 		err = d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) })
-	case decide.KindSuspendIfRunning:
-		d.keepActor(ctx, log, name)
 	case decide.KindLoop:
 		d.loop(ctx, log, c.key, e.Since, e.Recovered)
 	case decide.KindAdvance:

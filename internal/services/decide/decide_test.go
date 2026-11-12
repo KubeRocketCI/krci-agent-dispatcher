@@ -71,8 +71,15 @@ func decideCases() []decideCase {
 	return []decideCase{
 		{"issue gone: discard", Facts{Issue: ReadGone, Actor: running, Request: intake.Activate},
 			"issue-gone delete!abort"},
-		{"issue unavailable: keep", Facts{Issue: ReadUnavailable, Actor: running, Request: intake.Recover},
-			"issue-unavailable suspend-if-running!abort"},
+		{"issue unavailable, actor running: keep, suspended",
+			Facts{Issue: ReadUnavailable, Actor: running, Request: intake.Recover}, "issue-unavailable suspend!log"},
+		{"issue unavailable, actor unknown: keep, suspend requested",
+			Facts{Issue: ReadUnavailable, Actor: models.ActorView{State: models.Unknown}, Request: intake.Activate},
+			"issue-unavailable suspend!log"},
+		{"issue unavailable, actor suspended: keep", Facts{Issue: ReadUnavailable, Actor: suspended,
+			Request: intake.Recover}, "issue-unavailable -"},
+		{"issue unavailable, actor transitional: keep", Facts{Issue: ReadUnavailable, Actor: moving,
+			Request: intake.Recover}, "issue-unavailable -"},
 		{"actor unknown, record waiting: substrate error", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   models.ActorView{State: models.Unknown},

@@ -3,6 +3,7 @@
 # actor: none template policy-only partial partial-running partial-crashed suspended running crashed resuming suspending reverting deleting unspecified unknown
 # rule issue-gone: 75 cases
 # rule issue-unavailable: 75 cases
-# issue-read  request  actor  outcome
-gone          *        *      issue-gone delete!abort
-unavailable   *        *      issue-unavailable suspend-if-running!abort
+# issue-read  request  actor                                                                                                                   outcome
+gone          *        *                                                                                                                       issue-gone delete!abort
+unavailable   *        none|template|policy-only|partial|partial-crashed|suspended|crashed|resuming|suspending|reverting|deleting|unspecified  issue-unavailable -
+unavailable   *        partial-running|running|unknown                                                                                         issue-unavailable suspend!log

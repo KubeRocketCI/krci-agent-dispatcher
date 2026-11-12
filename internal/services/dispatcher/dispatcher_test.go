@@ -1565,7 +1565,7 @@ func runningUnavailable(t *testing.T) *env {
 	return e
 }
 
-func TestIssueGoneProjectUnreadableActorUnreadableRequestsSuspend(t *testing.T) {
+func TestUnavailableIssueUnreadableActorSuspended(t *testing.T) {
 	e := runningUnavailable(t)
 	e.sb.Fail("inspect", failing(errRP, 20)...)
 	e.handle(intake.Activate, dev)
@@ -1573,17 +1573,8 @@ func TestIssueGoneProjectUnreadableActorUnreadableRequestsSuspend(t *testing.T) 
 
 	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
 	assert.Equal(t, 1, e.sb.Count("suspend", actor), "an actor that cannot be read is suspended, not left running")
-	assert.Contains(t, e.logs.String(), "Cannot read the kept actor; suspend requested")
-}
-
-func TestKeptActorSuspendFailureLogged(t *testing.T) {
-	e := runningUnavailable(t)
-	e.sb.Fail("suspend", failing(errRP, 4)...)
-	e.handle(intake.Activate, dev)
-	e.idle()
-
-	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
-	assert.Contains(t, e.logs.String(), "Cannot suspend the kept actor")
+	assert.Contains(t, e.logs.String(), "request=activate rule=issue-unavailable plan=suspend!log")
+	assert.Contains(t, e.logs.String(), "actor_state=unknown")
 }
 
 func TestLoopIssueUnavailableWaitsForTurnTimeout(t *testing.T) {
@@ -1653,28 +1644,14 @@ func TestTriggerCheckCutByCancelDecidesNothing(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
-func TestKeptActorMissingIsNotAnError(t *testing.T) {
-	e := newEnv(t)
-	e.issue(nil, "agent")
-	e.gl.DeleteIssue(key)
-	e.gl.FailProject(failing(errRP, 4)...)
-	e.sb.Fail("inspect", failing(errRP, 4)...)
-	e.handle(intake.Activate, dev)
-	e.run()
-	e.idle()
-
-	assert.Contains(t, e.logs.String(), "Cannot read the kept actor; suspend requested")
-	assert.NotContains(t, e.logs.String(), "Cannot suspend the kept actor", "a suspend of a missing actor is no error")
-}
-
-func TestKeptActorLeftOnCancel(t *testing.T) {
+func TestUnavailableIssueActorReadCutDecidesNothing(t *testing.T) {
 	e := runningUnavailable(t)
 	e.sb.Fail("inspect", failing(errRP, 20)...)
 
 	var backoffs atomic.Int32
 
 	e.clk.setOnSleep(func(d time.Duration) {
-		// The first 4 s backoff ends the project check, the second one is in the kept actor's read.
+		// The first 4 s backoff ends the project check, the second one is in the actor read.
 		if d == 4*time.Second && backoffs.Add(1) == 2 {
 			e.cancel()
 		}
@@ -1682,23 +1659,46 @@ func TestKeptActorLeftOnCancel(t *testing.T) {
 	e.handle(intake.Activate, dev)
 
 	require.Eventually(t, func() bool {
-		return strings.Contains(e.logs.String(), "Kept actor not read; dispatcher stopping, left for restart recovery")
+		return strings.Contains(e.logs.String(), "Cannot read the actor; dispatcher stopping, left for restart recovery")
 	}, 5*time.Second, time.Millisecond)
+	assert.NotContains(t, e.logs.String(), "rule=issue-unavailable")
 	assert.Equal(t, 0, e.sb.Count("suspend", actor))
 	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
 }
 
-func TestRecoveryForbiddenActorUnreadableRequestsSuspend(t *testing.T) {
-	e := newEnv(t)
-	e.issue(nil, "agent")
-	e.sb.AddComplete(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-	e.gl.SetForbidden(key.ProjectID)
-	e.sb.Fail("inspect", failing(errRP, 4)...)
-	e.run()
+func TestUnavailableIssueReadCutDecidesNothing(t *testing.T) {
+	e := runningUnavailable(t)
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == 4*time.Second {
+			e.cancel()
+		}
+	})
+	e.handle(intake.Activate, dev)
 	e.idle()
 
-	assert.Equal(t, 1, e.sb.Count("suspend", actor), "a forbidden issue's unreadable actor is suspended")
-	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	assert.NotContains(t, e.logs.String(), "rule=issue-unavailable", "a stop during the issue read decides nothing")
+	assert.Equal(t, 0, e.sb.Count("suspend", actor), "the running actor is left for restart recovery")
+}
+
+func TestUnavailableIssueKeepsRunningActorSuspended(t *testing.T) {
+	for name, fail := range map[string]func(e *env){
+		"forbidden": func(e *env) { e.gl.SetForbidden(key.ProjectID) },
+		"failing":   func(e *env) { e.gl.FailLoad(failing(errRP, 4)...) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := waitingIssue(t)
+			e.run()
+			e.idle()
+			e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
+			fail(e)
+			e.handle(intake.Activate, dev)
+			e.idle()
+
+			assert.Equal(t, 1, e.sb.Count("suspend", actor), "an unavailable issue keeps its actor, suspended")
+			assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+			assert.Contains(t, e.logs.String(), "rule=issue-unavailable")
+		})
+	}
 }
 
 // --- lookup failures
@@ -2268,27 +2268,6 @@ func TestSweepRequestsAgainWhileActorStaysWithoutLane(t *testing.T) {
 
 	assert.Equal(t, 2, strings.Count(e.logs.String(), "Sweep: actor without an issue lane"),
 		"an actor that stays without a lane is requested again at the next sweep")
-}
-
-func TestUnavailableIssueKeepsRunningActorSuspended(t *testing.T) {
-	for name, fail := range map[string]func(e *env){
-		"forbidden": func(e *env) { e.gl.SetForbidden(key.ProjectID) },
-		"failing":   func(e *env) { e.gl.FailLoad(failing(errRP, 4)...) },
-	} {
-		t.Run(name, func(t *testing.T) {
-			e := waitingIssue(t)
-			e.run()
-			e.idle()
-			e.sb.SetState(actor, ateapi.ActorState_ACTOR_STATE_RUNNING)
-			fail(e)
-			e.handle(intake.Activate, dev)
-			e.idle()
-
-			assert.Equal(t, 1, e.sb.Count("suspend", actor), "an unavailable issue keeps its actor, suspended")
-			assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
-			assert.Contains(t, e.logs.String(), "rule=issue-unavailable")
-		})
-	}
 }
 
 func TestGoneIssueDiscardsActor(t *testing.T) {

@@ -11,7 +11,7 @@
 The golden maps are the truth table of that lookup table:
 
 - `internal/services/decide/testdata/decide.golden`: `Decide`, every combination of its inputs.
-- `internal/services/decide/testdata/decide-unread.golden`: `Decide` after a failed issue read; the read outcome alone decides.
+- `internal/services/decide/testdata/decide-unread.golden`: `Decide` after a failed issue read; the read outcome decides, and for an unavailable issue the actor state.
 - `internal/services/decide/testdata/poll.golden`: `Poll`, one poll of the activation loop.
 - `internal/services/decide/testdata/poll-unread.golden`: `Poll` after a failed issue read; the read outcome and the turn timeout alone decide.
 
@@ -52,4 +52,4 @@ They pin behaviour; they do not judge it. A row is right when a person says so i
 - Inputs are value classes, not every possible value: one marker note id, one comment, a turn at each step up to the limit.
 - A plan states what the dispatcher does and how it handles a failed effect. Which effect fails, and the retries, are dispatcher behaviour, tested through `Handle` and `Run`.
 - Which issue read outcome applies, gone or unavailable, is classified in the dispatcher (`issueRead`), outside `decide`.
-- A failed actor read is the actor value `unknown` in `decide.golden` and `poll.golden`.
+- A failed actor read is the actor value `unknown` in `decide.golden`, `decide-unread.golden` and `poll.golden`. The actor of a gone issue is not read.
