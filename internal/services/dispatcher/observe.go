@@ -20,8 +20,9 @@ type observation struct {
 }
 
 // observe reads the facts of one request: the issue with retry, the actor with retry, then the trigger checks
-// decide.TriggerChecks names. A failed issue read is gone or unavailable; a failed actor read is the actor state
-// unknown. It reports false when ctx ended during a read or a check: nothing is decided, restart recovery continues.
+// decide.TriggerChecks names. A failed issue read is gone or unavailable; the actor of a gone issue is not read. A
+// failed actor read is the actor state unknown. It reports false when ctx ended during a read or a check: nothing is
+// decided, restart recovery continues.
 func (d *Dispatcher) observe(ctx context.Context, log *slog.Logger, r intake.Request, rechecks int,
 ) (observation, bool) {
 	f := decide.Facts{Request: r.Kind, Rechecks: rechecks}
@@ -29,21 +30,21 @@ func (d *Dispatcher) observe(ctx context.Context, log *slog.Logger, r intake.Req
 	view, err := d.load(ctx, log, r)
 	if err != nil {
 		f.Issue = d.issueRead(ctx, r.Key.ProjectID, err)
+		if f.Issue == decide.ReadGone {
+			return observation{facts: f, readErr: err}, ctx.Err() == nil
+		}
+	}
+
+	var ok bool
+	if f.Actor, ok = d.observeActor(ctx, log, r.Key); !ok {
+		return observation{}, false
+	}
+
+	if err != nil {
 		return observation{facts: f, readErr: err}, ctx.Err() == nil
 	}
 
 	f.View = view
-
-	if f.Actor, err = d.inspect(ctx, r.Key.ActorName()); err != nil {
-		if ctx.Err() != nil {
-			log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
-			return observation{}, false
-		}
-
-		log.Error("Cannot read the actor", "error", err)
-
-		f.Actor = unknownActor
-	}
 
 	comments, author := decide.TriggerChecks(f, d.limits)
 
@@ -60,6 +61,25 @@ func (d *Dispatcher) observe(ctx context.Context, log *slog.Logger, r intake.Req
 	}
 
 	return observation{facts: f}, ctx.Err() == nil
+}
+
+// observeActor reads the actor with retry; a failed read is the actor state unknown. It reports false when ctx
+// ended during the read.
+func (d *Dispatcher) observeActor(ctx context.Context, log *slog.Logger, key models.IssueKey,
+) (models.ActorView, bool) {
+	actor, err := d.inspect(ctx, key.ActorName())
+	if err == nil {
+		return actor, true
+	}
+
+	if ctx.Err() != nil {
+		log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
+		return models.ActorView{}, false
+	}
+
+	log.Error("Cannot read the actor", "error", err)
+
+	return unknownActor, true
 }
 
 // observePoll reads the facts of one poll: the issue, in full or the notes since the last read, then the actor,

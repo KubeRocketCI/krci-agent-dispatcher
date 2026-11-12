@@ -23,8 +23,9 @@ type Limits struct {
 	TurnTimeout  time.Duration
 }
 
-// IssueRead is the outcome of the issue read. ReadGone: the issue does not exist and its project is readable.
-// ReadUnavailable: any other failed read. Both decide on the outcome alone; View is unset.
+// IssueRead is the outcome of the issue read. ReadGone: the issue does not exist and its project is readable; the
+// outcome alone decides and Actor is unset. ReadUnavailable: any other failed read; the outcome and Actor decide.
+// View is unset after either.
 type IssueRead int
 
 // Issue read outcomes.
@@ -44,7 +45,8 @@ func (r IssueRead) String() string { return issueReadNames[r] }
 func IssueReads() []IssueRead { return slices.Clone(issueReads) }
 
 // Facts are what the issue lane read for one request.
-// Issue: the outcome of the issue read; View holds the issue only for ReadOK.
+// Issue: the outcome of the issue read; View holds the issue only for ReadOK; Actor is read for every outcome but
+// ReadGone.
 // TriggerAfterLast: a trigger comment has a note id above the last marker's last=.
 // AuthorOK: the request author has the trigger role or higher (start and clear-error requests).
 // AuthorUnknown: the check of the request author failed (start and clear-error requests).
@@ -71,7 +73,7 @@ type Rule string
 const (
 	// Issue gone. Discard.
 	RuleIssueGone Rule = "issue-gone"
-	// Issue unavailable. Keep the actor, suspended when it runs.
+	// Issue unavailable. Keep the actor, suspended when it runs or cannot be read.
 	RuleIssueUnavailable Rule = "issue-unavailable"
 	// Actor unknown; the record, or the state label without a record, is working, waiting or error. Record error,
 	// reason substrate error; the status note keeps its rows.
@@ -281,12 +283,22 @@ func unread(f Facts) (Decision, bool) {
 	case f.Issue == ReadGone:
 		return Decision{Rule: RuleIssueGone, Plan: Plan{effect(KindDelete, FailAbort)}}, true
 	case f.Issue == ReadUnavailable:
-		return Decision{Rule: RuleIssueUnavailable, Plan: Plan{effect(KindSuspendIfRunning, FailAbort)}}, true
+		return keep(f.Actor), true
 	case f.Actor.State == models.Unknown:
 		return actorUnknown(f.View), true
 	}
 
 	return Decision{}, false
+}
+
+// keep: the issue is unavailable. A running actor, or one that cannot be read, is suspended; any other actor is
+// left as it is.
+func keep(a models.ActorView) Decision {
+	if a.State != models.Running && a.State != models.Unknown {
+		return Decision{Rule: RuleIssueUnavailable}
+	}
+
+	return Decision{Rule: RuleIssueUnavailable, Plan: Plan{effect(KindSuspend, FailLog)}}
 }
 
 // actorUnknown: the actor read failed. A started agent, by its record or else its state label, records substrate

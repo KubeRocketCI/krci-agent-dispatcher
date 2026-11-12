@@ -14,10 +14,9 @@ import (
 // note-mr: note the agent's merge request once. reload: read the issue, then the actor; a failed read leaves the
 // value unknown. inspect: read the actor. delete: delete the actor; the current actor is then none. create:
 // create the actor with a new session; the current view then holds the session. revert, resume, suspend: the
-// Substrate call. suspend-if-running:
-// read the actor and suspend it when it runs or cannot be read. loop: the activation loop from Since. advance: a
-// new turn of the activation loop starts at Since; the turn timeout restarts. recheck: read the actor again after a
-// pause, then decide again; the only effect of its plan.
+// Substrate call. loop: the activation loop from Since. advance: a new turn of the activation loop starts at Since;
+// the turn timeout restarts. recheck: read the actor again after a pause, then decide again; the only effect of its
+// plan.
 type EffectKind int
 
 // Effect kinds.
@@ -31,7 +30,6 @@ const (
 	KindRevert
 	KindResume
 	KindSuspend
-	KindSuspendIfRunning
 	KindLoop
 	KindAdvance
 	KindRecheck
@@ -39,14 +37,13 @@ const (
 
 var kinds = []EffectKind{
 	KindWrite, KindNoteMR, KindReload, KindInspect, KindDelete, KindCreate,
-	KindRevert, KindResume, KindSuspend, KindSuspendIfRunning, KindLoop, KindAdvance, KindRecheck,
+	KindRevert, KindResume, KindSuspend, KindLoop, KindAdvance, KindRecheck,
 }
 
 var kindNames = map[EffectKind]string{
 	KindWrite: "write", KindNoteMR: "note-mr", KindReload: "reload", KindInspect: "inspect", KindDelete: "delete",
 	KindCreate: "create", KindRevert: "revert", KindResume: "resume", KindSuspend: "suspend",
-	KindSuspendIfRunning: "suspend-if-running", KindLoop: "loop", KindAdvance: "advance",
-	KindRecheck: "recheck",
+	KindLoop: "loop", KindAdvance: "advance", KindRecheck: "recheck",
 }
 
 func (k EffectKind) String() string { return kindNames[k] }

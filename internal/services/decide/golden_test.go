@@ -141,8 +141,8 @@ func requestAxis() *axis[Facts] {
 	return request
 }
 
-// unreadAxes are the inputs of Decide after a failed issue read. The request and actor axes show that the outcome
-// alone decides.
+// unreadAxes are the inputs of Decide after a failed issue read. The request axis shows that the request does not
+// decide; the actor axis shows that the actor decides for an unavailable issue only.
 func unreadAxes() []*axis[Facts] {
 	read := &axis[Facts]{name: "issue-read"}
 

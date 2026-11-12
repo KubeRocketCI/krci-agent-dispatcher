@@ -61,7 +61,7 @@ func (d *Dispatcher) noteAgentMR(ctx context.Context, log *slog.Logger, key mode
 }
 
 // logDecision logs dec: with the actor state, or after a failed issue read with the read outcome and its error, at
-// error level when the issue is unavailable.
+// error level and with the actor state when the issue is unavailable.
 func logDecision(ctx context.Context, log *slog.Logger, o observation, dec decide.Decision) {
 	if o.facts.Issue == decide.ReadOK {
 		log.Info("Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "actor_state",
@@ -71,47 +71,15 @@ func logDecision(ctx context.Context, log *slog.Logger, o observation, dec decid
 	}
 
 	level := slog.LevelInfo
+	attrs := []any{"rule", string(dec.Rule), "plan", dec.Plan.String(), "issue_read", o.facts.Issue.String(),
+		"error", o.readErr}
+
 	if o.facts.Issue == decide.ReadUnavailable {
+		attrs = append(attrs, "actor_state", string(o.facts.Actor.State))
 		level = slog.LevelError
 	}
 
-	log.Log(ctx, level, "Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "issue_read",
-		o.facts.Issue.String(), "error", o.readErr)
-}
-
-// keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a
-// suspended or missing actor is left as it is.
-func (d *Dispatcher) keepActor(ctx context.Context, log *slog.Logger, name string) {
-	actor, err := d.inspect(ctx, name)
-	if err != nil {
-		if ctx.Err() != nil {
-			log.Info("Kept actor not read; dispatcher stopping, left for restart recovery", "actor", name)
-			return
-		}
-
-		log.Error("Cannot read the kept actor; suspend requested", "actor", name, "error", err)
-		d.requestSuspend(ctx, log, name)
-
-		return
-	}
-
-	if actor.State == models.Running {
-		d.requestSuspend(ctx, log, name)
-	}
-}
-
-// requestSuspend suspends a kept actor. A missing actor is not an error; a suspend cut by the end of ctx leaves the
-// actor for the next restart recovery.
-func (d *Dispatcher) requestSuspend(ctx context.Context, log *slog.Logger, name string) {
-	err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) })
-
-	switch {
-	case err == nil, errors.Is(err, models.ErrActorNotFound):
-	case ctx.Err() != nil:
-		log.Info("Kept actor not suspended; dispatcher stopping, left for restart recovery", "actor", name)
-	default:
-		log.Error("Cannot suspend the kept actor", "actor", name, "error", err)
-	}
+	log.Log(ctx, level, "Decision", attrs...)
 }
 
 // triggerAfterLast reports whether a comment above the last marker's last= is a trigger comment. A check that

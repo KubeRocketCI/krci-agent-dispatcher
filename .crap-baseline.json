@@ -802,6 +802,14 @@
     },
     {
       "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/decide/decide.go",
+      "function": "keep"
+    },
+    {
+      "coverage": 100,
       "crap": 4,
       "cyclomatic": 4,
       "effective_crap": 4,
@@ -1017,14 +1025,6 @@
       "function": "*Dispatcher.inspect"
     },
     {
-      "coverage": 100,
-      "crap": 4,
-      "cyclomatic": 4,
-      "effective_crap": 4,
-      "file": "internal/services/dispatcher/execute.go",
-      "function": "*Dispatcher.keepActor"
-    },
-    {
       "coverage": 91.7,
       "crap": 8,
       "cyclomatic": 8,
@@ -1047,14 +1047,6 @@
       "effective_crap": 4,
       "file": "internal/services/dispatcher/execute.go",
       "function": "*Dispatcher.put"
-    },
-    {
-      "coverage": 80,
-      "crap": 3.1,
-      "cyclomatic": 3,
-      "effective_crap": 3.1,
-      "file": "internal/services/dispatcher/execute.go",
-      "function": "*Dispatcher.requestSuspend"
     },
     {
       "coverage": 100,
@@ -1113,7 +1105,7 @@
       "function": "*Dispatcher.enqueueLocked"
     },
     {
-      "coverage": 91.7,
+      "coverage": 100,
       "crap": 6,
       "cyclomatic": 6,
       "effective_crap": 6,
@@ -1178,11 +1170,19 @@
     },
     {
       "coverage": 100,
-      "crap": 7,
-      "cyclomatic": 7,
-      "effective_crap": 7,
+      "crap": 8,
+      "cyclomatic": 8,
+      "effective_crap": 8,
       "file": "internal/services/dispatcher/observe.go",
       "function": "*Dispatcher.observe"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/dispatcher/observe.go",
+      "function": "*Dispatcher.observeActor"
     },
     {
       "coverage": 100,
@@ -1217,10 +1217,10 @@
       "function": "*Dispatcher.createActor"
     },
     {
-      "coverage": 95.8,
-      "crap": 18,
-      "cyclomatic": 18,
-      "effective_crap": 18,
+      "coverage": 95.7,
+      "crap": 17,
+      "cyclomatic": 17,
+      "effective_crap": 17,
       "file": "internal/services/dispatcher/perform.go",
       "function": "*Dispatcher.effect"
     },
