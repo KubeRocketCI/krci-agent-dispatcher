@@ -107,6 +107,11 @@ func (d *Dispatcher) advance(log *slog.Logger, a *activation, since int64) {
 func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e decide.Effect, err error) bool {
 	flog := log.With("effect", e.Kind.String(), "error", err)
 
+	if ctx.Err() != nil {
+		flog.Info("Effect failed; dispatcher stopping, left for restart recovery")
+		return false
+	}
+
 	if e.Fail == decide.FailLog {
 		flog.Warn("Effect failed")
 
@@ -115,11 +120,6 @@ func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e
 		}
 
 		return true
-	}
-
-	if ctx.Err() != nil {
-		flog.Info("Effect failed; dispatcher stopping, left for restart recovery")
-		return false
 	}
 
 	flog.Error("Effect failed")

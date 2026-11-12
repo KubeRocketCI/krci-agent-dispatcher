@@ -151,8 +151,12 @@ const (
 )
 
 // Rules of Poll, in evaluation order. New marker: the bot user's turn marker with the highest note id above
-// PollFacts.Since. Timed out: PollFacts.Elapsed is at or over the turn timeout.
+// PollFacts.Since. Timed out: PollFacts.Elapsed is at or over the turn timeout. Read failed: the issue is
+// unavailable or the actor unknown. Issue gone comes first and is RuleIssueGone: discard; the activation ends.
 const (
+	// Read failed, timed out. Suspend, record error, reason turn timeout, with status rows from a fresh read; the
+	// activation ends. Read failed, not timed out: wait.
+	PollReadTimeout Rule = "read-timeout"
 	// Stop pending, not enabled, and one of: new marker, timed out, actor not running and not transitional.
 	// Stop, record done; the activation ends.
 	PollStopPending Rule = "stop-pending"
@@ -538,9 +542,11 @@ func record(s models.AgentState, reason string) models.Writes {
 }
 
 // PollFacts are what one poll of the activation loop read.
+// Issue: the outcome of the issue read; View holds the issue only for ReadOK.
 // Since is the note id of the turn's previous marker (0 before turn 1). Elapsed counts from the turn start.
 // StopPending: a stop request waits on the lane.
 type PollFacts struct {
+	Issue       IssueRead
 	View        models.IssueView
 	Actor       models.ActorView
 	Since       int64
@@ -579,9 +585,14 @@ func (d PollDecision) Waits() bool { return d.Next == NextContinue && len(d.Plan
 
 // Poll returns the activation-loop decision for one poll: the first matching rule.
 func Poll(p PollFacts, l Limits) PollDecision {
+	timedOut := p.Elapsed >= l.TurnTimeout
+
+	if d, ok := pollUnread(p, timedOut); ok {
+		return d
+	}
+
 	h := models.NewTurnHistory(p.View.Notes, l.Bot)
 	m, hasNew := h.After(p.Since)
-	timedOut := p.Elapsed >= l.TurnTimeout
 	settled := p.Actor.State.Settled()
 
 	// A stop request counts only while the issue is still closed or without the trigger label; a stop that a
@@ -612,6 +623,25 @@ func Poll(p PollFacts, l Limits) PollDecision {
 	}
 
 	return PollDecision{Rule: PollWait}
+}
+
+// pollUnread decides a poll whose issue or actor read failed: a gone issue is discarded; any other failed read
+// waits, and at the turn timeout suspends and records turn timeout with status rows from a fresh read.
+func pollUnread(p PollFacts, timedOut bool) (PollDecision, bool) {
+	switch {
+	case p.Issue == ReadGone:
+		d, _ := unread(Facts{Issue: ReadGone})
+		return PollDecision{Rule: d.Rule, Plan: d.Plan, Next: NextEnd}, true
+	case p.Issue != ReadUnavailable && p.Actor.State != models.Unknown:
+		return PollDecision{}, false
+	case !timedOut:
+		return PollDecision{Rule: PollWait}, true
+	}
+
+	plan := append(Plan{effect(KindSuspend, FailLog), effect(KindReload, FailLog)},
+		write(record(models.Error, models.ReasonTurnTimeout))...)
+
+	return PollDecision{Rule: PollReadTimeout, Plan: plan, Next: NextEnd}, true
 }
 
 // suspendThenEnd suspends the actor, reads it for the status rows, applies w, then ends the activation.

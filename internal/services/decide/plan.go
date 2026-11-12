@@ -59,7 +59,8 @@ func EffectKinds() []EffectKind { return slices.Clone(kinds) }
 //
 // FailLog: log, then the next effect. FailAbort: log, end the plan. FailError: record substrate error with the
 // current view and actor, end the plan. FailErrorFresh: FailError with status rows from a reload. A failure cut by
-// the end of ctx records nothing: the actor is left for the next restart recovery.
+// the end of ctx ends the plan and records nothing, whatever its Fail: the actor is left for the next restart
+// recovery.
 type Fail int
 
 // Failure handling.

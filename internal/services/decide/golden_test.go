@@ -79,12 +79,6 @@ var actorValues = []actorValue{
 	{"unknown", models.ActorView{State: models.Unknown}},
 }
 
-// pollActorValues are the actor axis values Poll can see. A failed actor read ends in the turn timeout before Poll,
-// and every Substrate state maps to a known one, so Poll never sees Unknown.
-var pollActorValues = slices.DeleteFunc(slices.Clone(actorValues), func(v actorValue) bool {
-	return v.view.State == models.Unknown
-})
-
 func markerBody(turn int, last int64) string {
 	return "reply\n<!-- krci-agent-turn n=" + strconv.Itoa(turn) + " exit=0 last=" + strconv.FormatInt(last, 10) + " -->"
 }
@@ -208,7 +202,7 @@ func decideAxes() []*axis[Facts] {
 // pollAxes are the inputs of Poll, outermost first.
 func pollAxes() []*axis[PollFacts] {
 	view := func(p *PollFacts) *models.IssueView { return &p.View }
-	issueState, trigger, actor := issueAxes(view, pollActorValues,
+	issueState, trigger, actor := issueAxes(view, actorValues,
 		func(p *PollFacts) *models.ActorView { return &p.Actor })
 
 	stop := &axis[PollFacts]{name: "stop-pending"}
@@ -226,11 +220,30 @@ func pollAxes() []*axis[PollFacts] {
 	comment.add("after-last", func(p *PollFacts) { p.View = issue{p.View}.note(commentID, person, "a comment").v })
 	comment.add("by-bot", func(p *PollFacts) { p.View = issue{p.View}.note(commentID, bot, "a bot note").v })
 
+	return []*axis[PollFacts]{issueState, trigger, stop, actor, marker, comment, elapsedAxis()}
+}
+
+// pollUnreadAxes are the inputs of Poll after a failed issue read. The actor axis shows that the read outcome and
+// the turn timeout alone decide.
+func pollUnreadAxes() []*axis[PollFacts] {
+	read := &axis[PollFacts]{name: "issue-read"}
+
+	for _, r := range IssueReads() {
+		if r != ReadOK {
+			read.add(r.String(), func(p *PollFacts) { p.Issue = r })
+		}
+	}
+
+	return []*axis[PollFacts]{read, actorAxis(actorValues, func(p *PollFacts) *models.ActorView { return &p.Actor }),
+		elapsedAxis()}
+}
+
+func elapsedAxis() *axis[PollFacts] {
 	elapsed := &axis[PollFacts]{name: "elapsed"}
 	elapsed.add("below-timeout", func(p *PollFacts) { p.Elapsed = limits.TurnTimeout - time.Second })
 	elapsed.add("at-timeout", func(p *PollFacts) { p.Elapsed = limits.TurnTimeout })
 
-	return []*axis[PollFacts]{issueState, trigger, stop, actor, marker, comment, elapsed}
+	return elapsed
 }
 
 // goldenRow is a set of cells with one outcome: per axis, the bit set of the values it covers.
@@ -463,6 +476,16 @@ func TestPollGolden(t *testing.T) {
 	})
 
 	assertGolden(t, "poll.golden", got)
+}
+
+func TestPollUnreadGolden(t *testing.T) {
+	zero := func() PollFacts {
+		return PollFacts{View: models.IssueView{Issue: models.Issue{Key: key}}, Since: pollSince}
+	}
+
+	got := renderGolden(pollUnreadAxes(), zero, func(p PollFacts) string { return pollOutcome(Poll(p, limits)) })
+
+	assertGolden(t, "poll-unread.golden", got)
 }
 
 func TestActorAxisCoversEveryActorState(t *testing.T) {

@@ -98,12 +98,7 @@ func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key mod
 		return
 	}
 
-	read := decide.ReadUnavailable
-
-	if errors.Is(readErr, models.ErrNotFound) &&
-		d.retry(ctx, func() error { return d.gl.CheckProject(ctx, key.ProjectID) }) == nil {
-		read = decide.ReadGone
-	}
+	read := d.issueRead(ctx, key.ProjectID, readErr)
 
 	dec := decide.Decide(decide.Facts{Issue: read}, d.limits)
 
@@ -116,6 +111,17 @@ func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key mod
 		read.String(), "error", readErr)
 
 	d.perform(ctx, log, key, models.IssueView{}, models.ActorView{}, nil, dec.Plan)
+}
+
+// issueRead classifies a failed issue read: gone when GitLab does not have the issue and its project is readable,
+// unavailable otherwise.
+func (d *Dispatcher) issueRead(ctx context.Context, projectID int64, readErr error) decide.IssueRead {
+	if errors.Is(readErr, models.ErrNotFound) &&
+		d.retry(ctx, func() error { return d.gl.CheckProject(ctx, projectID) }) == nil {
+		return decide.ReadGone
+	}
+
+	return decide.ReadUnavailable
 }
 
 // keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a
@@ -263,13 +269,6 @@ func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.Issue
 	if w.Record != nil {
 		log.Info("Record written", "state", string(w.Record.State), "reason", w.Record.Reason)
 	}
-}
-
-// writeFresh applies w with status rows from a reload. When a read fails, the status note keeps its rows.
-func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key models.IssueKey, w models.Writes) {
-	c := &current{key: key}
-	d.reload(ctx, log, c)
-	d.writeCurrent(ctx, log, c, w)
 }
 
 // load reads the issue with retry. A recover request retries read errors other than ErrNotFound and ErrForbidden
