@@ -433,6 +433,9 @@ func TestDecideGolden(t *testing.T) {
 
 	got := renderGolden(decideAxes(), zero, func(f Facts) string {
 		d := Decide(f, limits)
+		assert.False(t, slices.ContainsFunc(d.Plan, func(e Effect) bool { return e.Kind == KindAdvance }),
+			"an advance outside the activation loop: %s", d.Rule)
+
 		return fmt.Sprintf("%s %s", d.Rule, d.Plan)
 	})
 
@@ -456,14 +459,7 @@ func TestPollGolden(t *testing.T) {
 	}
 
 	got := renderGolden(pollAxes(), zero, func(p PollFacts) string {
-		d := Poll(p, limits)
-
-		marker := "-"
-		if d.Marker.NoteID != 0 {
-			marker = fmt.Sprintf("marker=%d/n=%d/last=%d", d.Marker.NoteID, d.Marker.Turn, d.Marker.Last)
-		}
-
-		return fmt.Sprintf("%s %s %s %s", d.Rule, d.Action, writesString(d.Writes), marker)
+		return pollOutcome(Poll(p, limits))
 	})
 
 	assertGolden(t, "poll.golden", got)

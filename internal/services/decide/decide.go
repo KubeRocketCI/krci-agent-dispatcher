@@ -154,11 +154,11 @@ const (
 // PollFacts.Since. Timed out: PollFacts.Elapsed is at or over the turn timeout.
 const (
 	// Stop pending, not enabled, and one of: new marker, timed out, actor not running and not transitional.
-	// StopNow.
+	// Stop, record done; the activation ends.
 	PollStopPending Rule = "stop-pending"
 	// New marker at the turn limit. Suspend, record error, reason turn limit.
 	PollMarkerLimit Rule = "marker-limit"
-	// New marker, a comment with a note id above its last=. StayResumed.
+	// New marker, a comment with a note id above its last=. Advance to the new marker; the actor stays resumed.
 	PollMarkerComment Rule = "marker-comment"
 	// New marker, no such comment. Suspend, record waiting.
 	PollMarkerIdle Rule = "marker-idle"
@@ -170,7 +170,7 @@ const (
 	PollSuspendedByHand Rule = "suspended-by-hand"
 	// Timed out. Record error, reason turn timeout; Suspend when the actor is running, End otherwise.
 	PollTimeout Rule = "timeout"
-	// Any other case. Wait.
+	// Any other case. Nothing; poll again.
 	PollWait Rule = "wait"
 )
 
@@ -219,7 +219,7 @@ func Decide(f Facts, l Limits) Decision {
 
 	if is.hasRec && is.rec.State == models.Done {
 		if f.Actor.State == models.Running {
-			return is.stop(RuleDoneRunningStop)
+			return Decision{Rule: RuleDoneRunningStop, Plan: stopPlan(f.Actor)}
 		}
 
 		if f.Request != intake.Start {
@@ -294,7 +294,7 @@ func actorUnknown(v models.IssueView) Decision {
 func (is facts) disabled() Decision {
 	state, hasLabel := models.StateFromLabels(is.f.View.Issue.Labels)
 	if is.f.Actor.Exists() || (is.hasRec && is.rec.State != models.Done) || (hasLabel && state != models.Done) {
-		return is.stop(RuleNotEnabledStop)
+		return Decision{Rule: RuleNotEnabledStop, Plan: stopPlan(is.f.Actor)}
 	}
 
 	if !is.hasRec {
@@ -377,7 +377,7 @@ func (is facts) complete() Decision {
 	switch st := f.Actor.State; {
 	case st.Transitional():
 		if f.Rechecks < MaxRechecks {
-			return Decision{Rule: RuleTransitionalRecheck, Plan: Plan{{Kind: KindRecheck}}}
+			return Decision{Rule: RuleTransitionalRecheck, Plan: Plan{recheck()}}
 		}
 
 		return decision(RuleActorBusy, record(models.Error, models.ReasonActorBusy))
@@ -431,16 +431,16 @@ func (is facts) complete() Decision {
 	return is.repair(RuleWaitingKept)
 }
 
-// stop notes the agent's merge request, deletes the actor when it exists, running or not, then records done. The
+// stopPlan notes the agent's merge request, deletes the actor when it exists, running or not, then records done. The
 // note comes before the delete: a stop cut later runs again from restart recovery, and the marker keeps it to one
 // note.
-func (is facts) stop(rule Rule) Decision {
+func stopPlan(actor models.ActorView) Plan {
 	p := Plan{effect(KindNoteMR, FailLog)}
-	if is.f.Actor.Exists() {
+	if actor.Exists() {
 		p = append(p, effect(KindDelete, FailError))
 	}
 
-	return Decision{Rule: rule, Plan: append(p, write(record(models.Done, ""))...)}
+	return append(p, write(record(models.Done, ""))...)
 }
 
 // createPlan deletes a partial create, creates the actor, records waiting, then runs the first activation.
@@ -566,32 +566,34 @@ type PollFacts struct {
 	StopPending bool
 }
 
-// PollAction is what the activation loop does after one poll.
-type PollAction int
+// Next is whether the activation loop polls again after a poll decision.
+type Next int
 
-// Poll actions. StayResumed: a new turn starts (reset the turn timeout, Since = Marker.NoteID). Suspend:
-// suspend, then the writes. End: the writes, no suspend. StopNow: run the stop action, then the writes.
+// Next values.
 const (
-	Wait PollAction = iota
-	StayResumed
-	Suspend
-	End
-	StopNow
+	NextContinue Next = iota
+	NextEnd
 )
 
-var pollActionNames = map[PollAction]string{
-	Wait: "wait", StayResumed: "stay-resumed", Suspend: "suspend", End: "end", StopNow: "stop-now",
-}
+var nexts = []Next{NextContinue, NextEnd}
 
-func (a PollAction) String() string { return pollActionNames[a] }
+var nextNames = map[Next]string{NextContinue: "continue", NextEnd: "end"}
+
+func (n Next) String() string { return nextNames[n] }
+
+// Nexts returns every Next value.
+func Nexts() []Next { return slices.Clone(nexts) }
 
 // PollDecision is the result of Poll. Marker is the new turn marker, if any.
 type PollDecision struct {
 	Rule   Rule
-	Action PollAction
-	Writes models.Writes
+	Plan   Plan
+	Next   Next
 	Marker models.Marker
 }
+
+// Waits reports whether the decision changes nothing: the loop polls again with no effect.
+func (d PollDecision) Waits() bool { return d.Next == NextContinue && len(d.Plan) == 0 }
 
 // Poll returns the activation-loop decision for one poll: the first matching rule.
 func Poll(p PollFacts, l Limits) PollDecision {
@@ -604,32 +606,38 @@ func Poll(p PollFacts, l Limits) PollDecision {
 	enabled := p.View.Enabled(l.TriggerLabel)
 
 	if p.StopPending && !enabled && (hasNew || timedOut || settled) {
-		return PollDecision{Rule: PollStopPending, Action: StopNow, Marker: m, Writes: record(models.Done, "")}
+		return PollDecision{Rule: PollStopPending, Plan: stopPlan(p.Actor), Next: NextEnd, Marker: m}
 	}
 
 	switch {
 	case hasNew && m.Turn >= l.TurnLimit:
-		return PollDecision{
-			Rule:   PollMarkerLimit,
-			Action: Suspend,
-			Marker: m,
-			Writes: record(models.Error, models.ReasonTurnLimit),
-		}
+		return suspendThenEnd(PollMarkerLimit, m, record(models.Error, models.ReasonTurnLimit))
 	case hasNew && models.CommentAfter(p.View.Notes, l.Bot, m.Last):
-		return PollDecision{Rule: PollMarkerComment, Action: StayResumed, Marker: m}
+		return PollDecision{Rule: PollMarkerComment, Plan: Plan{advance(m.NoteID)}, Marker: m}
 	case hasNew:
-		return PollDecision{Rule: PollMarkerIdle, Action: Suspend, Marker: m, Writes: record(models.Waiting, "")}
+		return suspendThenEnd(PollMarkerIdle, m, record(models.Waiting, ""))
 	case !p.Actor.Actor:
-		return PollDecision{Rule: PollActorGone, Action: End, Writes: record(models.Error, models.ReasonActorMissing)}
+		return endWith(PollActorGone, record(models.Error, models.ReasonActorMissing))
 	case p.Actor.State == models.Crashed:
-		return PollDecision{Rule: PollCrashed, Action: End, Writes: record(models.Error, models.ReasonActorCrashed)}
+		return endWith(PollCrashed, record(models.Error, models.ReasonActorCrashed))
 	case p.Actor.State == models.Suspended:
-		return PollDecision{Rule: PollSuspendedByHand, Action: End, Writes: record(models.Waiting, "")}
+		return endWith(PollSuspendedByHand, record(models.Waiting, ""))
 	case timedOut && p.Actor.State == models.Running:
-		return PollDecision{Rule: PollTimeout, Action: Suspend, Writes: record(models.Error, models.ReasonTurnTimeout)}
+		return suspendThenEnd(PollTimeout, models.Marker{}, record(models.Error, models.ReasonTurnTimeout))
 	case timedOut:
-		return PollDecision{Rule: PollTimeout, Action: End, Writes: record(models.Error, models.ReasonTurnTimeout)}
+		return endWith(PollTimeout, record(models.Error, models.ReasonTurnTimeout))
 	}
 
-	return PollDecision{Rule: PollWait, Action: Wait}
+	return PollDecision{Rule: PollWait}
+}
+
+// suspendThenEnd suspends the actor, reads it for the status rows, applies w, then ends the activation.
+func suspendThenEnd(rule Rule, m models.Marker, w models.Writes) PollDecision {
+	p := append(Plan{effect(KindSuspend, FailError), effect(KindInspect, FailLog)}, write(w)...)
+	return PollDecision{Rule: rule, Plan: p, Next: NextEnd, Marker: m}
+}
+
+// endWith applies w, then ends the activation.
+func endWith(rule Rule, w models.Writes) PollDecision {
+	return PollDecision{Rule: rule, Plan: write(w), Next: NextEnd}
 }

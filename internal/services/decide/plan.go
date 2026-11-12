@@ -15,8 +15,9 @@ import (
 // value unknown. inspect: read the actor. delete: delete the actor; the current actor is then none. create:
 // create the actor with a new session; the current view then holds the session. revert, resume, suspend: the
 // Substrate call; ErrNoRoom on resume notes no room with fresh status rows and ends the plan. suspend-if-running:
-// read the actor and suspend it when it runs or cannot be read. loop: the activation loop from Since. recheck:
-// read the actor again after a pause, then decide again; the only effect of its plan.
+// read the actor and suspend it when it runs or cannot be read. loop: the activation loop from Since. advance: a
+// new turn of the activation loop starts at Since; the turn timeout restarts. recheck: read the actor again after a
+// pause, then decide again; the only effect of its plan.
 type EffectKind int
 
 // Effect kinds.
@@ -32,18 +33,20 @@ const (
 	KindSuspend
 	KindSuspendIfRunning
 	KindLoop
+	KindAdvance
 	KindRecheck
 )
 
 var kinds = []EffectKind{
 	KindWrite, KindNoteMR, KindReload, KindInspect, KindDelete, KindCreate,
-	KindRevert, KindResume, KindSuspend, KindSuspendIfRunning, KindLoop, KindRecheck,
+	KindRevert, KindResume, KindSuspend, KindSuspendIfRunning, KindLoop, KindAdvance, KindRecheck,
 }
 
 var kindNames = map[EffectKind]string{
 	KindWrite: "write", KindNoteMR: "note-mr", KindReload: "reload", KindInspect: "inspect", KindDelete: "delete",
 	KindCreate: "create", KindRevert: "revert", KindResume: "resume", KindSuspend: "suspend",
-	KindSuspendIfRunning: "suspend-if-running", KindLoop: "loop", KindRecheck: "recheck",
+	KindSuspendIfRunning: "suspend-if-running", KindLoop: "loop", KindAdvance: "advance",
+	KindRecheck: "recheck",
 }
 
 func (k EffectKind) String() string { return kindNames[k] }
@@ -51,7 +54,8 @@ func (k EffectKind) String() string { return kindNames[k] }
 // EffectKinds returns every effect kind.
 func EffectKinds() []EffectKind { return slices.Clone(kinds) }
 
-// Fail is what the dispatcher does when an effect fails. Effects that call nothing out (loop, recheck) do not fail.
+// Fail is what the dispatcher does when an effect fails. Effects that call nothing out (loop, advance, recheck) do
+// not fail.
 //
 // FailLog: log, then the next effect. FailAbort: log, end the plan. FailError: record substrate error with the
 // current view and actor, end the plan. FailErrorFresh: FailError with status rows from a reload. A failure cut by
@@ -75,8 +79,8 @@ func (f Fail) String() string { return failNames[f] }
 // Fails returns every failure handling.
 func Fails() []Fail { return slices.Clone(fails) }
 
-// Effect is one read, write or Substrate call of a plan. Writes is set for a write; Since and Recovered for a loop.
-// Recovered: the loop picks up a running actor without a resume.
+// Effect is one read, write or Substrate call of a plan. Writes is set for a write; Since for a loop and an advance;
+// Recovered for a loop: the loop picks up a running actor without a resume.
 type Effect struct {
 	Kind      EffectKind
 	Fail      Fail
@@ -96,6 +100,8 @@ func (e Effect) String() string {
 		}
 
 		return s + ")"
+	case KindAdvance:
+		return "advance(since=" + strconv.FormatInt(e.Since, 10) + ")"
 	case KindWrite:
 		return "write(" + writesString(e.Writes) + ")!" + e.Fail.String()
 	}
@@ -132,6 +138,10 @@ func write(w models.Writes) Plan {
 
 	return Plan{{Kind: KindWrite, Fail: FailLog, Writes: w}}
 }
+
+func advance(since int64) Effect { return Effect{Kind: KindAdvance, Since: since} }
+
+func recheck() Effect { return Effect{Kind: KindRecheck} }
 
 func loop(since int64, recovered bool) Effect {
 	return Effect{Kind: KindLoop, Since: since, Recovered: recovered}

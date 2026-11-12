@@ -33,9 +33,8 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 
 		enabled := view.Enabled(d.cfg.TriggerLabel)
 
-		var actor models.ActorView
-
-		if err := d.retry(ctx, func() error { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
+		actor, err := d.inspect(ctx, name)
+		if err != nil {
 			if ctx.Err() != nil {
 				log.Info("Cannot read the actor; dispatcher stopping, left for restart recovery", "error", err)
 				return
@@ -73,33 +72,10 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 			continue
 		}
 
-		d.perform(ctx, log, r.Key, view, actor, dec.Plan)
+		d.perform(ctx, log, r.Key, view, actor, nil, dec.Plan)
 
 		return
 	}
-}
-
-// stop notes the agent's merge request, deletes the actor, then applies w. A running actor is deleted as it
-// is: Substrate ends its workload and frees its worker. The note comes before the delete: a stop cut later runs
-// again from restart recovery, and the marker keeps it to one note.
-func (d *Dispatcher) stop(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	actor models.ActorView, w models.Writes,
-) {
-	name := key.ActorName()
-
-	d.noteAgentMR(ctx, log, key)
-
-	if actor.Exists() {
-		if err := d.retry(ctx, func() error { return d.sb.Delete(ctx, name) }); err != nil {
-			d.failRPC(ctx, log, key, view, actor, "Cannot delete the actor", err)
-
-			return
-		}
-
-		log.Info("Actor deleted", "actor", name)
-	}
-
-	d.write(ctx, log, key, view, models.ActorView{State: models.None}, w)
 }
 
 // noteAgentMR posts the stopped note once on the agent's open merge request.
@@ -139,15 +115,14 @@ func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key mod
 	log.Log(ctx, level, "Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "issue_read",
 		read.String(), "error", readErr)
 
-	d.perform(ctx, log, key, models.IssueView{}, models.ActorView{}, dec.Plan)
+	d.perform(ctx, log, key, models.IssueView{}, models.ActorView{}, nil, dec.Plan)
 }
 
 // keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a
 // suspended or missing actor is left as it is.
 func (d *Dispatcher) keepActor(ctx context.Context, log *slog.Logger, name string) {
-	var actor models.ActorView
-
-	if err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
+	actor, err := d.inspect(ctx, name)
+	if err != nil {
 		if ctx.Err() != nil {
 			log.Info("Kept actor not read; dispatcher stopping, left for restart recovery", "actor", name)
 			return
@@ -227,6 +202,15 @@ func (d *Dispatcher) canTrigger(ctx context.Context, log *slog.Logger, projectID
 	}
 
 	return ok, nil
+}
+
+// inspect reads the actor with retry.
+func (d *Dispatcher) inspect(ctx context.Context, name string) (models.ActorView, error) {
+	var actor models.ActorView
+
+	err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err })
+
+	return actor, err
 }
 
 // retry calls fn, then retries it 3 times (1 s, 2 s, 4 s) on errors other than ErrNoRoom, ErrActorNotFound,
@@ -329,18 +313,4 @@ func (d *Dispatcher) load(ctx context.Context, log *slog.Logger, r intake.Reques
 
 		wait = min(2*wait, backoffMax)
 	}
-}
-
-// failRPC logs a failed Substrate call and records substrate error. A call cut by the end of ctx records
-// nothing: the actor is left for the next restart recovery.
-func (d *Dispatcher) failRPC(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	actor models.ActorView, msg string, err error,
-) {
-	if ctx.Err() != nil {
-		log.Info(msg+"; dispatcher stopping, left for restart recovery", "error", err)
-		return
-	}
-
-	log.Error(msg, "error", err)
-	d.write(ctx, log, key, view, actor, substrateError())
 }
