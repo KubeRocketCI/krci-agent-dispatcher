@@ -209,8 +209,7 @@ func (d *Dispatcher) load(ctx context.Context, log *slog.Logger, r intake.Reques
 
 	for {
 		view, err := d.gl.Load(ctx, r.Key)
-		if err == nil || r.Kind != intake.Recover || errors.Is(err, models.ErrNotFound) ||
-			errors.Is(err, models.ErrForbidden) {
+		if err == nil || errors.Is(err, models.ErrNotFound) || errors.Is(err, models.ErrForbidden) {
 			return view, err
 		}
 
