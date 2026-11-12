@@ -34,7 +34,7 @@ type activation struct {
 
 // loop is the activation loop: every PollInterval it reads the issue and the actor state and applies
 // decide.Poll. The first read is a full one; later polls read only the notes created or edited since. A
-// decision other than wait is taken again on a full read, made at once, before it is executed. since is the note
+// decision other than wait is taken again on a full read, made at once, before it is performed. since is the note
 // id of the turn's previous marker; recovered marks the loop of a running actor found by restart recovery. A
 // cancelled ctx ends the loop without a change, so the next restart recovery continues it. While reads fail, the
 // turn timeout still ends the activation.
@@ -165,25 +165,4 @@ func (d *Dispatcher) timedOut(ctx context.Context, log *slog.Logger, key models.
 	d.writeFresh(ctx, log, key, stateWrites(models.Error, models.ReasonTurnTimeout))
 
 	return pollEnd
-}
-
-// continueSince returns the note id of the marker before the last one (0 if none): the loop of a running actor
-// found after a dispatcher restart then sees the last marker as new.
-func continueSince(notes []models.Note, bot string) int64 {
-	last, ok := models.LastMarker(notes, bot)
-	if !ok {
-		return 0
-	}
-
-	var prev int64
-
-	for _, n := range notes {
-		if n.ID < last.NoteID {
-			if m, ok := models.MarkerAfter([]models.Note{n}, bot, 0); ok {
-				prev = max(prev, m.NoteID)
-			}
-		}
-	}
-
-	return prev
 }

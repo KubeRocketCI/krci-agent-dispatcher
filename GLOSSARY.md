@@ -179,6 +179,14 @@ _Avoid_: capacity error, busy pool
 The service that receives events and runs turns.
 _Avoid_: waker, loop
 
+**Plan**:
+The ordered effects the dispatcher carries out for one decision on an issue.
+_Avoid_: recipe, script, action (for this)
+
+**Effect**:
+One read, write or Substrate call in a plan, with what the dispatcher does when it fails.
+_Avoid_: step (for this), action, command
+
 **Issue lane**:
 The dispatcher's sequence of actions for one issue, which runs one action at a time.
 _Avoid_: worker (for this)

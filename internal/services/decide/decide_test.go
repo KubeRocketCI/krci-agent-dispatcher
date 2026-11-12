@@ -64,473 +64,378 @@ func rec(s models.AgentState, reason string) *models.Record {
 
 func lbl(s models.AgentState) string { return models.StateLabel(s) }
 
-var (
-	refusedNote      = models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
-	startRefusedNote = models.NewNote{
-		Body:   models.StartRefusedText(models.Developer) + "\n" + models.StartRefusedMarker,
-		Marker: models.StartRefusedMarker,
-	}
-)
-
 type decideCase struct {
 	name  string
 	facts Facts
-	want  Decision
+	want  string
 }
 
 func decideCases() []decideCase {
 	return []decideCase{
 		{"issue gone: discard", Facts{Issue: ReadGone, Actor: running, Request: intake.Activate},
-			Decision{Rule: RuleIssueGone, Action: Discard}},
+			"issue-gone delete!abort"},
 		{"issue unavailable: keep", Facts{Issue: ReadUnavailable, Actor: running, Request: intake.Recover},
-			Decision{Rule: RuleIssueUnavailable, Action: Keep}},
+			"issue-unavailable suspend-if-running!abort"},
 		{"actor unknown, record waiting: substrate error", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   models.ActorView{State: models.Unknown},
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleActorUnknownStarted, Action: None, Writes: record(models.Error, models.ReasonSubstrateError)}},
+			"actor-unknown-started write(record=error/substrate-error,label=error)!log"},
 		{"actor unknown, no record, label working: substrate error", Facts{
 			View:    open("agent", lbl(models.Working)).v,
 			Actor:   models.ActorView{State: models.Unknown},
 			Request: intake.Stop,
 		},
-			Decision{Rule: RuleActorUnknownStarted, Action: None, Writes: record(models.Error, models.ReasonSubstrateError)}},
+			"actor-unknown-started write(record=error/substrate-error,label=error)!log"},
 		{"actor unknown, record done: nothing", Facts{
 			View:    closed("agent", lbl(models.Done)).record(models.Done, "").v,
 			Actor:   models.ActorView{State: models.Unknown},
 			Request: intake.Stop,
 		},
-			Decision{Rule: RuleActorUnknown, Action: None}},
+			"actor-unknown -"},
 		{"closed, actor: stop", Facts{
 			View:    closed("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   suspended,
 			Request: intake.Stop,
 		},
-			Decision{
-				Rule:   RuleNotEnabledStop,
-				Action: Stop,
-				Writes: models.Writes{Record: rec(models.Done, ""), Label: lbl(models.Done)},
-			}},
+			"not-enabled-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
 		{"trigger label removed, record error: stop", Facts{
 			View:    open(lbl(models.Error)).record(models.Error, models.ReasonTurnLimit).v,
 			Actor:   suspended,
 			Request: intake.Stop,
 		},
-			Decision{
-				Rule:   RuleNotEnabledStop,
-				Action: Stop,
-				Writes: models.Writes{Record: rec(models.Done, ""), Label: lbl(models.Done)},
-			}},
+			"not-enabled-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
 		{"closed, no actor, record working: stop", Facts{
 			View:    closed("agent").record(models.Working, "").v,
 			Actor:   noActor,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RuleNotEnabledStop,
-				Action: Stop,
-				Writes: models.Writes{Record: rec(models.Done, ""), Label: lbl(models.Done)},
-			}},
+			"not-enabled-stop note-mr!log > write(record=done,label=done)!log"},
 		{"closed, running actor: stop", Facts{
 			View:    closed("agent").record(models.Working, "").v,
 			Actor:   running,
 			Request: intake.Stop,
 		},
-			Decision{
-				Rule:   RuleNotEnabledStop,
-				Action: Stop,
-				Writes: models.Writes{Record: rec(models.Done, ""), Label: lbl(models.Done)},
-			}},
+			"not-enabled-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
 		{"closed, no trigger label, no record: nothing", Facts{
 			View:    closed("bug").v,
 			Actor:   noActor,
 			Request: intake.Stop,
 		},
-			Decision{Rule: RuleNotEnabledNoRecord, Action: None}},
+			"not-enabled-no-record -"},
 		{"reopened without the trigger label: nothing", Facts{
 			View:    open("bug").v,
 			Actor:   noActor,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleNotEnabledNoRecord, Action: None}},
+			"not-enabled-no-record -"},
 		{"start, record done: refused note, label repaired", Facts{
 			View:    open("agent").record(models.Done, "").v,
 			Actor:   noActor,
 			Request: intake.Start,
 		},
-			Decision{
-				Rule:   RuleDoneStartRefused,
-				Action: None,
-				Writes: models.Writes{Label: lbl(models.Done), Notes: []models.NewNote{refusedNote}},
-			}},
+			"done-start-refused write(label=done,note=krci-agent-refused)!log"},
 		{"comment, record done: no note", Facts{
 			View:    open("agent", lbl(models.Done)).record(models.Done, "").v,
 			Actor:   noActor,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleDoneKept, Action: None}},
+			"done-kept -"},
 		{"comment, record done, running actor: stop", Facts{
 			View:    open("agent", lbl(models.Done)).record(models.Done, "").v,
 			Actor:   running,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleDoneRunningStop, Action: Stop, Writes: record(models.Done, "")}},
+			"done-running-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
 		{"start, record done, running actor: stop, no refused note", Facts{
 			View:     open("agent", lbl(models.Done)).record(models.Done, "").v,
 			Actor:    running,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleDoneRunningStop, Action: Stop, Writes: record(models.Done, "")}},
+			"done-running-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
 		{"record error, trigger comment: no activation, label repaired", Facts{
 			View:             open("agent").record(models.Error, models.ReasonTurnTimeout).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{Rule: RuleErrorKept, Action: None, Writes: models.Writes{Label: lbl(models.Error)}}},
+			"error-kept write(label=error)!log"},
 		{"record error, start: nothing", Facts{
 			View:     open("agent", lbl(models.Error)).record(models.Error, models.ReasonTurnTimeout).v,
 			Actor:    suspended,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleErrorKept, Action: None}},
+			"error-kept -"},
 		{"start by a developer, no actor: create", Facts{
 			View:     open("agent").v,
 			Actor:    noActor,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleStartCreate, Action: Create}},
+			"start-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=0)"},
 		{"start by a reporter, no actor: refused", Facts{
 			View:     open("agent").v,
 			Actor:    noActor,
 			Request:  intake.Start,
 			AuthorOK: false,
 		},
-			Decision{Rule: RuleStartRefused, Action: None, Writes: models.Writes{Notes: []models.NewNote{startRefusedNote}}}},
+			"start-refused write(note=krci-agent-start-refused)!log"},
 		{"start by a reporter, partial create: refused", Facts{
 			View:     open("agent").v,
 			Actor:    partial,
 			Request:  intake.Start,
 			AuthorOK: false,
 		},
-			Decision{Rule: RuleStartRefused, Action: None, Writes: models.Writes{Notes: []models.NewNote{startRefusedNote}}}},
+			"start-refused write(note=krci-agent-start-refused)!log"},
 		{"start by a developer, partial create: create", Facts{
 			View:     open("agent").v,
 			Actor:    partial,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleStartPartialCreate, Action: Create}},
+			"start-partial-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
 		{"comment, partial create, no record: nothing", Facts{
 			View:    open("agent").v,
 			Actor:   partial,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RulePartialCreateIgnored, Action: None}},
+			"partial-create-ignored -"},
 		{"complete actor, no record, no marker: activation", Facts{
 			View:     open("agent").v,
 			Actor:    suspended,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			Decision{
-				Rule:   RuleFirstActivation,
-				Action: Activate,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"first-activation write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
 		{"complete actor, no record, marker: waiting", Facts{
 			View:    open("agent").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RuleNoRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
 		{"complete actor, no record, marker, trigger comment: waiting, activation", Facts{
 			View:             open("agent").marker(110, 1, 100).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{
-				Rule:   RuleTriggerActivate,
-				Action: Activate,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=110)"},
 		{"suspended, trigger comment: activation", Facts{
 			View:             open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{Rule: RuleTriggerActivate, Action: Activate}},
+			"trigger-activate resume!error-fresh > reload!log > write(record=working,label=working)!log > " +
+				"loop(since=110)"},
 		{"crashed, trigger comment: revert first", Facts{
 			View:             open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:            crashed,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{Rule: RuleTriggerActivate, Action: Revert}},
+			"trigger-activate revert!error-fresh > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=110)"},
 		{"suspended, record waiting, no trigger comment: nothing", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleWaitingKept, Action: None}},
+			"waiting-kept -"},
 		{"trigger comment at the turn limit: error", Facts{
 			View:             open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(130, 3, 125).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{
-				Rule:   RuleTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"failed turns count to the turn limit", Facts{View: open("agent", lbl(models.Waiting)).record(models.Waiting, "").
 			note(130, bot, "failed\n<!-- krci-agent-turn n=3 exit=1 last=125 -->").v,
 			Actor: suspended, Request: intake.Activate, TriggerAfterLast: true},
-			Decision{
-				Rule:   RuleTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"trigger comment below the turn limit: activation", Facts{
 			View:             open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(130, 2, 125).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{Rule: RuleTriggerActivate, Action: Activate}},
+			"trigger-activate resume!error-fresh > reload!log > write(record=working,label=working)!log > " +
+				"loop(since=130)"},
 		{"running, record working: continue", Facts{
 			View:    open("agent", lbl(models.Working)).record(models.Working, "").v,
 			Actor:   running,
 			Request: intake.Recover,
 		},
-			Decision{Rule: RuleRunningContinue, Action: Continue}},
+			"running-continue loop(since=0,recovered)"},
 		{"running, record waiting: record working, continue", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   running,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RuleRunningContinue,
-				Action: Continue,
-				Writes: models.Writes{Record: rec(models.Working, ""), Label: lbl(models.Working)},
-			}},
+			"running-continue write(record=working,label=working)!log > loop(since=0,recovered)"},
 		{"suspended, record working, no trigger comment: waiting", Facts{
 			View:    open("agent", lbl(models.Working)).record(models.Working, "").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RuleWorkingRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"working-record-waiting write(record=waiting,label=waiting)!log"},
 		{"suspended, record working, trigger comment: waiting, activation", Facts{
 			View:             open("agent", lbl(models.Working)).record(models.Working, "").marker(110, 1, 100).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{
-				Rule:   RuleTriggerActivate,
-				Action: Activate,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=110)"},
 		{"crashed, record waiting, no trigger comment: nothing", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:   crashed,
 			Request: intake.Recover,
 		},
-			Decision{Rule: RuleCrashedNoTrigger, Action: None}},
+			"crashed-no-trigger -"},
 		{"crashed, record working: actor crashed", Facts{
 			View:    open("agent", lbl(models.Working)).record(models.Working, "").v,
 			Actor:   crashed,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RuleCrashedWorking,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorCrashed), Label: lbl(models.Error)},
-			}},
+			"crashed-working write(record=error/actor-crashed,label=error)!log"},
 		{"transitional: re-check", Facts{
 			View:     open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:    moving,
 			Request:  intake.Activate,
 			Rechecks: 2,
 		},
-			Decision{Rule: RuleTransitionalRecheck, Action: Recheck}},
+			"transitional-recheck recheck"},
 		{"transitional after 3 re-checks: actor busy", Facts{
 			View:     open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:    moving,
 			Request:  intake.Activate,
 			Rechecks: 3,
 		},
-			Decision{
-				Rule:   RuleActorBusy,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorBusy), Label: lbl(models.Error)},
-			}},
+			"actor-busy write(record=error/actor-busy,label=error)!log"},
 		{"no actor, record waiting: actor missing", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   noActor,
 			Request: intake.Activate,
 		},
-			Decision{
-				Rule:   RuleActorMissing,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorMissing), Label: lbl(models.Error)},
-			}},
+			"actor-missing write(record=error/actor-missing,label=error)!log"},
 		{"no actor, record working: actor missing", Facts{
 			View:    open("agent").record(models.Working, "").v,
 			Actor:   noActor,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RuleActorMissing,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorMissing), Label: lbl(models.Error)},
-			}},
+			"actor-missing write(record=error/actor-missing,label=error)!log"},
 		{"hand-set agent::done, record waiting: label repaired", Facts{
 			View:    open("agent", lbl(models.Done)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleWaitingKept, Action: None, Writes: models.Writes{Label: lbl(models.Waiting)}}},
+			"waiting-kept write(label=waiting)!log"},
 		{"two state labels: label repaired", Facts{
 			View:    open("agent", lbl(models.Waiting), lbl(models.Working)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleWaitingKept, Action: None, Writes: models.Writes{Label: lbl(models.Waiting)}}},
+			"waiting-kept write(label=waiting)!log"},
 		{"closed, record done, no state label: label repaired", Facts{
 			View:    closed("agent").record(models.Done, "").v,
 			Actor:   noActor,
 			Request: intake.Stop,
 		},
-			Decision{Rule: RuleNotEnabledDone, Action: None, Writes: models.Writes{Label: lbl(models.Done)}}},
+			"not-enabled-done write(label=done)!log"},
 		{"clear-error, record error, no trigger comment: waiting", Facts{
 			View:    open("agent").record(models.Error, models.ReasonTurnTimeout).marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleNoRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
 		{"clear-error, record error, crashed, trigger comment: waiting, revert", Facts{
 			View:             open("agent").record(models.Error, models.ReasonActorCrashed).marker(110, 1, 100).v,
 			Actor:            crashed,
 			Request:          intake.ClearError,
 			TriggerAfterLast: true,
 		},
-			Decision{
-				Rule:   RuleTriggerActivate,
-				Action: Revert,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"trigger-activate write(record=waiting,label=waiting)!log > revert!error-fresh > " +
+				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error, complete actor, turn limit, trigger comment: error kept", Facts{
 			View:             open("agent").record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:            suspended,
 			Request:          intake.ClearError,
 			TriggerAfterLast: true,
 		},
-			Decision{
-				Rule:   RuleClearErrorTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"clear-error, complete actor, turn limit, no trigger comment: error kept", Facts{
 			View:    open("agent").record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:   suspended,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleClearErrorTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"clear-error, running actor, turn limit: suspend, error kept", Facts{
 			View:    open("agent").record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:   running,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleClearErrorTurnLimit,
-				Action: SuspendOnly,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log > suspend!abort"},
 		{"agent::done removed, record done: label repaired", Facts{
 			View:    open("agent").record(models.Done, "").v,
 			Actor:   noActor,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleDoneKept, Action: None, Writes: models.Writes{Label: lbl(models.Done)}}},
+			"done-kept write(label=done)!log"},
 		{"hand-set agent::working, record waiting: label repaired", Facts{
 			View:    open("agent", lbl(models.Working)).record(models.Waiting, "").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleWaitingKept, Action: None, Writes: models.Writes{Label: lbl(models.Waiting)}}},
+			"waiting-kept write(label=waiting)!log"},
 		{"record error, running actor: suspend, error kept",
 			Facts{View: open("agent", lbl(models.Error)).record(models.Error, models.ReasonSubstrateError).v, Actor: running,
 				Request: intake.Recover},
-			Decision{Rule: RuleErrorSuspend, Action: SuspendOnly}},
+			"error-suspend suspend!abort"},
 		{"clear-error by a developer, no actor: create", Facts{
 			View:     open("agent").record(models.Error, models.ReasonActorMissing).marker(110, 1, 100).v,
 			Actor:    noActor,
 			Request:  intake.ClearError,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleClearErrorCreate, Action: Create}},
+			"clear-error-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error by a developer, partial create: create", Facts{
 			View:     open("agent").record(models.Error, models.ReasonSubstrateError).v,
 			Actor:    partial,
 			Request:  intake.ClearError,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleClearErrorCreate, Action: Create}},
+			"clear-error-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
 		{"clear-error by a reporter, no actor: refused, error label restored", Facts{
 			View:    open("agent").record(models.Error, models.ReasonActorMissing).v,
 			Actor:   noActor,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleStartRefused,
-				Action: None,
-				Writes: models.Writes{Label: lbl(models.Error), Notes: []models.NewNote{startRefusedNote}},
-			}},
+			"start-refused write(label=error,note=krci-agent-start-refused)!log"},
 		{"clear-error by a developer, no actor, turn limit: error kept", Facts{
 			View:     open("agent").record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:    noActor,
 			Request:  intake.ClearError,
 			AuthorOK: true,
 		},
-			Decision{
-				Rule:   RuleClearErrorTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"clear-error, record error, agent::error present, complete actor: waiting", Facts{
 			View:    open("agent", lbl(models.Error)).record(models.Error, models.ReasonTurnTimeout).marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleNoRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
 		{"clear-error, record error, agent::error present, complete actor, trigger comment: waiting, activate", Facts{
 			View: open("agent", lbl(models.Error)).record(models.Error, models.ReasonTurnTimeout).
 				marker(110, 1, 100).v,
@@ -538,196 +443,172 @@ func decideCases() []decideCase {
 			Request:          intake.ClearError,
 			TriggerAfterLast: true,
 		},
-			Decision{
-				Rule:   RuleTriggerActivate,
-				Action: Activate,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error, no record, agent::error present, complete actor: waiting", Facts{
 			View:    open("agent", lbl(models.Error)).marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleNoRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
 		{"clear-error by a developer, agent::error present, no actor: create", Facts{
 			View:     open("agent", lbl(models.Error)).record(models.Error, models.ReasonActorMissing).marker(110, 1, 100).v,
 			Actor:    noActor,
 			Request:  intake.ClearError,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleClearErrorCreate, Action: Create}},
+			"clear-error-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=110)"},
 		{"clear-error by a developer, no record, agent::error present, no actor: create", Facts{
 			View:     open("agent", lbl(models.Error)).v,
 			Actor:    noActor,
 			Request:  intake.ClearError,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleClearErrorCreate, Action: Create}},
+			"clear-error-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!error-fresh > reload!log > write(record=working,label=working)!log > loop(since=0)"},
 		{"clear-error by a developer, agent::error present, partial create: create", Facts{
 			View:     open("agent", lbl(models.Error)).record(models.Error, models.ReasonSubstrateError).v,
 			Actor:    partial,
 			Request:  intake.ClearError,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleClearErrorCreate, Action: Create}},
+			"clear-error-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
 		{"clear-error by a reporter, agent::error present, no actor: refused, error kept", Facts{
 			View:    open("agent", lbl(models.Error)).record(models.Error, models.ReasonActorMissing).v,
 			Actor:   noActor,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleStartRefused,
-				Action: None,
-				Writes: models.Writes{Notes: []models.NewNote{startRefusedNote}},
-			}},
+			"start-refused write(note=krci-agent-start-refused)!log"},
 		{"clear-error, author unknown, agent::error present, no actor: error kept", Facts{
 			View:          open("agent", lbl(models.Error)).record(models.Error, models.ReasonActorMissing).v,
 			Actor:         noActor,
 			Request:       intake.ClearError,
 			AuthorUnknown: true,
 		},
-			Decision{Rule: RuleAuthorUnknown, Action: None}},
+			"author-unknown -"},
 		{"clear-error, agent::error present, complete actor, turn limit: error kept", Facts{
 			View:    open("agent", lbl(models.Error)).record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:   suspended,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleClearErrorTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"clear-error, no record, agent::done and agent::error: done", Facts{
 			View:    open("agent", lbl(models.Error), lbl(models.Done)).v,
 			Actor:   noActor,
 			Request: intake.ClearError,
 		},
-			Decision{Rule: RuleDoneKept, Action: None, Writes: models.Writes{Label: lbl(models.Done)}}},
+			"done-kept write(label=done)!log"},
 		{"recover, partial create, no record: create", Facts{
 			View:    open("agent").v,
 			Actor:   partial,
 			Request: intake.Recover,
 		},
-			Decision{Rule: RuleRecoverPartialCreate, Action: Create}},
+			"recover-partial-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!error-fresh > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
 		{"start, author unknown, no actor: no create, no note", Facts{
 			View:          open("agent").v,
 			Actor:         noActor,
 			Request:       intake.Start,
 			AuthorUnknown: true,
 		},
-			Decision{Rule: RuleAuthorUnknown, Action: None}},
+			"author-unknown -"},
 		{"start, author unknown, partial create: no create, no note", Facts{
 			View:          open("agent").v,
 			Actor:         partial,
 			Request:       intake.Start,
 			AuthorUnknown: true,
 		},
-			Decision{Rule: RuleAuthorUnknown, Action: None}},
+			"author-unknown -"},
 		{"clear-error, author unknown, no actor: error label restored", Facts{
 			View:          open("agent").record(models.Error, models.ReasonActorMissing).v,
 			Actor:         noActor,
 			Request:       intake.ClearError,
 			AuthorUnknown: true,
 		},
-			Decision{Rule: RuleAuthorUnknown, Action: None, Writes: models.Writes{Label: lbl(models.Error)}}},
+			"author-unknown write(label=error)!log"},
 		{"clear-error, author unknown, partial create: error label restored", Facts{
 			View:          open("agent").record(models.Error, models.ReasonSubstrateError).v,
 			Actor:         partial,
 			Request:       intake.ClearError,
 			AuthorUnknown: true,
 		},
-			Decision{Rule: RuleAuthorUnknown, Action: None, Writes: models.Writes{Label: lbl(models.Error)}}},
+			"author-unknown write(label=error)!log"},
 		{"clear-error, author unknown, no actor, turn limit: error kept", Facts{
 			View:          open("agent").record(models.Error, models.ReasonTurnLimit).marker(130, 3, 125).v,
 			Actor:         noActor,
 			Request:       intake.ClearError,
 			AuthorUnknown: true,
 		},
-			Decision{
-				Rule:   RuleClearErrorTurnLimit,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonTurnLimit), Label: lbl(models.Error)},
-			}},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"start, record done, author unknown: refused note", Facts{
 			View:          open("agent", lbl(models.Done)).record(models.Done, "").v,
 			Actor:         noActor,
 			Request:       intake.Start,
 			AuthorUnknown: true,
 		},
-			Decision{Rule: RuleDoneStartRefused, Action: None, Writes: models.Writes{Notes: []models.NewNote{refusedNote}}}},
+			"done-start-refused write(note=krci-agent-refused)!log"},
 		{"recover, partial create, record waiting: actor missing", Facts{
 			View:    open("agent", lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   partial,
 			Request: intake.Recover,
 		},
-			Decision{
-				Rule:   RulePartialCreateActorMissing,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Error, models.ReasonActorMissing), Label: lbl(models.Error)},
-			}},
+			"partial-create-actor-missing write(record=error/actor-missing,label=error)!log"},
 		{"start, no record, agent::done: refused note", Facts{
 			View:     open("agent", lbl(models.Done)).v,
 			Actor:    noActor,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			Decision{Rule: RuleDoneStartRefused, Action: None, Writes: models.Writes{Notes: []models.NewNote{refusedNote}}}},
+			"done-start-refused write(note=krci-agent-refused)!log"},
 		{"no record, agent::error, trigger comment: no activation", Facts{
 			View:             open("agent", lbl(models.Error)).marker(110, 1, 100).v,
 			Actor:            suspended,
 			Request:          intake.Activate,
 			TriggerAfterLast: true,
 		},
-			Decision{Rule: RuleErrorKept, Action: None}},
+			"error-kept -"},
 		{"no record, agent::error, running actor: suspend", Facts{
 			View:    open("agent", lbl(models.Error)).v,
 			Actor:   running,
 			Request: intake.Recover,
 		},
-			Decision{Rule: RuleErrorSuspend, Action: SuspendOnly}},
+			"error-suspend suspend!abort"},
 		{"no record, agent::done and agent::error: done", Facts{
 			View:    open("agent", lbl(models.Error), lbl(models.Done)).v,
 			Actor:   noActor,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleDoneKept, Action: None, Writes: models.Writes{Label: lbl(models.Done)}}},
+			"done-kept write(label=done)!log"},
 		{"no record, agent::waiting is not a record: waiting", Facts{
 			View:    open("agent", lbl(models.Waiting)).marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.Activate,
 		},
-			Decision{
-				Rule:   RuleNoRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
 		{"clear-error, no record, complete actor: waiting", Facts{
 			View:    open("agent").marker(110, 1, 100).v,
 			Actor:   suspended,
 			Request: intake.ClearError,
 		},
-			Decision{
-				Rule:   RuleNoRecordWaiting,
-				Action: None,
-				Writes: models.Writes{Record: rec(models.Waiting, ""), Label: lbl(models.Waiting)},
-			}},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
 		{"comment, no actor, no record: nothing", Facts{
 			View:    open("agent").v,
 			Actor:   noActor,
 			Request: intake.Activate,
 		},
-			Decision{Rule: RuleNoActorIgnored, Action: None}},
+			"no-actor-ignored -"},
 	}
 }
 
 func TestDecideTable(t *testing.T) {
 	for _, c := range decideCases() {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, Decide(c.facts, limits))
+			d := Decide(c.facts, limits)
+			assert.Equal(t, c.want, string(d.Rule)+" "+d.Plan.String())
 		})
 	}
 }
@@ -745,8 +626,9 @@ func TestDecideStartRefusedNamesTriggerRole(t *testing.T) {
 			got := Decide(Facts{View: open("agent").v, Actor: noActor, Request: intake.Start}, l)
 
 			want := models.NewNote{Body: text + "\n" + models.StartRefusedMarker, Marker: models.StartRefusedMarker}
-			assert.Equal(t, Decision{Rule: RuleStartRefused, Action: None,
-				Writes: models.Writes{Notes: []models.NewNote{want}}}, got)
+			assert.Equal(t, Decision{Rule: RuleStartRefused, Plan: Plan{{
+				Kind: KindWrite, Fail: FailLog, Writes: models.Writes{Notes: []models.NewNote{want}},
+			}}}, got)
 		})
 	}
 }
@@ -899,9 +781,6 @@ func TestPollTable(t *testing.T) {
 }
 
 func TestActionNames(t *testing.T) {
-	assert.Equal(t, "none", None.String())
-	assert.Equal(t, "continue", Continue.String())
-	assert.Equal(t, "suspend", SuspendOnly.String())
 	assert.Equal(t, "suspend", Suspend.String())
 	assert.Equal(t, "stop-now", StopNow.String())
 }
@@ -939,7 +818,8 @@ func TestEveryRuleHasATableCase(t *testing.T) {
 	decideRules, pollRules := map[Rule]bool{}, map[Rule]bool{}
 
 	for _, c := range decideCases() {
-		decideRules[c.want.Rule] = true
+		rule, _, _ := strings.Cut(c.want, " ")
+		decideRules[Rule(rule)] = true
 	}
 
 	for _, c := range pollCases() {

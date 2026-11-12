@@ -233,33 +233,6 @@ func pollAxes() []*axis[PollFacts] {
 	return []*axis[PollFacts]{issueState, trigger, stop, actor, marker, comment, elapsed}
 }
 
-func writesString(w models.Writes) string {
-	var parts []string
-
-	if w.Record != nil {
-		r := "record=" + string(w.Record.State)
-		if w.Record.Reason != "" {
-			r += "/" + strings.ReplaceAll(w.Record.Reason, " ", "-")
-		}
-
-		parts = append(parts, r)
-	}
-
-	if w.Label != "" {
-		parts = append(parts, "label="+strings.TrimPrefix(w.Label, "agent::"))
-	}
-
-	for _, n := range w.Notes {
-		parts = append(parts, "note="+strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(n.Marker, "<!--"), "-->")))
-	}
-
-	if len(parts) == 0 {
-		return "-"
-	}
-
-	return strings.Join(parts, ",")
-}
-
 // goldenRow is a set of cells with one outcome: per axis, the bit set of the values it covers.
 type goldenRow struct {
 	sets    [maxAxes]uint16
@@ -460,7 +433,7 @@ func TestDecideGolden(t *testing.T) {
 
 	got := renderGolden(decideAxes(), zero, func(f Facts) string {
 		d := Decide(f, limits)
-		return fmt.Sprintf("%s %s %s", d.Rule, d.Action, writesString(d.Writes))
+		return fmt.Sprintf("%s %s", d.Rule, d.Plan)
 	})
 
 	assertGolden(t, "decide.golden", got)
@@ -471,7 +444,7 @@ func TestDecideUnreadGolden(t *testing.T) {
 
 	got := renderGolden(unreadAxes(), zero, func(f Facts) string {
 		d := Decide(f, limits)
-		return fmt.Sprintf("%s %s %s", d.Rule, d.Action, writesString(d.Writes))
+		return fmt.Sprintf("%s %s", d.Rule, d.Plan)
 	})
 
 	assertGolden(t, "decide-unread.golden", got)
