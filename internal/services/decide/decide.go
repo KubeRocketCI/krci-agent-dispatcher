@@ -1,5 +1,5 @@
-// Package decide is the decision function of the dispatcher: facts of one issue and its actor in, one action and
-// its GitLab writes out. Pure: no I/O, no clock. A new rule is a new Rule constant, a new table-test case and a
+// Package decide is the decision function of the dispatcher: facts of one issue and its actor in, one rule and its
+// plan out. Pure: no I/O, no clock. A new rule is a new Rule constant, a new table-test case and a
 // reviewed diff of the golden maps in testdata.
 package decide
 
@@ -59,34 +59,6 @@ type Facts struct {
 	TriggerAfterLast bool
 	Rechecks         int
 }
-
-// Action is what the issue lane does.
-type Action int
-
-// Actions. Create: delete a partial create, create the actor, record waiting, then an activation from note 0.
-// Activate: an activation (resume first). Revert: revert, then an activation. Continue: the activation loop
-// of a running actor, after the resume step. Stop: delete the actor, running or not, then the writes.
-// Recheck: read the actor again after a pause, then decide again. SuspendOnly: suspend, no activation.
-// Discard: delete the actor, no writes. Keep: keep the actor, suspended when it runs, no writes.
-const (
-	None Action = iota
-	Create
-	Activate
-	Revert
-	Stop
-	Continue
-	Recheck
-	SuspendOnly
-	Discard
-	Keep
-)
-
-var actionNames = map[Action]string{
-	None: "none", Create: "create", Activate: "activate", Revert: "revert", Stop: "stop", Continue: "continue",
-	Recheck: "recheck", SuspendOnly: "suspend", Discard: "discard", Keep: "keep",
-}
-
-func (a Action) String() string { return actionNames[a] }
 
 // Rule names the branch that made a decision. It is logged with each decision (rule=).
 type Rule string
@@ -202,11 +174,10 @@ const (
 	PollWait Rule = "wait"
 )
 
-// Decision is the result of Decide. Writes are applied before the action, except for Stop (after it).
+// Decision is the result of Decide.
 type Decision struct {
-	Rule   Rule
-	Action Action
-	Writes models.Writes
+	Rule Rule
+	Plan Plan
 }
 
 type facts struct {
@@ -248,28 +219,23 @@ func Decide(f Facts, l Limits) Decision {
 
 	if is.hasRec && is.rec.State == models.Done {
 		if f.Actor.State == models.Running {
-			return Decision{Rule: RuleDoneRunningStop, Action: Stop, Writes: record(models.Done, "")}
+			return is.stop(RuleDoneRunningStop)
 		}
 
 		if f.Request != intake.Start {
 			return is.repair(RuleDoneKept)
 		}
 
-		d := is.repair(RuleDoneStartRefused)
-		d.Writes.Notes = []models.NewNote{{
-			Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker,
-		}}
+		w := is.repairWrites()
+		w.Notes = []models.NewNote{{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}}
 
-		return d
+		return decision(RuleDoneStartRefused, w)
 	}
 
 	if is.hasRec && is.rec.State == models.Error {
 		// An actor in error keeps no worker: a running one is suspended, the error stays.
 		if f.Actor.State == models.Running {
-			d := is.repair(RuleErrorSuspend)
-			d.Action = SuspendOnly
-
-			return d
+			return suspendOnly(RuleErrorSuspend, is.repairWrites())
 		}
 
 		return is.repair(RuleErrorKept)
@@ -277,12 +243,12 @@ func Decide(f Facts, l Limits) Decision {
 
 	// The turn limit is terminal: a clear-error request does not clear it.
 	if f.Request == intake.ClearError && !is.hasRec && is.atTurnLimit() {
-		d := Decision{Rule: RuleClearErrorTurnLimit, Action: None, Writes: record(models.Error, models.ReasonTurnLimit)}
+		w := record(models.Error, models.ReasonTurnLimit)
 		if f.Actor.State == models.Running {
-			d.Action = SuspendOnly
+			return suspendOnly(RuleClearErrorTurnLimit, w)
 		}
 
-		return d
+		return decision(RuleClearErrorTurnLimit, w)
 	}
 
 	switch {
@@ -299,9 +265,9 @@ func Decide(f Facts, l Limits) Decision {
 func unread(f Facts) (Decision, bool) {
 	switch {
 	case f.Issue == ReadGone:
-		return Decision{Rule: RuleIssueGone, Action: Discard}, true
+		return Decision{Rule: RuleIssueGone, Plan: Plan{effect(KindDelete, FailAbort)}}, true
 	case f.Issue == ReadUnavailable:
-		return Decision{Rule: RuleIssueUnavailable, Action: Keep}, true
+		return Decision{Rule: RuleIssueUnavailable, Plan: Plan{effect(KindSuspendIfRunning, FailAbort)}}, true
 	case f.Actor.State == models.Unknown:
 		return actorUnknown(f.View), true
 	}
@@ -318,48 +284,48 @@ func actorUnknown(v models.IssueView) Decision {
 	}
 
 	if !known || state == models.Done {
-		return Decision{Rule: RuleActorUnknown, Action: None}
+		return Decision{Rule: RuleActorUnknown}
 	}
 
-	return Decision{Rule: RuleActorUnknownStarted, Action: None, Writes: record(models.Error, models.ReasonSubstrateError)}
+	return decision(RuleActorUnknownStarted, record(models.Error, models.ReasonSubstrateError))
 }
 
 // disabled: issue closed or without the trigger label.
 func (is facts) disabled() Decision {
 	state, hasLabel := models.StateFromLabels(is.f.View.Issue.Labels)
 	if is.f.Actor.Exists() || (is.hasRec && is.rec.State != models.Done) || (hasLabel && state != models.Done) {
-		return Decision{Rule: RuleNotEnabledStop, Action: Stop, Writes: record(models.Done, "")}
+		return is.stop(RuleNotEnabledStop)
 	}
 
 	if !is.hasRec {
-		return Decision{Rule: RuleNotEnabledNoRecord, Action: None}
+		return Decision{Rule: RuleNotEnabledNoRecord}
 	}
 
 	return is.repair(RuleNotEnabledDone)
 }
 
-// create returns Create under rule for an author who can trigger, the start-refused note for one who cannot, and
-// neither when that is unknown. Without a create the state label is set from the record of the view.
+// create returns the create plan under rule for an author who can trigger, the start-refused note for one who
+// cannot, and neither when that is unknown. Without a create the state label is set from the record of the view.
 func (is facts) create(rule Rule) Decision {
-	var d Decision
+	if is.f.AuthorOK && !is.f.AuthorUnknown {
+		return is.createPlan(rule)
+	}
 
-	switch {
-	case is.f.AuthorUnknown:
-		d = Decision{Rule: RuleAuthorUnknown, Action: None}
-	case is.f.AuthorOK:
-		return Decision{Rule: rule, Action: Create}
-	default:
-		d = Decision{Rule: RuleStartRefused, Action: None, Writes: models.Writes{Notes: []models.NewNote{{
+	var w models.Writes
+
+	refusal := RuleAuthorUnknown
+	if !is.f.AuthorUnknown {
+		refusal, w.Notes = RuleStartRefused, []models.NewNote{{
 			Body:   models.StartRefusedText(is.l.TriggerRole) + "\n" + models.StartRefusedMarker,
 			Marker: models.StartRefusedMarker,
-		}}}}
+		}}
 	}
 
 	if is.f.View.HasRecord && !is.labelIs(is.f.View.Record.State) {
-		d.Writes.Label = models.StateLabel(is.f.View.Record.State)
+		w.Label = models.StateLabel(is.f.View.Record.State)
 	}
 
-	return d
+	return decision(refusal, w)
 }
 
 // atTurnLimit reports whether the last marker is at the turn limit.
@@ -370,7 +336,7 @@ func (is facts) atTurnLimit() bool {
 // noActor: no actor template, no actor, no egress policy.
 func (is facts) noActor() Decision {
 	if is.hasRec {
-		return Decision{Rule: RuleActorMissing, Action: None, Writes: record(models.Error, models.ReasonActorMissing)}
+		return decision(RuleActorMissing, record(models.Error, models.ReasonActorMissing))
 	}
 
 	switch is.f.Request {
@@ -380,7 +346,7 @@ func (is facts) noActor() Decision {
 		return is.create(RuleClearErrorCreate)
 	}
 
-	return Decision{Rule: RuleNoActorIgnored, Action: None}
+	return Decision{Rule: RuleNoActorIgnored}
 }
 
 // partial: a create that stopped before the egress policy.
@@ -390,11 +356,7 @@ func (is facts) partial() Decision {
 	}
 
 	if is.hasRec {
-		return Decision{
-			Rule:   RulePartialCreateActorMissing,
-			Action: None,
-			Writes: record(models.Error, models.ReasonActorMissing),
-		}
+		return decision(RulePartialCreateActorMissing, record(models.Error, models.ReasonActorMissing))
 	}
 
 	switch is.f.Request {
@@ -402,10 +364,10 @@ func (is facts) partial() Decision {
 		return is.create(RuleClearErrorCreate)
 	case intake.Recover:
 		// A partial create without a record is a create cut after its author check.
-		return Decision{Rule: RuleRecoverPartialCreate, Action: Create}
+		return is.createPlan(RuleRecoverPartialCreate)
 	}
 
-	return Decision{Rule: RulePartialCreateIgnored, Action: None}
+	return Decision{Rule: RulePartialCreateIgnored}
 }
 
 // complete: the egress policy exists.
@@ -415,23 +377,23 @@ func (is facts) complete() Decision {
 	switch st := f.Actor.State; {
 	case st.Transitional():
 		if f.Rechecks < MaxRechecks {
-			return Decision{Rule: RuleTransitionalRecheck, Action: Recheck}
+			return Decision{Rule: RuleTransitionalRecheck, Plan: Plan{{Kind: KindRecheck}}}
 		}
 
-		return Decision{Rule: RuleActorBusy, Action: None, Writes: record(models.Error, models.ReasonActorBusy)}
+		return decision(RuleActorBusy, record(models.Error, models.ReasonActorBusy))
 	case st == models.Running:
-		if is.hasRec && is.rec.State == models.Working && is.labelIs(models.Working) {
-			return Decision{Rule: RuleRunningContinue, Action: Continue}
+		var w models.Writes
+		if !is.hasRec || is.rec.State != models.Working || !is.labelIs(models.Working) {
+			w = record(models.Working, "")
 		}
 
-		return Decision{Rule: RuleRunningContinue, Action: Continue, Writes: record(models.Working, "")}
+		return Decision{
+			Rule: RuleRunningContinue,
+			Plan: append(write(w), loop(is.previousMarkerID(), true)),
+		}
 	case st == models.Crashed:
 		if is.hasRec && is.rec.State == models.Working {
-			return Decision{
-				Rule:   RuleCrashedWorking,
-				Action: None,
-				Writes: record(models.Error, models.ReasonActorCrashed),
-			}
+			return decision(RuleCrashedWorking, record(models.Error, models.ReasonActorCrashed))
 		}
 	}
 
@@ -444,7 +406,7 @@ func (is facts) complete() Decision {
 		settle, pre = RuleNoRecordWaiting, record(models.Waiting, "")
 
 		if !is.hasMarker {
-			return Decision{Rule: RuleFirstActivation, Action: is.activation(), Writes: pre}
+			return is.activate(RuleFirstActivation, pre)
 		}
 	case is.rec.State == models.Working:
 		settle, pre = RuleWorkingRecordWaiting, record(models.Waiting, "")
@@ -452,29 +414,97 @@ func (is facts) complete() Decision {
 
 	if f.TriggerAfterLast {
 		if is.atTurnLimit() {
-			return Decision{Rule: RuleTurnLimit, Action: None, Writes: record(models.Error, models.ReasonTurnLimit)}
+			return decision(RuleTurnLimit, record(models.Error, models.ReasonTurnLimit))
 		}
 
-		return Decision{Rule: RuleTriggerActivate, Action: is.activation(), Writes: pre}
+		return is.activate(RuleTriggerActivate, pre)
 	}
 
 	if settle != "" {
-		return Decision{Rule: settle, Action: None, Writes: pre}
+		return decision(settle, pre)
 	}
 
 	if f.Actor.State == models.Crashed {
-		return Decision{Rule: RuleCrashedNoTrigger, Action: None}
+		return Decision{Rule: RuleCrashedNoTrigger}
 	}
 
 	return is.repair(RuleWaitingKept)
 }
 
-func (is facts) activation() Action {
-	if is.f.Actor.State == models.Crashed {
-		return Revert
+// stop notes the agent's merge request, deletes the actor when it exists, running or not, then records done. The
+// note comes before the delete: a stop cut later runs again from restart recovery, and the marker keeps it to one
+// note.
+func (is facts) stop(rule Rule) Decision {
+	p := Plan{effect(KindNoteMR, FailLog)}
+	if is.f.Actor.Exists() {
+		p = append(p, effect(KindDelete, FailError))
 	}
 
-	return Activate
+	return Decision{Rule: rule, Plan: append(p, write(record(models.Done, ""))...)}
+}
+
+// createPlan deletes a partial create, creates the actor, records waiting, then runs the first activation.
+func (is facts) createPlan(rule Rule) Decision {
+	var p Plan
+	if is.f.Actor.Exists() {
+		p = Plan{effect(KindDelete, FailError)}
+	}
+
+	p = append(p, effect(KindCreate, FailError), effect(KindInspect, FailError))
+	p = append(p, write(record(models.Waiting, ""))...)
+
+	return Decision{Rule: rule, Plan: append(p, is.activation()...)}
+}
+
+// activate applies pre, reverts a crashed actor, then runs an activation.
+func (is facts) activate(rule Rule, pre models.Writes) Decision {
+	p := write(pre)
+	if is.f.Actor.State == models.Crashed {
+		p = append(p, effect(KindRevert, FailErrorFresh))
+	}
+
+	return Decision{Rule: rule, Plan: append(p, is.activation()...)}
+}
+
+// activation resumes the actor, records working with fresh status rows, then runs the activation loop from the
+// last marker read before the resume.
+func (is facts) activation() Plan {
+	var since int64
+	if is.hasMarker {
+		since = is.marker.NoteID
+	}
+
+	p := Plan{effect(KindResume, FailErrorFresh), effect(KindReload, FailLog)}
+	p = append(p, write(record(models.Working, ""))...)
+
+	return append(p, loop(since, false))
+}
+
+func decision(rule Rule, w models.Writes) Decision { return Decision{Rule: rule, Plan: write(w)} }
+
+// suspendOnly applies w, then suspends the actor; no activation.
+func suspendOnly(rule Rule, w models.Writes) Decision {
+	return Decision{Rule: rule, Plan: append(write(w), effect(KindSuspend, FailAbort))}
+}
+
+// previousMarkerID returns the note id of the marker before the last one (0 if none): the loop of a running actor
+// found after a dispatcher restart then sees the last marker as new.
+func (is facts) previousMarkerID() int64 {
+	if !is.hasMarker {
+		return 0
+	}
+
+	var prev int64
+
+	for _, n := range is.f.View.Notes {
+		if n.ID < is.marker.NoteID {
+			if m, ok := models.MarkerAfter([]models.Note{n}, is.l.Bot, 0); ok {
+				prev = max(prev, m.NoteID)
+			}
+		}
+	}
+
+	return prev
 }
 
 // labelIs reports whether the only state label is the one of s.
@@ -491,13 +521,16 @@ func (is facts) labelIs(s models.AgentState) bool {
 }
 
 // repair returns rule with the state label set from the record when the labels differ from it.
-func (is facts) repair(rule Rule) Decision {
-	d := Decision{Rule: rule, Action: None}
+func (is facts) repair(rule Rule) Decision { return decision(rule, is.repairWrites()) }
+
+// repairWrites sets the state label from the record when the labels differ from it.
+func (is facts) repairWrites() models.Writes {
+	var w models.Writes
 	if is.hasRec && !is.labelIs(is.rec.State) {
-		d.Writes.Label = models.StateLabel(is.rec.State)
+		w.Label = models.StateLabel(is.rec.State)
 	}
 
-	return d
+	return w
 }
 
 // labelRecord returns the record that the state labels stand for: done before error; working and waiting follow

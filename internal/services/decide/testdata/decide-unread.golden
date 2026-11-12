@@ -4,5 +4,5 @@
 # rule issue-gone: 75 cases
 # rule issue-unavailable: 75 cases
 # issue-read  request  actor  outcome
-gone          *        *      issue-gone discard -
-unavailable   *        *      issue-unavailable keep -
+gone          *        *      issue-gone delete!abort
+unavailable   *        *      issue-unavailable suspend-if-running!abort

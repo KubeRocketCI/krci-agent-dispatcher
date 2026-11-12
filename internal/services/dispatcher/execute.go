@@ -10,7 +10,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
 
-// act runs one request: gather facts, decide, execute. Transitional actors are re-read up to MaxRechecks.
+// act runs one request: gather facts, decide, perform the plan. Transitional actors are re-read up to MaxRechecks.
 // A recover request holds a recovery slot until it ends or its activation loop starts.
 func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 	log := d.log.With("issue", r.Key.String(), "request", r.Kind.String())
@@ -63,9 +63,9 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 		}
 
 		dec := decide.Decide(f, d.limits)
-		log.Info("Decision", "rule", string(dec.Rule), "action", dec.Action.String(), "actor_state", string(actor.State))
+		log.Info("Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "actor_state", string(actor.State))
 
-		if dec.Action == decide.Recheck {
+		if dec.Plan.IsRecheck() {
 			if d.clk.Sleep(ctx, recheckPause) != nil {
 				return
 			}
@@ -73,120 +73,10 @@ func (d *Dispatcher) act(ctx context.Context, r intake.Request) {
 			continue
 		}
 
-		d.execute(ctx, log, r.Key, view, actor, dec)
+		d.perform(ctx, log, r.Key, view, actor, dec.Plan)
 
 		return
 	}
-}
-
-func (d *Dispatcher) execute(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	actor models.ActorView, dec decide.Decision,
-) {
-	switch dec.Action {
-	case decide.Stop:
-		d.stop(ctx, log, key, view, actor, dec.Writes)
-	case decide.Create:
-		d.create(ctx, log, key, view, actor)
-	case decide.Activate, decide.Revert:
-		d.write(ctx, log, key, view, actor, dec.Writes)
-		d.activate(ctx, log, key, lastMarkerID(view.Notes, d.cfg.Bot), dec.Action == decide.Revert)
-	case decide.Continue:
-		d.write(ctx, log, key, view, actor, dec.Writes)
-		d.loop(ctx, log, key, continueSince(view.Notes, d.cfg.Bot), true)
-	case decide.Discard:
-		d.discard(ctx, log, key.ActorName())
-	case decide.Keep:
-		d.keepActor(ctx, log, key.ActorName())
-	case decide.SuspendOnly:
-		d.write(ctx, log, key, view, actor, dec.Writes)
-		d.suspendInError(ctx, log, key.ActorName())
-	default:
-		d.write(ctx, log, key, view, actor, dec.Writes)
-	}
-}
-
-// create deletes a partial create, creates the actor, records waiting, then runs the first activation.
-func (d *Dispatcher) create(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
-	actor models.ActorView,
-) {
-	name := key.ActorName()
-	session := d.cfg.NewSessionID()
-
-	if actor.Exists() {
-		if err := d.retry(ctx, func() error { return d.sb.Delete(ctx, name) }); err != nil {
-			d.failRPC(ctx, log, key, view, actor, "Cannot delete the partial create", err)
-
-			return
-		}
-	}
-
-	spec := models.ActorSpec{
-		ProjectPath: view.Issue.ProjectPath, IID: key.IID, SessionID: session, BotUsername: d.cfg.Bot,
-	}
-
-	if err := d.retry(ctx, func() error { return d.sb.Create(ctx, name, spec) }); err != nil {
-		d.failRPC(ctx, log, key, view, actor, "Cannot create the actor", err)
-
-		return
-	}
-
-	view.Status.Session = session
-
-	var created models.ActorView
-
-	err := d.retry(ctx, func() (err error) { created, err = d.sb.Inspect(ctx, name); return err })
-	if err != nil {
-		d.failRPC(ctx, log, key, view, actor, "Cannot read the created actor", err)
-
-		return
-	}
-
-	w := stateWrites(models.Waiting, "")
-	d.write(ctx, log, key, view, created, w)
-	log.Info("Actor created", "actor", name, "session", session)
-
-	d.activate(ctx, log, key, lastMarkerID(view.Notes, d.cfg.Bot), false)
-}
-
-// activate reverts first when asked, resumes, records working, then runs the activation loop. since is the
-// note id of the last marker read before the resume.
-func (d *Dispatcher) activate(ctx context.Context, log *slog.Logger, key models.IssueKey, since int64, revert bool) {
-	name := key.ActorName()
-
-	if revert {
-		if err := d.retry(ctx, func() error { return d.sb.Revert(ctx, name) }); err != nil {
-			d.failRPCFresh(ctx, log, key, "Cannot revert the actor", err)
-
-			return
-		}
-	}
-
-	err := d.retry(ctx, func() error { return d.sb.Resume(ctx, name) })
-
-	switch {
-	case errors.Is(err, models.ErrNoRoom):
-		log.Info("No free worker", "actor", name)
-		d.writeFresh(ctx, log, key, models.Writes{Notes: []models.NewNote{{Body: models.NoRoomText}}})
-
-		return
-	case err != nil:
-		d.failRPCFresh(ctx, log, key, "Cannot resume the actor", err)
-
-		return
-	}
-
-	d.writeFresh(ctx, log, key, stateWrites(models.Working, ""))
-	log.Info("Activation started", "actor", name)
-
-	d.loop(ctx, log, key, since, false)
-}
-
-func lastMarkerID(notes []models.Note, bot string) int64 {
-	if m, ok := models.LastMarker(notes, bot); ok {
-		return m.NoteID
-	}
-
-	return 0
 }
 
 // stop notes the agent's merge request, deletes the actor, then applies w. A running actor is deleted as it
@@ -225,7 +115,7 @@ func (d *Dispatcher) noteAgentMR(ctx context.Context, log *slog.Logger, key mode
 	}
 }
 
-// settleUnread decides a failed issue read and executes the decision. The issue is gone when GitLab does not have it
+// settleUnread decides a failed issue read and performs the plan. The issue is gone when GitLab does not have it
 // and its project is readable; any other failure leaves it unavailable. A read cut by the end of ctx decides nothing.
 func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key models.IssueKey, readErr error) {
 	if ctx.Err() != nil {
@@ -242,34 +132,14 @@ func (d *Dispatcher) settleUnread(ctx context.Context, log *slog.Logger, key mod
 	dec := decide.Decide(decide.Facts{Issue: read}, d.limits)
 
 	level := slog.LevelInfo
-	if dec.Action == decide.Keep {
+	if dec.Rule == decide.RuleIssueUnavailable {
 		level = slog.LevelError
 	}
 
-	log.Log(ctx, level, "Decision", "rule", string(dec.Rule), "action", dec.Action.String(), "issue_read",
+	log.Log(ctx, level, "Decision", "rule", string(dec.Rule), "plan", dec.Plan.String(), "issue_read",
 		read.String(), "error", readErr)
 
-	d.execute(ctx, log, key, models.IssueView{}, models.ActorView{}, dec)
-}
-
-// suspendInError suspends the actor of an issue in error; the error stays.
-func (d *Dispatcher) suspendInError(ctx context.Context, log *slog.Logger, name string) {
-	if err := d.retry(ctx, func() error { return d.sb.Suspend(ctx, name) }); err != nil {
-		log.Error("Cannot suspend the actor in error", "error", err)
-		return
-	}
-
-	log.Info("Actor in error suspended", "actor", name)
-}
-
-// discard deletes the actor of a gone issue. Delete needs no actor read: a missing actor or part is not an error.
-func (d *Dispatcher) discard(ctx context.Context, log *slog.Logger, name string) {
-	if err := d.retry(ctx, func() error { return d.sb.Delete(ctx, name) }); err != nil {
-		log.Error("Cannot discard the actor", "actor", name, "error", err)
-		return
-	}
-
-	log.Info("Actor discarded", "actor", name)
+	d.perform(ctx, log, key, models.IssueView{}, models.ActorView{}, dec.Plan)
 }
 
 // keepActor keeps an actor and suspends it when it runs. An actor that cannot be read gets a suspend request: a
@@ -424,30 +294,11 @@ func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.Issue
 	}
 }
 
-// writeFresh applies w with status rows from a fresh read of the issue and the actor, each read with retry. When
-// a read fails, the status note keeps its rows.
+// writeFresh applies w with status rows from a reload. When a read fails, the status note keeps its rows.
 func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key models.IssueKey, w models.Writes) {
-	var view models.IssueView
-
-	if err := d.retry(ctx, func() (err error) { view, err = d.gl.Load(ctx, key); return err }); err != nil {
-		log.Warn("Cannot read the issue for the status rows; rows kept", "error", err)
-		d.put(ctx, log, key, nil, w)
-
-		return
-	}
-
-	var actor models.ActorView
-
-	name := key.ActorName()
-
-	if err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
-		log.Warn("Cannot read the actor for the status rows; rows kept", "error", err)
-		d.put(ctx, log, key, &view, w)
-
-		return
-	}
-
-	d.write(ctx, log, key, view, actor, w)
+	c := &current{key: key}
+	d.reload(ctx, log, c)
+	d.writeCurrent(ctx, log, c, w)
 }
 
 // load reads the issue with retry. A recover request retries read errors other than ErrNotFound and ErrForbidden
@@ -492,15 +343,4 @@ func (d *Dispatcher) failRPC(ctx context.Context, log *slog.Logger, key models.I
 
 	log.Error(msg, "error", err)
 	d.write(ctx, log, key, view, actor, substrateError())
-}
-
-// failRPCFresh is failRPC with status rows from a fresh read.
-func (d *Dispatcher) failRPCFresh(ctx context.Context, log *slog.Logger, key models.IssueKey, msg string, err error) {
-	if ctx.Err() != nil {
-		log.Info(msg+"; dispatcher stopping, left for restart recovery", "error", err)
-		return
-	}
-
-	log.Error(msg, "error", err)
-	d.writeFresh(ctx, log, key, substrateError())
 }

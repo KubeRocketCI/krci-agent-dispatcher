@@ -334,7 +334,7 @@ func TestStartCleansPartial(t *testing.T) {
 	ops := e.sb.Ops()
 	require.GreaterOrEqual(t, len(ops), 3)
 	assert.Equal(t, []string{"delete-actor " + actor, "delete-template " + actor, "create-template " + actor}, ops[:3])
-	assert.Contains(t, e.logs.String(), "request=start rule=start-partial-create action=create",
+	assert.Contains(t, e.logs.String(), "request=start rule=start-partial-create plan=\"delete!error > create!error",
 		"the start runs before the recover request")
 	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
 	e.assertState(models.Waiting, "")
@@ -1535,7 +1535,7 @@ func TestRecoveredLoopLogsRecovery(t *testing.T) {
 
 	assert.Contains(t, e.logs.String(), "Recovered activation")
 	assert.NotContains(t, e.logs.String(), "Turn ended")
-	assert.Contains(t, e.logs.String(), "action=continue", "decision log names the action")
+	assert.Contains(t, e.logs.String(), `plan="loop(since=0,recovered)"`, "decision log names the plan")
 }
 
 func TestFreshReadFailureKeepsStatusRows(t *testing.T) {
@@ -2165,7 +2165,8 @@ func TestClearErrorAtTurnLimitKeepsError(t *testing.T) {
 	e.idle()
 
 	assert.Equal(t, 0, e.sb.Count("resume", actor))
-	assert.Contains(t, e.logs.String(), "request=clear-error rule=clear-error-turn-limit action=none")
+	assert.Contains(t, e.logs.String(),
+		`request=clear-error rule=clear-error-turn-limit plan="write(record=error/turn-limit,label=error)!log"`)
 	e.assertState(models.Error, models.ReasonTurnLimit)
 
 	e.comment(dev)
@@ -2394,7 +2395,7 @@ func TestGoneIssueDiscardsActor(t *testing.T) {
 
 	assert.Equal(t, 1, e.sb.Count("delete-actor", actor))
 	assert.Contains(t, e.logs.String(), "rule=issue-gone")
-	assert.Contains(t, e.logs.String(), "Actor discarded")
+	assert.Contains(t, e.logs.String(), "rule=issue-gone plan=delete!abort")
 }
 
 func TestTransientIssueReadIsRetried(t *testing.T) {

@@ -166,7 +166,7 @@ type NewNote struct {
 	Marker string
 }
 
-// Writes are the GitLab changes of one action, applied in order: record and status note, label, notes.
+// Writes are the GitLab changes of one write effect, applied in order: record and status note, label, notes.
 // Label is a state label to set (the others are removed); empty leaves the labels unchanged.
 type Writes struct {
 	Record *Record
