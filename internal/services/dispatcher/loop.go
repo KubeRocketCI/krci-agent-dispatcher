@@ -114,8 +114,9 @@ func (d *Dispatcher) applyPoll(ctx context.Context, log *slog.Logger, key models
 			return pollEnd
 		}
 
-		suspended, err := d.sb.Inspect(ctx, name)
-		if err != nil {
+		var suspended models.ActorView
+
+		if err := d.retry(ctx, func() (err error) { suspended, err = d.sb.Inspect(ctx, name); return err }); err != nil {
 			log.Warn("Cannot read the suspended actor for the status rows; rows kept", "error", err)
 			d.put(ctx, log, key, &view, pd.Writes)
 

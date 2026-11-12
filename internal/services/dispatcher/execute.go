@@ -424,19 +424,23 @@ func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.Issue
 	}
 }
 
-// writeFresh applies w with status rows from a fresh read of the issue and the actor. When a read fails, the
-// status note keeps its rows.
+// writeFresh applies w with status rows from a fresh read of the issue and the actor, each read with retry. When
+// a read fails, the status note keeps its rows.
 func (d *Dispatcher) writeFresh(ctx context.Context, log *slog.Logger, key models.IssueKey, w models.Writes) {
-	view, err := d.gl.Load(ctx, key)
-	if err != nil {
+	var view models.IssueView
+
+	if err := d.retry(ctx, func() (err error) { view, err = d.gl.Load(ctx, key); return err }); err != nil {
 		log.Warn("Cannot read the issue for the status rows; rows kept", "error", err)
 		d.put(ctx, log, key, nil, w)
 
 		return
 	}
 
-	actor, err := d.sb.Inspect(ctx, key.ActorName())
-	if err != nil {
+	var actor models.ActorView
+
+	name := key.ActorName()
+
+	if err := d.retry(ctx, func() (err error) { actor, err = d.sb.Inspect(ctx, name); return err }); err != nil {
 		log.Warn("Cannot read the actor for the status rows; rows kept", "error", err)
 		d.put(ctx, log, key, &view, w)
 
