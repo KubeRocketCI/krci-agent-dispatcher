@@ -8,6 +8,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/decide"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
 
 // act runs one request: observe, decide, perform the plan. Transitional actors are re-read up to MaxRechecks.
@@ -82,10 +83,10 @@ func logDecision(ctx context.Context, log *slog.Logger, o observation, dec decid
 	log.Log(ctx, level, "Decision", attrs...)
 }
 
-// triggerAfterLast reports whether a comment above the last marker's last= is a trigger comment. A check that
-// fails ends the search with false.
+// triggerAfterLast reports whether a comment of the next turn is a trigger comment: the authors are checked once
+// each, in note id order, until one can trigger. A check that fails ends the search with false.
 func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, view models.IssueView) bool {
-	for _, author := range models.NewTurnHistory(view.Notes, d.cfg.Bot).UncoveredAuthors() {
+	for _, author := range turn.NewHistory(view.Notes, d.cfg.Bot).Next().Authors() {
 		ok, err := d.canTrigger(ctx, log, view.Issue.Key.ProjectID, author)
 		if err != nil {
 			log.Error("Cannot check whether a comment author can trigger the agent; no trigger comment found",

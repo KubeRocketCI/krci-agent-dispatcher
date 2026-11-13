@@ -9,6 +9,7 @@ import (
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
 
 // MaxRechecks is the number of re-checks of a transitional actor before the actor busy error.
@@ -191,7 +192,7 @@ type facts struct {
 	l      Limits
 	rec    models.Record
 	hasRec bool
-	turns  models.TurnHistory
+	turns  turn.History
 }
 
 // TriggerChecks reports which trigger checks Decide reads for f, the facts without them: whether a comment no turn
@@ -212,7 +213,7 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	is := facts{f: f, l: l, rec: f.View.Record, hasRec: f.View.HasRecord}
-	is.turns = models.NewTurnHistory(f.View.Notes, l.Bot)
+	is.turns = turn.NewHistory(f.View.Notes, l.Bot)
 
 	// A clear-error request ignores a record in error: the issue continues as if it had no record and no
 	// krci::agent::error label.
@@ -258,7 +259,7 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	// The turn limit is terminal: a clear-error request does not clear it.
-	if f.Request == intake.ClearError && !is.hasRec && is.atTurnLimit() {
+	if f.Request == intake.ClearError && !is.hasRec && is.turns.AtLimit(is.l.TurnLimit) {
 		w := record(models.Error, models.ReasonTurnLimit)
 		if f.Actor.State == models.Running {
 			return suspendOnly(RuleClearErrorTurnLimit, w)
@@ -354,13 +355,6 @@ func (is facts) create(rule Rule) Decision {
 	return decision(refusal, w)
 }
 
-// atTurnLimit reports whether the last marker is at the turn limit.
-func (is facts) atTurnLimit() bool {
-	m, ok := is.turns.Last()
-
-	return ok && m.Turn >= is.l.TurnLimit
-}
-
 // noActor: no actor template, no actor, no egress policy.
 func (is facts) noActor() Decision {
 	if is.hasRec {
@@ -434,7 +428,7 @@ func (is facts) complete() Decision {
 	case !is.hasRec:
 		settle, pre = RuleNoRecordWaiting, record(models.Waiting, "")
 
-		if _, ok := is.turns.Last(); !ok {
+		if _, ok := is.turns.MarkerAfter(0); !ok {
 			return is.activate(RuleFirstActivation, pre)
 		}
 	case is.rec.State == models.Working:
@@ -442,7 +436,7 @@ func (is facts) complete() Decision {
 	}
 
 	if f.TriggerAfterLast {
-		if is.atTurnLimit() {
+		if is.turns.AtLimit(is.l.TurnLimit) {
 			return decision(RuleTurnLimit, record(models.Error, models.ReasonTurnLimit))
 		}
 
@@ -499,7 +493,7 @@ func (is facts) activate(rule Rule, pre models.Writes) Decision {
 // last marker read before the resume.
 func (is facts) activation() Plan {
 	var since int64
-	if m, ok := is.turns.Last(); ok {
+	if m, ok := is.turns.MarkerAfter(0); ok {
 		since = m.NoteID
 	}
 
@@ -600,7 +594,7 @@ type PollDecision struct {
 	Rule   Rule
 	Plan   Plan
 	Next   Next
-	Marker models.Marker
+	Marker turn.Marker
 }
 
 // Waits reports whether the decision changes nothing: the loop polls again with no effect.
@@ -614,8 +608,8 @@ func Poll(p PollFacts, l Limits) PollDecision {
 		return d
 	}
 
-	h := models.NewTurnHistory(p.View.Notes, l.Bot)
-	m, hasNew := h.After(p.Since)
+	h := turn.NewHistory(p.View.Notes, l.Bot)
+	m, hasNew := h.MarkerAfter(p.Since)
 	settled := p.Actor.State.Settled()
 
 	// A stop request counts only while the issue is still closed or without the trigger label; a stop that a
@@ -627,9 +621,9 @@ func Poll(p PollFacts, l Limits) PollDecision {
 	}
 
 	switch {
-	case hasNew && m.Turn >= l.TurnLimit:
+	case hasNew && h.AtLimit(l.TurnLimit):
 		return suspendThenEnd(PollMarkerLimit, m, record(models.Error, models.ReasonTurnLimit))
-	case hasNew && h.CommentAfter(m.Last):
+	case hasNew && h.Next().Start:
 		return PollDecision{Rule: PollMarkerComment, Plan: Plan{advance(m.NoteID)}, Marker: m}
 	case hasNew:
 		return suspendThenEnd(PollMarkerIdle, m, record(models.Waiting, ""))
@@ -640,7 +634,7 @@ func Poll(p PollFacts, l Limits) PollDecision {
 	case p.Actor.State == models.Suspended:
 		return endWith(PollSuspendedByHand, record(models.Waiting, ""))
 	case timedOut && p.Actor.State == models.Running:
-		return suspendThenEnd(PollTimeout, models.Marker{}, record(models.Error, models.ReasonTurnTimeout))
+		return suspendThenEnd(PollTimeout, turn.Marker{}, record(models.Error, models.ReasonTurnTimeout))
 	case timedOut:
 		return endWith(PollTimeout, record(models.Error, models.ReasonTurnTimeout))
 	}
@@ -668,7 +662,7 @@ func pollUnread(p PollFacts, labels models.AgentLabels, timedOut bool) (PollDeci
 }
 
 // suspendThenEnd suspends the actor, reads it for the status rows, applies w, then ends the activation.
-func suspendThenEnd(rule Rule, m models.Marker, w models.Writes) PollDecision {
+func suspendThenEnd(rule Rule, m turn.Marker, w models.Writes) PollDecision {
 	p := append(Plan{effect(KindSuspend, FailError), effect(KindInspect, FailLog)}, write(w)...)
 	return PollDecision{Rule: rule, Plan: p, Next: NextEnd, Marker: m}
 }

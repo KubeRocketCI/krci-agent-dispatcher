@@ -1,4 +1,4 @@
-// Package models holds the domain types of the dispatcher: issues, notes, turn markers, records and writes.
+// Package models holds the domain types of the dispatcher: issues, notes, records and writes.
 package models
 
 import (
@@ -174,8 +174,6 @@ func StatusNote(notes []Note, bot string) (Note, bool) {
 
 	return Note{}, false
 }
-
-func isComment(n Note, bot string) bool { return !n.System && n.Author != bot }
 
 func isBotNote(n Note, bot string) bool { return !n.System && n.Author == bot }
 

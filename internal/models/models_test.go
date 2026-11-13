@@ -109,3 +109,14 @@ func TestIssueViewEnabled(t *testing.T) {
 	assert.False(t, view(IssueOpened, "other").Enabled(agentLabels), "no trigger label")
 	assert.False(t, view(IssueClosed, agentLabels.Trigger()).Enabled(agentLabels), "closed")
 }
+
+func TestHasMarker(t *testing.T) {
+	notes := []Note{
+		personNote(100, "<!-- krci-agent-refused -->"),
+		botNote(101, "Agent stopped for this issue. Open a new issue to start again.\n<!-- krci-agent-refused -->"),
+	}
+
+	assert.True(t, HasMarker(notes, bot, RefusedMarker))
+	assert.False(t, HasMarker(notes[:1], bot, RefusedMarker), "a person's copy does not count")
+	assert.False(t, HasMarker(notes, bot, StartRefusedMarker))
+}
