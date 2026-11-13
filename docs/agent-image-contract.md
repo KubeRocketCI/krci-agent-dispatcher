@@ -106,6 +106,7 @@ Rules:
 - The marker is in the reply: an issue note, not a system note, with the bot user as author.
 - One reply per turn. The reply is posted at the end of the turn. A failed turn also ends in a reply with a marker.
 - The last marker in the note body counts. Put the marker after the reply text.
+- `n` and `exit` fit a Go `int`, `last` an `int64`. A last marker with a number out of range is ignored, and an earlier marker in the note body does not count instead; polling and the turn timeout go on.
 - Markers are ordered by note id, not by `n`. A turn repeated after a revert has the same `n`.
 - A marker in a note by any other author is ignored.
 

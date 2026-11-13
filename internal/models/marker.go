@@ -2,6 +2,7 @@ package models
 
 import (
 	"cmp"
+	"errors"
 	"regexp"
 	"slices"
 	"strconv"
@@ -19,7 +20,8 @@ type Marker struct {
 var markerRe = regexp.MustCompile(`<!-- krci-agent-turn n=(\d+) exit=(-?\d+)(?: last=(\d+))? -->`)
 
 // parseMarker reads the last turn marker of a reply. The agent loop appends the real marker after the agent's
-// text, so an earlier marker-like line in that text is ignored.
+// text, so an earlier marker-like line in that text is ignored. A last marker with a number out of range is no
+// marker.
 func parseMarker(n Note) (Marker, bool) {
 	all := markerRe.FindAllStringSubmatch(n.Body, -1)
 	if len(all) == 0 {
@@ -28,15 +30,19 @@ func parseMarker(n Note) (Marker, bool) {
 
 	sub := all[len(all)-1]
 
-	m := Marker{NoteID: n.ID, Last: n.ID}
-	m.Turn, _ = strconv.Atoi(sub[1])
-	m.Exit, _ = strconv.Atoi(sub[2])
+	turn, errTurn := strconv.Atoi(sub[1])
+	exit, errExit := strconv.Atoi(sub[2])
+	last, errLast := n.ID, error(nil)
 
 	if sub[3] != "" {
-		m.Last, _ = strconv.ParseInt(sub[3], 10, 64)
+		last, errLast = strconv.ParseInt(sub[3], 10, 64)
 	}
 
-	return m, true
+	if errors.Join(errTurn, errExit, errLast) != nil {
+		return Marker{}, false
+	}
+
+	return Marker{NoteID: n.ID, Turn: turn, Exit: exit, Last: last}, true
 }
 
 // TurnHistory is the turn markers and the comments of an issue, ordered by note id, never by turn number: a turn

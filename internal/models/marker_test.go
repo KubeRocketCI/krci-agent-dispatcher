@@ -110,6 +110,26 @@ func TestTurnHistoryUsesTheLastMarkerInTheReply(t *testing.T) {
 	assert.Equal(t, Marker{NoteID: 60, Turn: 19, Exit: 0, Last: 50}, m)
 }
 
+func TestTurnHistoryRejectsMarkerOutOfRange(t *testing.T) {
+	const big = "99999999999999999999"
+
+	cases := map[string]string{
+		"n":             "<!-- krci-agent-turn n=" + big + " exit=0 last=50 -->",
+		"exit":          "<!-- krci-agent-turn n=1 exit=" + big + " last=50 -->",
+		"negative exit": "<!-- krci-agent-turn n=1 exit=-" + big + " last=50 -->",
+		"last":          "<!-- krci-agent-turn n=1 exit=0 last=" + big + " -->",
+		"after a valid marker in the reply": "<!-- krci-agent-turn n=1 exit=0 last=50 -->\n" +
+			"<!-- krci-agent-turn n=" + big + " exit=0 last=50 -->",
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, ok := NewTurnHistory([]Note{botNote(60, body)}, bot).Last()
+			assert.False(t, ok)
+		})
+	}
+}
+
 func TestTurnHistoryPreviousID(t *testing.T) {
 	notes := []Note{
 		botNote(140, "<!-- krci-agent-turn n=3 exit=0 last=135 -->"),
