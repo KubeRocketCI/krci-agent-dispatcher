@@ -17,6 +17,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
 
 const (
@@ -458,7 +459,7 @@ func RefreshMergesNewAndEditedNotes(t *testing.T, f *gitlabtest.Fake, p port) {
 	assert.Equal(t, models.Working, got.Record.State)
 	assert.Equal(t, "s2", got.Status.Session)
 
-	m, ok := models.NewTurnHistory(got.Notes, bot).Last()
+	m, ok := turn.NewHistory(got.Notes, bot).MarkerAfter(0)
 	require.True(t, ok, "a marker added by an edit is read")
 	assert.Equal(t, edited, m.NoteID)
 

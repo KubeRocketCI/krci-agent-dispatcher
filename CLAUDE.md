@@ -30,7 +30,8 @@ cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
 cmd/krci-agent-harness/      harness command: selftest
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
-internal/models/             IssueKey, Issue, Note, Marker, TurnHistory, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
+internal/models/             IssueKey, Issue, Note, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
+internal/turn/               turn protocol: Marker, History, Turn; pure
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
 internal/services/selftest/  agent image contract checks; ports.go

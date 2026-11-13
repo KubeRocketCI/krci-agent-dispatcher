@@ -1870,6 +1870,36 @@ func TestTriggerLookupErrorLogged(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
+func TestTriggerCheckOncePerAuthor(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(reporter)
+	e.comment(reporter)
+	before := e.gl.CanTriggerCalls()
+	e.handle(intake.Activate, reporter)
+	e.idle()
+
+	assert.Equal(t, 1, e.gl.CanTriggerCalls()-before, "two comments by one author, one check")
+	assert.Equal(t, 0, e.sb.Count("resume", actor))
+}
+
+func TestTriggerCheckFailureSkipsLaterAuthors(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(reporter)
+	e.comment(dev)
+	e.gl.FailCanTriggerNext(failing(errRP, 4)...)
+	before := e.gl.CanTriggerCalls()
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 4, e.gl.CanTriggerCalls()-before, "the retried check of the first author only")
+	assert.Equal(t, 0, e.sb.Count("resume", actor), "the trigger comment of the next author is not checked")
+	e.assertState(models.Waiting, "")
+}
+
 // --- stop with Substrate down
 
 func TestStopInspectOutageRecordsError(t *testing.T) {
