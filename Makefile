@@ -35,13 +35,15 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 .PHONY: build
-build: ## Build the binary → dist/krci-agent-dispatcher-<arch>
+# The harness runs only in actors: GOOS is linux whatever HOST_OS is; HOST_ARCH=amd64 builds for amd64 pools.
+build: ## Build the binaries → dist/krci-agent-dispatcher-<arch>, dist/krci-agent-harness-<arch> (linux)
 	CGO_ENABLED=0 GOOS=${HOST_OS} GOARCH=${HOST_ARCH} go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-dispatcher-${HOST_ARCH} -gcflags '${GCFLAGS}' ./cmd/krci-agent-dispatcher
+	CGO_ENABLED=0 GOOS=linux GOARCH=${HOST_ARCH} go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-harness-${HOST_ARCH} -gcflags '${GCFLAGS}' ./cmd/krci-agent-harness
 
 # CRAP = CC^2 * (1 - coverage)^3 + CC per function, scored from the coverage profile of make test.
 # Gate logic and its other settings live in hack/crap-gate.sh. CRAP_CHECK=false skips the gate in make test.
 CRAP_CHECK ?= true
-CRAP_EXCLUDES ?= _gen\.go$$ /cmd/ /gitlabtest/ /substratetest/
+CRAP_EXCLUDES ?= _gen\.go$$ /cmd/ /gitlabtest/ /substratetest/ /systemtest/
 CRAP_GATE = GO_CRAP=$(GO_CRAP) GOJQ=$(GOJQ) CRAP_EXCLUDES='$(CRAP_EXCLUDES)' ./hack/crap-gate.sh
 
 .PHONY: test

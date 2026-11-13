@@ -120,7 +120,7 @@ sequenceDiagram
 
 ## Dispatcher → harness
 
-- The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and set as the command.
+- The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and `/opt/krci-agent/krci-agent-harness` as the command. The harness image holds the binary at `/krci-agent-harness`.
 - The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, agent steps, the model and the profile's env.
 - Secrets never enter the actor. The egress gateway adds the GitLab and Anthropic credentials on the way out.
 - Egress: Anthropic, the GitLab host and the profile's hosts. Nothing else.
@@ -156,7 +156,11 @@ An agent image provides:
 - `/opt/krci-agent` free for the harness;
 - optional `/etc/krci-agent/profile.yaml`: `setup` (once after clone), `verify` (before publish), `prompt` (added to the system prompt).
 
-`krci-agent-harness selftest` checks an image against this list.
+`krci-agent-harness selftest` checks an image against this list, except the profile file, which the handshake checks. It runs with the binary outside `/opt/krci-agent`, for example in agent image CI:
+
+```bash
+docker run --rm -v ./krci-agent-harness:/tmp/krci-agent-harness:ro <agent-image> /tmp/krci-agent-harness selftest
+```
 
 ## Agent profile
 

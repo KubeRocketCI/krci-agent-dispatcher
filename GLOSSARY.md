@@ -148,7 +148,15 @@ _Avoid_: activation loop (for this), main loop
 
 **Agent image**:
 The image an actor runs: the tools of one kind of agent and the image side of its agent profile. It holds no harness.
-_Avoid_: harness image, agent (for the image)
+_Avoid_: agent (for the image)
+
+**Harness image**:
+The OCI image the harness ships in: the static binary at `/krci-agent-harness` and nothing else, mounted read-only at `/opt/krci-agent`. Built from `Dockerfile.harness`.
+_Avoid_: agent image (for this), harness container
+
+**Agent image contract**:
+What an agent image provides for the harness: `claude`, `git` and `sh` on `PATH`; uid 1000 with writable `HOME` and `/work`; `/opt/krci-agent` free; the profile file, optional. `krci-agent-harness selftest` checks it, except the profile file, with the binary outside `/opt/krci-agent`; the handshake checks the profile file.
+_Avoid_: image contract, harness contract
 
 **Agent profile**:
 The description of one kind of agent: image, egress and env in the dispatcher config; setup, verify and prompt in the agent image.
