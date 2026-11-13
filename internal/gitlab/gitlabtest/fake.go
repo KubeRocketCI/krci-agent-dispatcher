@@ -48,6 +48,7 @@ type Fake struct {
 	bot           string
 	labels        models.AgentLabels
 	projects      map[int64]bool
+	defBranch     map[int64]string
 	forbidden     map[int64]bool
 	issues        map[models.IssueKey]*issue
 	mrs           map[mrKey]*mergeRequest
@@ -59,6 +60,7 @@ type Fake struct {
 	loadErr       []error
 	writeErr      []error
 	noteErr       []error
+	beforeNoteErr []error
 	canTriggerErr error
 	canTriggerQ   []error
 	mrErr         []error
@@ -78,6 +80,7 @@ func NewFake(bot string) *Fake {
 	return &Fake{
 		bot:       bot,
 		projects:  map[int64]bool{},
+		defBranch: map[int64]string{},
 		forbidden: map[int64]bool{},
 		issues:    map[models.IssueKey]*issue{},
 		mrs:       map[mrKey]*mergeRequest{},
@@ -248,6 +251,14 @@ func (f *Fake) tickLocked() time.Time {
 	return f.clock
 }
 
+// SetDefaultBranch sets the default branch of a project; a project without one has an empty default branch.
+func (f *Fake) SetDefaultBranch(projectID int64, branch string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.defBranch[projectID] = branch
+}
+
 // SetMember sets the access level of username on a project.
 func (f *Fake) SetMember(projectID int64, username string, level int) {
 	f.mu.Lock()
@@ -283,6 +294,15 @@ func (f *Fake) FailAfterNote(errs ...error) {
 	defer f.mu.Unlock()
 
 	f.noteErr = append(f.noteErr, errs...)
+}
+
+// FailBeforeNote makes the next issue notes created through the port or the Handler, status notes included,
+// return errs, one per note, before the note is added. Edits and AddNote do not take them.
+func (f *Fake) FailBeforeNote(errs ...error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.beforeNoteErr = append(f.beforeNoteErr, errs...)
 }
 
 // SetTriggerRole sets the lowest role that can trigger the agent.
@@ -518,6 +538,11 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 		if ok {
 			f.editNoteLocked(key, prev.ID, body)
 		} else {
+			if err := popErr(&f.beforeNoteErr); err != nil {
+				f.mu.Unlock()
+				return err
+			}
+
 			f.createNoteLocked(key, body)
 
 			if err := popErr(&f.noteErr); err != nil {
@@ -537,6 +562,11 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 			continue
 		}
 
+		if err := popErr(&f.beforeNoteErr); err != nil {
+			f.mu.Unlock()
+			return err
+		}
+
 		f.createNoteLocked(key, n.Body)
 
 		if err := popErr(&f.noteErr); err != nil {
@@ -553,6 +583,32 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 	}
 
 	return nil
+}
+
+// PostReply posts body as a note of the bot user and returns it.
+func (f *Fake) PostReply(_ context.Context, key models.IssueKey, body string) (models.Note, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := f.forbiddenLocked(key.ProjectID); err != nil {
+		return models.Note{}, err
+	}
+
+	if f.issues[key] == nil {
+		return models.Note{}, fmt.Errorf("issue %s: %w", key, models.ErrNotFound)
+	}
+
+	if err := popErr(&f.beforeNoteErr); err != nil {
+		return models.Note{}, err
+	}
+
+	n := f.createNoteLocked(key, body)
+
+	if err := popErr(&f.noteErr); err != nil {
+		return models.Note{}, err
+	}
+
+	return n, nil
 }
 
 // CanTrigger implements the GitLab port; usernames match case-insensitively.
@@ -644,6 +700,27 @@ func (f *Fake) CheckProject(_ context.Context, projectID int64) error {
 	}
 
 	return nil
+}
+
+// DefaultBranch returns the default branch of the project. A project without one is an error.
+func (f *Fake) DefaultBranch(_ context.Context, projectID int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := f.forbiddenLocked(projectID); err != nil {
+		return "", err
+	}
+
+	if !f.projects[projectID] {
+		return "", fmt.Errorf("project %d: %w", projectID, models.ErrNotFound)
+	}
+
+	branch := f.defBranch[projectID]
+	if branch == "" {
+		return "", fmt.Errorf("project %d: no default branch", projectID)
+	}
+
+	return branch, nil
 }
 
 func (f *Fake) openMRsLocked(projectID int64, sourceBranch string) []mrKey {
@@ -851,6 +928,14 @@ func (f *Fake) postNote(w http.ResponseWriter, r *http.Request, key models.Issue
 	}
 
 	f.mu.Lock()
+
+	if err := popErr(&f.beforeNoteErr); err != nil {
+		f.mu.Unlock()
+		writeError(w, err)
+
+		return
+	}
+
 	n := f.createNoteLocked(key, req.Body)
 	err := popErr(&f.noteErr)
 	f.mu.Unlock()
@@ -898,7 +983,16 @@ func (f *Fake) getProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"id": pid})
+	f.mu.Lock()
+	branch := f.defBranch[pid]
+	f.mu.Unlock()
+
+	project := map[string]any{"id": pid, "default_branch": nil}
+	if branch != "" {
+		project["default_branch"] = branch
+	}
+
+	writeJSON(w, http.StatusOK, project)
 }
 
 func (f *Fake) listMRs(w http.ResponseWriter, r *http.Request) {
