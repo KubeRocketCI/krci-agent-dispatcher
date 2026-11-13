@@ -8,7 +8,6 @@ import (
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/consttest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
-	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 )
 
 func TestEffectKindsListsEveryEffectKind(t *testing.T) {
@@ -31,18 +30,6 @@ func TestFailsListsEveryFailure(t *testing.T) {
 		assert.Equal(t, Fail(i), f, "fails is not in declaration order")
 		assert.NotEmpty(t, f.String(), "%s has no name", consts[i].Name)
 	}
-}
-
-func TestDecideDoneStartRefusedNote(t *testing.T) {
-	f := Facts{View: open(agentLabels.Trigger()).record(models.Done, "").v, Actor: noActor, Request: intake.Start}
-	got := Decide(f, limits)
-
-	assert.Equal(t, Decision{Rule: RuleDoneStartRefused, Plan: Plan{{
-		Kind: KindWrite, Fail: FailLog, Writes: models.Writes{
-			Label: models.Done,
-			Notes: []models.NewNote{{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}},
-		},
-	}}}, got)
 }
 
 func TestPollDecisionWaits(t *testing.T) {

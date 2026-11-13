@@ -201,7 +201,7 @@ func (e *env) issue(rec *models.Record, labels ...string) {
 
 	if rec != nil {
 		e.gl.AddNote(key, models.Note{Author: bot,
-			Body: models.StatusBody(*rec, models.StatusView{State: rec.State, Actor: actor, Session: "session-0"})})
+			Body: models.StatusBody(*rec, models.StatusView{State: rec.State, Actor: actor, Session: session0})})
 	}
 }
 
@@ -209,7 +209,25 @@ func (e *env) comment(author string) {
 	e.gl.AddNote(key, models.Note{Author: author, Body: "please continue"})
 }
 
-// reply posts the agent's reply for the next turn, covering every comment so far.
+// session0 is the session of the status notes a test adds.
+const session0 = "session-0"
+
+// turnMarker returns a turn marker as the turn protocol writes it.
+func turnMarker(session string, n int, last int64) string {
+	return fmt.Sprintf("<!-- krci-agent-turn s=%s n=%d exit=0 last=%d -->", session, n, last)
+}
+
+// session returns the session of k's status note.
+func (e *env) session(k models.IssueKey) string {
+	n, ok := models.StatusNote(e.gl.Notes(k), bot)
+	require.True(e.t, ok, "no status note")
+
+	v, _ := models.ParseStatusView(n.Body)
+
+	return v.Session
+}
+
+// reply posts the agent's reply for the next turn of the status note's session, covering every comment so far.
 func (e *env) reply() {
 	e.mu.Lock()
 	e.turn++
@@ -226,7 +244,7 @@ func (e *env) reply() {
 
 	e.gl.AddNote(key, models.Note{
 		Author: bot,
-		Body:   fmt.Sprintf("done\n<!-- krci-agent-turn n=%d exit=0 last=%d -->", n, last),
+		Body:   "done\n" + turnMarker(e.session(key), n, last),
 	})
 }
 
@@ -405,6 +423,37 @@ func TestStartAuthorLookupErrorNotRefused(t *testing.T) {
 	assert.Empty(t, e.gl.Ops(), "a failed lookup is not a refusal")
 	assert.Equal(t, 4, e.gl.CanTriggerCalls())
 	assert.Contains(t, e.logs.String(), "Cannot check whether the request author can trigger the agent")
+}
+
+func TestStartReEnablesWithNewSession(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))
+	e.comment(dev)
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 5, 0)})
+	e.comment(dev)
+	e.agentRepliesOnResume()
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
+	assert.Contains(t, e.logs.String(), "rule=done-start-create")
+	assert.Equal(t, "session-1", e.session(key), "the status note names the new session")
+	assert.Equal(t, 1, e.notesWith(turnMarker(session0, 5, 0)), "old notes are kept")
+	assert.Equal(t, 1, e.notesWith("s=session-1 n=1 "), "turn 1 of the new session")
+	e.assertState(models.Waiting, "")
+}
+
+func TestStartOnDoneRefusedForReporter(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))
+	e.run()
+	e.handle(intake.Start, reporter)
+	e.idle()
+
+	assert.Empty(t, e.sb.Ops())
+	assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
+	e.assertState(models.Done, "")
 }
 
 // --- activate
@@ -869,7 +918,7 @@ func TestTwoIssuesRunInParallel(t *testing.T) {
 	e.gl.AddIssue(other, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger(), agentLabels.State(models.Waiting))
 	e.gl.AddNote(other, models.Note{
 		Author: bot,
-		Body:   models.StatusBody(*waiting(), models.StatusView{State: models.Waiting}),
+		Body:   models.StatusBody(*waiting(), models.StatusView{State: models.Waiting, Session: session0}),
 	})
 	e.sb.AddComplete(other.ActorName(), ateapi.ActorState_ACTOR_STATE_SUSPENDED)
 	e.run()
@@ -883,7 +932,7 @@ func TestTwoIssuesRunInParallel(t *testing.T) {
 	e.sb.OnResume(func(name string) {
 		if name == other.ActorName() {
 			close(otherResumed)
-			e.gl.AddNote(other, models.Note{Author: bot, Body: "<!-- krci-agent-turn n=1 exit=0 last=999 -->"})
+			e.gl.AddNote(other, models.Note{Author: bot, Body: turnMarker(session0, 1, 999)})
 
 			return
 		}
@@ -968,8 +1017,9 @@ func TestRunRecoveryCoversEveryActor(t *testing.T) {
 		k := models.IssueKey{ProjectID: 12, IID: iid}
 		e.gl.AddIssue(k, "krci/test-go-app", is.state, is.labels...)
 		e.gl.AddNote(k, models.Note{Author: dev, Body: "go"})
-		e.gl.AddNote(k, models.Note{Author: bot, Body: models.StatusBody(is.rec, models.StatusView{State: is.rec.State})})
-		e.gl.AddNote(k, models.Note{Author: bot, Body: "<!-- krci-agent-turn n=1 exit=0 last=999 -->"})
+		e.gl.AddNote(k, models.Note{Author: bot,
+			Body: models.StatusBody(is.rec, models.StatusView{State: is.rec.State, Session: session0})})
+		e.gl.AddNote(k, models.Note{Author: bot, Body: turnMarker(session0, 1, 999)})
 		is.actor(k.ActorName())
 	}
 
@@ -1077,7 +1127,7 @@ func TestStaleStopKeepsReenabledAgent(t *testing.T) {
 	e.idle()
 
 	assert.Equal(t, 0, e.sb.Count("delete-actor", actor), "a stop made stale by the label is not run")
-	assert.Equal(t, 0, e.notesWith(models.RefusedMarker))
+	assert.Equal(t, 0, e.sb.Count("create-actor", actor), "a stale stop ends in no re-enable")
 	e.assertState(models.Waiting, "")
 }
 
@@ -1900,6 +1950,22 @@ func TestTriggerCheckFailureSkipsLaterAuthors(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
+func TestTriggerCheckReadsTheStatusNoteSession(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+
+	id := e.gl.AddNote(key, models.Note{Author: dev, Body: "please continue"})
+	e.gl.AddNote(key, models.Note{Author: bot, Body: turnMarker("session-9", 1, id)})
+	e.agentRepliesOnResume()
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Equal(t, 1, e.sb.Count("resume", actor), "a marker of another session covers no comment")
+	assert.Equal(t, 1, e.notesWith(turnMarker(session0, 2, id)), "turn 2 of the status note's session")
+	e.assertState(models.Waiting, "")
+}
+
 // --- stop with Substrate down
 
 func TestStopInspectOutageRecordsError(t *testing.T) {
@@ -2066,7 +2132,8 @@ func waitingIssues(e *env, n int, state ateapi.ActorState) []models.IssueKey {
 		rec := models.Record{State: models.Waiting}
 
 		e.gl.AddIssue(k, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger(), agentLabels.State(models.Waiting))
-		e.gl.AddNote(k, models.Note{Author: bot, Body: models.StatusBody(rec, models.StatusView{State: rec.State})})
+		e.gl.AddNote(k, models.Note{Author: bot,
+			Body: models.StatusBody(rec, models.StatusView{State: rec.State, Session: session0})})
 		e.sb.AddComplete(k.ActorName(), state)
 
 		keys = append(keys, k)
@@ -2120,7 +2187,8 @@ func TestRecoveryForbiddenProjectKeepsAndReleases(t *testing.T) {
 
 	for _, k := range append(slices.Clone(forbidden), others...) {
 		e.gl.AddIssue(k, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger(), agentLabels.State(models.Error))
-		e.gl.AddNote(k, models.Note{Author: bot, Body: models.StatusBody(rec, models.StatusView{State: rec.State})})
+		e.gl.AddNote(k, models.Note{Author: bot,
+			Body: models.StatusBody(rec, models.StatusView{State: rec.State, Session: session0})})
 		e.sb.AddComplete(k.ActorName(), ateapi.ActorState_ACTOR_STATE_RUNNING)
 	}
 
@@ -2172,7 +2240,7 @@ func TestRecoveredActivationsDoNotHoldRecovery(t *testing.T) {
 	}, 5*time.Second, time.Millisecond, "every recovered activation polls while the others run")
 
 	for _, k := range keys {
-		e.gl.AddNote(k, models.Note{Author: bot, Body: "<!-- krci-agent-turn n=1 exit=0 last=0 -->"})
+		e.gl.AddNote(k, models.Note{Author: bot, Body: turnMarker(session0, 1, 0)})
 	}
 
 	e.idle()

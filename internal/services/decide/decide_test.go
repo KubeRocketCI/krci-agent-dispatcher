@@ -36,16 +36,29 @@ func closed(labels ...string) issue {
 	return issue{models.IssueView{Issue: models.Issue{Key: key, IssueState: models.IssueClosed, Labels: labels}}}
 }
 
+// session is the session of the status note that record writes.
+const session = "s1"
+
+// record sets the record and the status rows of a status note of session.
 func (i issue) record(s models.AgentState, reason string) issue {
 	i.v.Record, i.v.HasRecord = models.Record{State: s, Reason: reason}, true
+	i.v.Status = models.StatusView{State: s, Reason: reason, Session: session}
+
 	return i
 }
 
-func (i issue) marker(id int64, n int, last int64) issue {
-	i.v.Notes = append(i.v.Notes, models.Note{ID: id, Author: bot,
-		Body: "reply\n<!-- krci-agent-turn n=" + strconv.Itoa(n) + " exit=0 last=" + strconv.FormatInt(last, 10) + " -->"})
-
+// session sets the session of the status note.
+func (i issue) session(s string) issue {
+	i.v.Status.Session = s
 	return i
+}
+
+// marker adds a reply of turn n of session.
+func (i issue) marker(id int64, n int, last int64) issue { return i.markerOf(id, session, n, last) }
+
+func (i issue) markerOf(id int64, s string, n int, last int64) issue {
+	return i.note(id, bot, "reply\n<!-- krci-agent-turn s="+s+" n="+strconv.Itoa(n)+" exit=0 last="+
+		strconv.FormatInt(last, 10)+" -->")
 }
 
 func (i issue) note(id int64, author, body string) issue {
@@ -137,12 +150,91 @@ func decideCases() []decideCase {
 			Request: intake.Activate,
 		},
 			"not-enabled-no-record -"},
-		{"start, record done: refused note, label repaired", Facts{
+		{"start by a reporter, record done: start refused, label repaired", Facts{
 			View:    open(agentLabels.Trigger()).record(models.Done, "").v,
 			Actor:   noActor,
 			Request: intake.Start,
 		},
-			"done-start-refused write(label=done,note=krci-agent-refused)!log"},
+			"start-refused write(label=done,note=krci-agent-start-refused)!log"},
+		{"start by a developer, record done, no actor: create with a new session", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    noActor,
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"done-start-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+		{"start by a developer, record done, old session at the turn limit: create", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").note(100, "dev1", "go").
+				marker(130, 3, 100).v,
+			Actor:    noActor,
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"done-start-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=130)"},
+		{"start by a developer, record done, suspended actor left: delete, create", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    suspended,
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"done-start-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"start by a developer, record done, crashed actor left: delete, create", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    crashed,
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"done-start-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"start by a developer, record done, partial create left: delete, create", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    partial,
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"done-start-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"start by a developer, record done, transitional actor: re-check", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    moving,
+			Request:  intake.Start,
+			AuthorOK: true,
+			Rechecks: 2,
+		},
+			"transitional-recheck recheck"},
+		{"start by a developer, record done, transitional after 3 re-checks: actor busy", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    moving,
+			Request:  intake.Start,
+			AuthorOK: true,
+			Rechecks: 3,
+		},
+			"actor-busy write(record=error/actor-busy,label=error)!log"},
+		{"start by a reporter, record done, transitional actor: refused, no re-check", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   moving,
+			Request: intake.Start,
+		},
+			"start-refused write(note=krci-agent-start-refused)!log"},
+		{"start by a developer, record done, actor unknown: nothing", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    models.ActorView{State: models.Unknown},
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"actor-unknown -"},
+		{"comment, record done, suspended actor left: label kept", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   suspended,
+			Request: intake.Activate,
+		},
+			"done-kept -"},
 		{"comment, record done: no note", Facts{
 			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
 			Actor:   noActor,
@@ -265,7 +357,7 @@ func decideCases() []decideCase {
 		},
 			"turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"failed turns count to the turn limit", Facts{View: open(agentLabels.Trigger(), lbl(models.Waiting)).
-			record(models.Waiting, "").note(130, bot, "failed\n<!-- krci-agent-turn n=3 exit=1 last=125 -->").v,
+			record(models.Waiting, "").note(130, bot, "failed\n<!-- krci-agent-turn s=s1 n=3 exit=1 last=125 -->").v,
 			Actor: suspended, Request: intake.Activate, TriggerAfterLast: true},
 			"turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"trigger comment below the turn limit: activation", Facts{
@@ -562,26 +654,87 @@ func decideCases() []decideCase {
 			AuthorUnknown: true,
 		},
 			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
-		{"start, record done, author unknown: refused note", Facts{
+		{"start, record done, author unknown: no create, no note", Facts{
 			View:          open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
 			Actor:         noActor,
 			Request:       intake.Start,
 			AuthorUnknown: true,
 		},
-			"done-start-refused write(note=krci-agent-refused)!log"},
+			"author-unknown -"},
+		{"start, record done, no state label, author unknown: label repaired", Facts{
+			View:          open(agentLabels.Trigger()).record(models.Done, "").v,
+			Actor:         noActor,
+			Request:       intake.Start,
+			AuthorUnknown: true,
+		},
+			"author-unknown write(label=done)!log"},
 		{"recover, partial create, record waiting: actor missing", Facts{
 			View:    open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").v,
 			Actor:   partial,
 			Request: intake.Recover,
 		},
 			"partial-create-actor-missing write(record=error/actor-missing,label=error)!log"},
-		{"start, no record, krci::agent::done: refused note", Facts{
+		{"start by a developer, no record, krci::agent::done: create", Facts{
 			View:     open(agentLabels.Trigger(), lbl(models.Done)).v,
 			Actor:    noActor,
 			Request:  intake.Start,
 			AuthorOK: true,
 		},
-			"done-start-refused write(note=krci-agent-refused)!log"},
+			"done-start-create create!error > inspect!error > write(record=waiting,label=waiting)!log > " +
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+		{"session: a newer marker of another session does not count to the turn limit", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").session("s2").
+				markerOf(130, "s1", 3, 125).markerOf(140, "s2", 1, 125).v,
+			Actor:            suspended,
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"trigger-activate resume!no-room > reload!log > write(record=working,label=working)!log > " +
+				"loop(since=140)"},
+		{"session: the current session at the turn limit, a newer marker of another session", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").
+				marker(130, 3, 125).markerOf(140, "s2", 1, 125).v,
+			Actor:            suspended,
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"turn-limit write(record=error/turn-limit,label=error)!log"},
+		{"session without a marker: turn 1 again, loop from no marker", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").session("s2").
+				marker(130, 3, 125).v,
+			Actor:            suspended,
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"trigger-activate resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+		{"session: running, previous marker of the current session", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Working)).record(models.Working, "").
+				marker(110, 1, 100).markerOf(120, "s2", 1, 100).marker(140, 2, 135).v,
+			Actor:   running,
+			Request: intake.Recover,
+		},
+			"running-continue loop(since=110,recovered)"},
+		{"session: clear-error ignoring the error record keeps the session of the status note", Facts{
+			View: open(agentLabels.Trigger()).record(models.Error, models.ReasonTurnLimit).
+				marker(130, 3, 125).markerOf(140, "s2", 1, 125).v,
+			Actor:   suspended,
+			Request: intake.ClearError,
+		},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
+		{"session: no status note, the session of the newest bot marker", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Error)).
+				markerOf(130, "s2", 3, 125).markerOf(140, "s1", 1, 125).note(150, "dev1", "s1").v,
+			Actor:   suspended,
+			Request: intake.ClearError,
+		},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
+		{"session: no status note, newest bot marker at the turn limit", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Error)).
+				markerOf(130, "s1", 1, 125).markerOf(140, "s2", 3, 125).v,
+			Actor:   suspended,
+			Request: intake.ClearError,
+		},
+			"clear-error-turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"no record, krci::agent::error, trigger comment: no activation", Facts{
 			View:             open(agentLabels.Trigger(), lbl(models.Error)).marker(110, 1, 100).v,
 			Actor:            suspended,
@@ -811,8 +964,31 @@ func pollCases() []pollCase {
 			StopPending: true,
 		},
 			"read-timeout suspend!log > reload!log > write(record=error/turn-timeout,label=error)!log next=end -"},
+		{"a newer marker of another session is no new marker", PollFacts{
+			View:    base.markerOf(120, "s2", 2, 110).v,
+			Actor:   running,
+			Since:   110,
+			Elapsed: time.Minute,
+		},
+			"wait - next=continue -"},
+		{"turn limit counts the current session", PollFacts{
+			View:    base.markerOf(115, "s2", 3, 110).marker(120, 2, 110).v,
+			Actor:   running,
+			Since:   110,
+			Elapsed: time.Minute,
+		},
+			"marker-idle suspend!error > inspect!log > " +
+				"write(record=waiting,label=waiting)!log next=end marker=120/n=2/last=110"},
+		{"new marker without a status note session: the newest bot marker's session", PollFacts{
+			View:    base.session("").markerOf(120, "s2", 3, 110).v,
+			Actor:   running,
+			Since:   110,
+			Elapsed: time.Minute,
+		},
+			"marker-limit suspend!error > inspect!log > " +
+				"write(record=error/turn-limit,label=error)!log next=end marker=120/n=3/last=110"},
 		{"a person's forged marker is not a marker", PollFacts{
-			View:    base.note(120, "dev1", "<!-- krci-agent-turn n=2 exit=0 last=119 -->").v,
+			View:    base.note(120, "dev1", "<!-- krci-agent-turn s=s1 n=2 exit=0 last=119 -->").v,
 			Actor:   running,
 			Since:   110,
 			Elapsed: time.Minute,

@@ -5,64 +5,104 @@ package turn
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-// Marker is a parsed turn marker: <!-- krci-agent-turn n=<n> exit=<rc> last=<note-id> -->.
-// Last is the highest note id the turn covered; NoteID when the reply has no last= field.
-type Marker struct {
-	NoteID int64
-	Turn   int
-	Exit   int
-	Last   int64
+// ContractVersion is the version of the dispatcher-harness contract; the actor env AGENT_CONTRACT_VERSION
+// carries it.
+const ContractVersion = 1
+
+// watchdogMargin is the part of the turn timeout after the watchdog limit and one harness poll.
+const watchdogMargin = 60 * time.Second
+
+// WatchdogLimit returns the harness watchdog limit of one turn: turnTimeout − poll − 60 s. poll is the harness
+// poll interval.
+func WatchdogLimit(turnTimeout, poll time.Duration) time.Duration {
+	return turnTimeout - poll - watchdogMargin
 }
 
-var markerRe = regexp.MustCompile(`<!-- krci-agent-turn n=(\d+) exit=(-?\d+)(?: last=(\d+))? -->`)
+// Marker is a parsed turn marker: <!-- krci-agent-turn s=<session> n=<n> exit=<rc> last=<note-id> -->.
+// NoteID is the note that carries it; Last is the highest comment note id the turn covered.
+type Marker struct {
+	NoteID  int64
+	Session string
+	Turn    int
+	Exit    int
+	Last    int64
+}
 
-// parseMarker reads the last turn marker of a reply. The agent loop appends the real marker after the agent's
-// text, so an earlier marker-like line in that text is ignored. A last marker with a number out of range is no
-// marker.
+const (
+	markerPrefix  = "<!-- krci-agent-turn"
+	markerEscaped = "&lt;!-- krci-agent-turn"
+)
+
+// markerLikeRe finds every marker-like text; markerRe parses one. A marker-like text that does not parse is no
+// marker, and it still hides an earlier marker in the same note.
+var (
+	markerLikeRe = regexp.MustCompile(regexp.QuoteMeta(markerPrefix) + `[^\n]*?-->`)
+	markerRe     = regexp.MustCompile(`^` + regexp.QuoteMeta(markerPrefix) +
+		` s=(\S+) n=(\d+) exit=(-?\d+) last=(\d+) -->$`)
+)
+
+// render writes m as a turn marker; NoteID is not part of it.
+func render(m Marker) string {
+	return fmt.Sprintf("%s s=%s n=%d exit=%d last=%d -->", markerPrefix, m.Session, m.Turn, m.Exit, m.Last)
+}
+
+// Reply returns the body of a reply: text, then the marker m as its own last line. Every marker prefix in text is
+// written as &lt;!-- krci-agent-turn, so text never parses as a marker.
+func Reply(text string, m Marker) string {
+	return strings.ReplaceAll(text, markerPrefix, markerEscaped) + "\n" + render(m)
+}
+
+// parseMarker reads the last marker-like text of a note. The harness appends the real marker after the agent's
+// text, so an earlier marker-like line in that text is ignored. A number out of range or a session outside
+// [0-9A-Za-z-]+ is no marker.
 func parseMarker(n models.Note) (Marker, bool) {
-	all := markerRe.FindAllStringSubmatch(n.Body, -1)
+	all := markerLikeRe.FindAllString(n.Body, -1)
 	if len(all) == 0 {
 		return Marker{}, false
 	}
 
-	sub := all[len(all)-1]
-
-	turn, errTurn := strconv.Atoi(sub[1])
-	exit, errExit := strconv.Atoi(sub[2])
-	last, errLast := n.ID, error(nil)
-
-	if sub[3] != "" {
-		last, errLast = strconv.ParseInt(sub[3], 10, 64)
+	sub := markerRe.FindStringSubmatch(all[len(all)-1])
+	if sub == nil || !models.ValidSessionID(sub[1]) {
+		return Marker{}, false
 	}
+
+	turn, errTurn := strconv.Atoi(sub[2])
+	exit, errExit := strconv.Atoi(sub[3])
+	last, errLast := strconv.ParseInt(sub[4], 10, 64)
 
 	if errors.Join(errTurn, errExit, errLast) != nil {
 		return Marker{}, false
 	}
 
-	return Marker{NoteID: n.ID, Turn: turn, Exit: exit, Last: last}, true
+	return Marker{NoteID: n.ID, Session: sub[1], Turn: turn, Exit: exit, Last: last}, true
 }
 
 func isComment(n models.Note, bot string) bool { return !n.System && n.Author != bot }
 
 func isBotNote(n models.Note, bot string) bool { return !n.System && n.Author == bot }
 
-// History is the turn markers and the comments of an issue, ordered by note id, never by turn number: a turn
-// repeated after a revert has the same n.
+// History is the turn markers of one session and the comments of an issue, ordered by note id, never by turn
+// number: a turn repeated after a revert has the same n.
 type History struct {
 	markers  []Marker
 	comments []models.Note
 }
 
-// NewHistory reads the turn history from notes: markers from the bot user's notes, comments from the notes of
-// persons.
-func NewHistory(notes []models.Note, bot string) History {
+// NewHistory reads the turn history of session from notes: markers from the bot user's notes, comments from the
+// notes of persons. An empty session is the session of the bot user's marker with the highest note id: the
+// recovery rule for an issue whose status note names no session. A set session without a marker takes no other
+// session's markers.
+func NewHistory(notes []models.Note, bot, session string) History {
 	var h History
 
 	for _, n := range notes {
@@ -79,7 +119,23 @@ func NewHistory(notes []models.Note, bot string) History {
 	slices.SortStableFunc(h.markers, func(a, b Marker) int { return cmp.Compare(a.NoteID, b.NoteID) })
 	slices.SortStableFunc(h.comments, func(a, b models.Note) int { return cmp.Compare(a.ID, b.ID) })
 
+	h.markers = ofSession(h.markers, session)
+
 	return h
+}
+
+// ofSession returns the markers of session; an empty session is the session of the last marker.
+func ofSession(markers []Marker, session string) []Marker {
+	if session == "" && len(markers) > 0 {
+		session = markers[len(markers)-1].Session
+	}
+
+	return slices.DeleteFunc(markers, func(m Marker) bool { return m.Session != session })
+}
+
+// HasTurn reports whether any marker of the session has turn number n, not only the last one.
+func (h History) HasTurn(n int) bool {
+	return slices.ContainsFunc(h.markers, func(m Marker) bool { return m.Turn == n })
 }
 
 // last returns the marker with the highest note id.

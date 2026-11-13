@@ -86,7 +86,7 @@ func logDecision(ctx context.Context, log *slog.Logger, o observation, dec decid
 // triggerAfterLast reports whether a comment of the next turn is a trigger comment: the authors are checked once
 // each, in note id order, until one can trigger. A check that fails ends the search with false.
 func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, view models.IssueView) bool {
-	for _, author := range turn.NewHistory(view.Notes, d.cfg.Bot).Next().Authors() {
+	for _, author := range turn.NewHistory(view.Notes, d.cfg.Bot, view.Status.Session).Next().Authors() {
 		ok, err := d.canTrigger(ctx, log, view.Issue.Key.ProjectID, author)
 		if err != nil {
 			log.Error("Cannot check whether a comment author can trigger the agent; no trigger comment found",
