@@ -2,7 +2,7 @@
 
 `github.com/KubeRocketCI/krci-agent-dispatcher`: the dispatcher for KubeRocketCI issue agents. It receives GitLab Issue Hook and Note Hook events on `POST /hook` and drives one Agent Substrate actor per issue: start, turn, stop.
 
-Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services/decide/decide.go`; their truth table: `docs/golden-maps.md`. Agent image contract: `docs/agent-image-contract.md`. Use the glossary terms in code names, logs and notes.
+Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services/decide/decide.go`; their truth table: `docs/golden-maps.md`. Dispatcher, harness and agent images: `docs/agent-harness.md`. Use the glossary terms in code names, logs and notes.
 
 ## Build & Test
 
@@ -45,6 +45,7 @@ hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseli
 
 - Commit messages: generate with `/krci-general:commit` (plugin `krci-general` from the `KubeRocketCI/claude-plugins` marketplace). Title `EPMDEDP-<id>: <type>: <description>`, 10–85 characters, type one of `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore` (`.github/workflows/pr-validation.yml`). Sign off (`git commit -s`).
 - Branch names start with the ticket key (`EPMDEDP-<id>-<slug>`); `/krci-general:commit` reads the key from the branch.
+- Jira keys appear only in commit titles, branch names, PR bodies, this file and `docs/agents/issue-tracker.md`. Never in code, comments, tests or other docs.
 - One dispatcher per atespace: it owns every actor named `issue-<project-id>-<iid>` in `ATESPACE` (ADR 0005).
 - Ports are declared by their consumer (`dispatcher/ports.go`). Only `main` builds adapters.
 - Port errors are declared in `models`; adapters wrap them.

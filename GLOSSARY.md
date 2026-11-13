@@ -37,8 +37,8 @@ The longest time the dispatcher waits for one turn's reply before it puts the ag
 _Avoid_: watchdog (for this), deadline
 
 **Watchdog**:
-The in-actor limit on one agent run; a run that hits it still ends in a reply.
-_Avoid_: turn timeout (for this)
+The harness's time limit on one turn inside the actor, derived from the turn timeout; it covers clone or fetch, setup, the agent run, verify and publish. A turn that hits it still ends in a reply.
+_Avoid_: turn timeout (for this), budget, deadline
 
 **Publish**:
 Pushing the issue branch and opening or updating its merge request.
@@ -111,10 +111,10 @@ The note the bot user posts at the end of a turn.
 _Avoid_: answer, response
 
 **Turn marker**:
-The hidden line in a reply that records the turn number, its result and the last comment it covered.
+The hidden line in a reply that records the session, the turn number, its result and the last comment it covered.
 
 **Turn history**:
-The replies with turn markers and the comments on an issue, ordered by note id.
+The replies with turn markers of the current session and the comments on an issue, ordered by note id.
 _Avoid_: history (alone), timeline
 
 **Status note**:
@@ -135,6 +135,28 @@ _Avoid_: webhook (for the event)
 **Event**:
 One delivery from GitLab with its payload.
 _Avoid_: hook, webhook
+
+## Harness and agent images
+
+**Harness**:
+The agent loop that runs inside every actor: handshake, turns, replies, publish. One binary from this repo, mounted into every actor by the dispatcher.
+_Avoid_: agent loop (for the binary), runner, wrapper
+
+**Turn loop**:
+The harness's repeated poll that runs one turn after another, each under the watchdog.
+_Avoid_: activation loop (for this), main loop
+
+**Agent image**:
+The image an actor runs: the tools of one kind of agent and the image side of its agent profile. It holds no harness.
+_Avoid_: harness image, agent (for the image)
+
+**Agent profile**:
+The description of one kind of agent: image, egress and env in the dispatcher config; setup, verify and prompt in the agent image.
+_Avoid_: flavour, template (for this)
+
+**Contract version**:
+The integer version of the turn protocol, set by the dispatcher in the actor template and checked by the harness at start.
+_Avoid_: API version, protocol version
 
 ## Substrate
 
@@ -194,6 +216,10 @@ _Avoid_: step (for this), action, command
 **Issue lane**:
 The dispatcher's sequence of actions for one issue, which runs one action at a time.
 _Avoid_: worker (for this)
+
+**Activation loop**:
+The dispatcher's polling during one activation: it reads the issue and the actor state, waits for the next turn marker and resumes, keeps or suspends the actor.
+_Avoid_: poll loop, turn loop (for this)
 
 **Dispatcher restart**:
 A new start of the dispatcher process.
