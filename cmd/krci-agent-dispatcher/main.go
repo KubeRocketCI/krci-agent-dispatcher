@@ -19,26 +19,10 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system"
 )
 
 const shutdownTimeout = 30 * time.Second
-
-// clock is the real time source of the dispatcher.
-type clock struct{}
-
-func (clock) Now() time.Time { return time.Now() }
-
-func (clock) Sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
-}
 
 func main() {
 	logger := api.NewLogger(os.Stdout)
@@ -92,7 +76,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 
 	defer func() { _ = sb.Close() }()
 
-	d := dispatcher.New(gl, sb, clock{}, dispatcher.Config{
+	d := dispatcher.New(gl, sb, system.Clock{}, dispatcher.Config{
 		Bot: cfg.BotUsername, Labels: labels, TriggerRole: cfg.TriggerMinRole,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		SweepInterval: cfg.SweepInterval,

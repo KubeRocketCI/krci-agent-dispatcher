@@ -5,25 +5,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/selftest"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/state"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system"
 )
 
-// Exit codes; 64 and 74 follow sysexits.h.
+// Exit codes; 64, 69, 70, 74 and 78 follow sysexits.h.
 const (
-	exitOK    = 0
-	exitGap   = 1
-	exitUsage = 64
-	exitIO    = 74
+	exitOK          = 0
+	exitGap         = 1
+	exitUsage       = 64
+	exitUnavailable = 69
+	exitSoftware    = 70
+	exitIO          = 74
+	exitConfig      = 78
 )
 
 const usage = `usage: krci-agent-harness <command>
 
 commands:
+  run       run the turn loop; env contract in docs/agent-harness.md; exit 78 on a handshake failure
   selftest  check the agent image contract; run the binary outside /opt/krci-agent; exit 1 on a gap
   help      print this text
 `
@@ -43,6 +53,8 @@ func handleSIGPIPE() {
 func run(args []string, sys selftest.System, stdout, stderr io.Writer) int {
 	if len(args) == 1 {
 		switch args[0] {
+		case "run":
+			return runTurnLoop(sys, stderr)
 		case "selftest":
 			return runSelftest(sys, stdout, stderr)
 		case "help", "-h", "--help":
@@ -55,6 +67,51 @@ func run(args []string, sys selftest.System, stdout, stderr io.Writer) int {
 	_, _ = fmt.Fprint(stderr, usage)
 
 	return exitUsage
+}
+
+// placeholderToken is sent as PRIVATE-TOKEN; the egress gateway replaces it with the bot user's token.
+const placeholderToken = "placeholder"
+
+// stateDirName is the harness state directory under $HOME.
+const stateDirName = ".krci-agent"
+
+func runTurnLoop(sys selftest.System, stderr io.Writer) int {
+	log := slog.New(slog.NewJSONHandler(stderr, nil))
+
+	cfg, err := harness.Handshake(sys.Getenv)
+	if err != nil {
+		log.Error("handshake failed", "error", err)
+
+		return exitConfig
+	}
+
+	home := sys.Getenv("HOME")
+	if home == "" {
+		log.Error("handshake failed", "error", "HOME: must not be empty")
+
+		return exitConfig
+	}
+
+	notes, err := gitlab.NewREST(cfg.GitLabURL.String(), placeholderToken, "", cfg.Bot, models.Developer,
+		gitlab.WithLogger(log))
+	if err != nil {
+		log.Error("cannot build the GitLab client", "error", err)
+
+		return exitSoftware
+	}
+
+	ports := harness.Ports{
+		Notes: notes, Clock: system.Clock{}, State: state.NewFile(filepath.Join(home, stateDirName)), Log: log,
+	}
+	if _, err := harness.New(sys.Getenv, ports); err != nil {
+		log.Error("handshake failed", "error", err)
+
+		return exitConfig
+	}
+
+	log.Error("agent and workspace adapters not built")
+
+	return exitUnavailable
 }
 
 func runSelftest(sys selftest.System, stdout, stderr io.Writer) int {

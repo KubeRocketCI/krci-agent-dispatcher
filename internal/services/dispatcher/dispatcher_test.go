@@ -21,6 +21,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 )
 
 var agentLabels models.AgentLabels
@@ -37,68 +38,11 @@ var (
 	errRP = errors.New("rpc unavailable")
 )
 
-// fakeClock advances virtual time on Sleep and returns at once. onSleep runs after each Sleep.
-type fakeClock struct {
-	mu      sync.Mutex
-	now     time.Time
-	sleeps  []time.Duration
-	onSleep func(d time.Duration)
-}
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.now
-}
-
-func (c *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	c.mu.Lock()
-	c.now = c.now.Add(d)
-	c.sleeps = append(c.sleeps, d)
-	onSleep := c.onSleep
-	c.mu.Unlock()
-
-	if onSleep != nil {
-		onSleep(d)
-	}
-
-	time.Sleep(time.Microsecond)
-
-	return ctx.Err()
-}
-
-func (c *fakeClock) setOnSleep(fn func(d time.Duration)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.onSleep = fn
-}
-
-func (c *fakeClock) count(d time.Duration) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	n := 0
-
-	for _, s := range c.sleeps {
-		if s == d {
-			n++
-		}
-	}
-
-	return n
-}
-
 type env struct {
 	t   *testing.T
 	gl  *gitlabtest.Fake
 	sb  *substratetest.Fake
-	clk *fakeClock
+	clk *systemtest.Clock
 	d   *dispatcher.Dispatcher
 
 	mu     sync.Mutex
@@ -149,7 +93,7 @@ func newEnvOver(t *testing.T, mod func(*dispatcher.Config), gl func(*gitlabtest.
 		logs: &syncBuffer{},
 		gl:   gitlabtest.NewFake(bot),
 		sb:   substratetest.NewFake("krci-agents"),
-		clk:  &fakeClock{now: time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)},
+		clk:  systemtest.NewClock(time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)),
 	}
 	e.gl.SetMember(key.ProjectID, dev, 30)
 	e.gl.SetMember(key.ProjectID, reporter, 20)
@@ -504,7 +448,7 @@ func TestActivateStaysResumedOnAnyComment(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -542,7 +486,7 @@ func TestActivateTurnTimeoutPerTurn(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -575,8 +519,8 @@ func TestActivateNoRoomPostsNote(t *testing.T) {
 
 	assert.Equal(t, 1, e.notesWith(models.NoRoomText))
 	e.assertState(models.Waiting, "")
-	assert.Equal(t, 0, e.clk.count(time.Second), "no room is not retried")
-	assert.Equal(t, 0, e.clk.count(10*time.Second), "no room ends the plan before the activation loop")
+	assert.Equal(t, 0, e.clk.Count(time.Second), "no room is not retried")
+	assert.Equal(t, 0, e.clk.Count(10*time.Second), "no room ends the plan before the activation loop")
 
 	e.sb.SetNoRoom(false)
 	e.agentRepliesOnResume()
@@ -621,7 +565,7 @@ func TestStopAfterRunningActivation(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -745,7 +689,7 @@ func TestCrashedRevertedBeforeResume(t *testing.T) {
 func (e *env) replaceActorDuringRetry(s ateapi.ActorState) {
 	var once sync.Once
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == time.Second {
 			once.Do(func() {
 				e.sb.RemoveActor(actor)
@@ -783,9 +727,9 @@ func TestRPCRetryThenSubstrateError(t *testing.T) {
 
 		assert.Equal(t, 1, e.sb.Count("resume", actor))
 		assert.Equal(t, []int{1, 1, 1}, []int{
-			e.clk.count(time.Second),
-			e.clk.count(2 * time.Second),
-			e.clk.count(4 * time.Second),
+			e.clk.Count(time.Second),
+			e.clk.Count(2 * time.Second),
+			e.clk.Count(4 * time.Second),
 		})
 		e.assertState(models.Waiting, "")
 	})
@@ -815,7 +759,7 @@ func TestTransitionalRecheckThenActorBusy(t *testing.T) {
 		e.handle(intake.Activate, dev)
 		e.idle()
 
-		assert.Equal(t, 3, e.clk.count(2*time.Second))
+		assert.Equal(t, 3, e.clk.Count(2*time.Second))
 		assert.Equal(t, 0, e.sb.Count("resume", actor))
 		e.assertState(models.Error, models.ReasonActorBusy)
 	})
@@ -974,7 +918,7 @@ func TestRunRecoversRunningUnanswered(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -1107,7 +1051,7 @@ func TestStaleStopKeepsReenabledAgent(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -1153,7 +1097,7 @@ func TestInspectOutageCutByCancelWritesNothing(t *testing.T) {
 	e.run()
 	e.idle()
 	e.sb.Fail("inspect", errRP, errRP, errRP, errRP)
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == time.Second {
 			e.cancel()
 		}
@@ -1173,14 +1117,14 @@ func TestCancelDuringRPCWritesNothing(t *testing.T) {
 	e.idle()
 	e.comment(dev)
 	e.sb.Fail("resume", errRP, errRP, errRP, errRP)
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == time.Second {
 			e.cancel()
 		}
 	})
 	e.handle(intake.Activate, dev)
 
-	require.Eventually(t, func() bool { return e.clk.count(time.Second) == 1 }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return e.clk.Count(time.Second) == 1 }, 5*time.Second, time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
 	e.assertState(models.Waiting, "")
 }
@@ -1211,7 +1155,7 @@ func TestLoopCancelLeavesActivationRunning(t *testing.T) {
 	e.run()
 	e.idle()
 	e.comment(dev)
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == 10*time.Second {
 			e.cancel()
 		}
@@ -1536,7 +1480,7 @@ func TestRecoveredLoopLogsRecovery(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -1643,7 +1587,7 @@ func TestInvalidSpecRecordsErrorWithoutRetry(t *testing.T) {
 	assert.Empty(t, e.sb.Ops(), "an invalid spec is not retried")
 
 	for _, d := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
-		assert.Equal(t, 0, e.clk.count(d), "no retry backoff")
+		assert.Equal(t, 0, e.clk.Count(d), "no retry backoff")
 	}
 
 	e.assertState(models.Error, models.ReasonSubstrateError)
@@ -1795,7 +1739,7 @@ func TestReadTimeoutCutAtSuspendWritesNothing(t *testing.T) {
 	e.sb.OnResume(func(string) {
 		e.gl.FailLoad(failing(errRP, 10000)...)
 		e.sb.Fail("suspend", failing(errRP, 4)...)
-		e.clk.setOnSleep(func(d time.Duration) {
+		e.clk.SetOnSleep(func(d time.Duration) {
 			if d == time.Second && !e.clk.Now().Before(timeout) {
 				e.cancel()
 			}
@@ -1816,7 +1760,7 @@ func TestTriggerCheckCutByCancelDecidesNothing(t *testing.T) {
 	e.idle()
 	e.comment(dev)
 	e.gl.FailCanTriggerNext(failing(errRP, 4)...)
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == time.Second {
 			e.cancel()
 		}
@@ -1837,7 +1781,7 @@ func TestUnavailableIssueActorReadCutDecidesNothing(t *testing.T) {
 
 	var backoffs atomic.Int32
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		// The first 4 s backoff ends the project check, the second one is in the actor read.
 		if d == 4*time.Second && backoffs.Add(1) == 2 {
 			e.cancel()
@@ -1855,7 +1799,7 @@ func TestUnavailableIssueActorReadCutDecidesNothing(t *testing.T) {
 
 func TestUnavailableIssueReadCutDecidesNothing(t *testing.T) {
 	e := runningUnavailable(t)
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == 4*time.Second {
 			e.cancel()
 		}
@@ -2016,7 +1960,7 @@ func TestTurnTimeoutWhileReadsFailKeepsStatusRows(t *testing.T) {
 
 		polls := 0
 
-		e.clk.setOnSleep(func(d time.Duration) {
+		e.clk.SetOnSleep(func(d time.Duration) {
 			if polls++; d == 10*time.Second && polls == 1 {
 				e.gl.FailLoad(many...)
 			}
@@ -2039,7 +1983,7 @@ func TestTurnTimeoutWhileReadsFailKeepsStatusRows(t *testing.T) {
 
 		polls := 0
 
-		e.clk.setOnSleep(func(d time.Duration) {
+		e.clk.SetOnSleep(func(d time.Duration) {
 			if polls++; d == 10*time.Second && polls == 1 {
 				e.sb.Fail("inspect", many...)
 			}
@@ -2069,7 +2013,7 @@ func TestTurnTimeoutRecordedWithFreshStatusRows(t *testing.T) {
 		}
 	})
 	e.sb.OnSuspend(func(string) { down.Store(false) })
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == 10*time.Second {
 			down.CompareAndSwap(false, e.sb.Count("suspend", actor) == 0)
 		}
@@ -2102,7 +2046,7 @@ func TestTurnTimeoutRecordedWhenReloadCancelled(t *testing.T) {
 		}
 	})
 	e.sb.OnSuspend(func(string) { before = statusRows(e) })
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d == 10*time.Second {
 			down.Store(e.sb.Count("suspend", actor) == 0)
 		}
@@ -2207,7 +2151,7 @@ func TestRecoveryForbiddenProjectKeepsAndReleases(t *testing.T) {
 
 	assert.Equal(t, dispatcher.RecoveryConcurrency, strings.Count(e.logs.String(),
 		"rule=issue-unavailable"))
-	assert.Equal(t, 0, e.clk.count(time.Second), "a forbidden read is not retried")
+	assert.Equal(t, 0, e.clk.Count(time.Second), "a forbidden read is not retried")
 }
 
 func TestRecoveredActivationsDoNotHoldRecovery(t *testing.T) {
@@ -2260,7 +2204,7 @@ func TestActivationPollsWithoutFullReads(t *testing.T) {
 
 	polls := 0
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -2292,7 +2236,7 @@ func TestPollDecisionTakenOnFullRead(t *testing.T) {
 		deleted int64
 	)
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != 10*time.Second {
 			return
 		}
@@ -2419,7 +2363,7 @@ type sweepGate struct {
 func (e *env) sweepGate() *sweepGate {
 	g := &sweepGate{t: e.t, parked: make(chan struct{}), tick: make(chan struct{}), stop: make(chan struct{})}
 
-	e.clk.setOnSleep(func(d time.Duration) {
+	e.clk.SetOnSleep(func(d time.Duration) {
 		if d != sweepEvery {
 			return
 		}

@@ -27,7 +27,7 @@ Rewrite the golden maps after an intended change to `Decide` or `Poll`: `go test
 
 ```
 cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
-cmd/krci-agent-harness/      harness command: selftest
+cmd/krci-agent-harness/      harness command: selftest, run
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
 internal/models/             IssueKey, Issue, Note, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
@@ -35,11 +35,13 @@ internal/turn/               turn protocol: Marker, History, Turn; pure
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
 internal/services/selftest/  agent image contract checks; ports.go
+internal/services/harness/   harness: handshake (New), Step, Run; ports.go
 internal/services/dispatcher/ Handle, Run: issue lanes, observation (observe), plan runner (perform), activation loop, restart recovery, sweep; ports.go
 internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contract suite
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite
 internal/substrate/templates/ ActorTemplate + EgressPolicy render, pure
-internal/system/             System port adapters: OS, systemtest fake, contract suite
+internal/system/             System port adapters: OS, Clock, systemtest fake (Clock too), contract suite
+internal/state/              StateStore port adapters: file, statetest fake, contract suite
 deploy-templates/            Helm chart
 Dockerfile.harness           harness image: FROM scratch, binary at /krci-agent-harness
 hack/register-hook.sh        project hook add|remove|list
