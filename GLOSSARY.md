@@ -188,7 +188,7 @@ The ordered effects the dispatcher carries out for one decision on an issue.
 _Avoid_: recipe, script, action (for this)
 
 **Effect**:
-One read, write or Substrate call in a plan, with what the dispatcher does when it fails.
+One read, write or Substrate call in a plan.
 _Avoid_: step (for this), action, command
 
 **Issue lane**:
