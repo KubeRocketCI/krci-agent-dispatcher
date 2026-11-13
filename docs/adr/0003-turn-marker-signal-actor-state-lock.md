@@ -4,6 +4,6 @@ The dispatcher learns that a turn ended by polling the issue notes for the hidde
 
 ## Consequences
 
-- The marker format is a protocol between the agent image and the dispatcher; changing it means changing both and every live actor.
+- The marker format is a protocol between the harness and the dispatcher, both in this repo (ADR 0006); its format is per session (ADR 0007).
 - The agent shares the bot user, so it can forge a marker and only end its own activation early.
 - After a revert a turn can repeat with the same number, so markers are ordered by note id.

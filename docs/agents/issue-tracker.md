@@ -17,6 +17,7 @@ Issues and specs live in Jira project `EPMDEDP`. Use the `mcp__mcp-atlassian__ji
 - **Close** (not done through a PR: `wontfix`, duplicate, obsolete): comment the reason, then `jira_get_transitions` and `jira_transition_issue` to a status in the Done category.
 - **Commit titles**: format in `CLAUDE.md` Conventions; `EPMDEDP-<n>` is the ticket being worked.
 - **Issue references**: an `EPMDEDP-<n>` prefix in a commit title is the issue reference. Fetch it from Jira, not as a GitHub `#<n>`.
+- **Where keys go**: commit titles, branch names and PR bodies. Never in code, comments, tests or other docs.
 
 ## Pull requests
 

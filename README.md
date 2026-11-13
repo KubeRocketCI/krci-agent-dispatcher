@@ -106,4 +106,4 @@ Chart values: `deploy-templates/README.md`. Configuration (env): `internal/confi
 |---|---|
 | [GLOSSARY.md](GLOSSARY.md) | Terms |
 | [docs/adr/](docs/adr/) | Decisions |
-| [docs/agent-image-contract.md](docs/agent-image-contract.md) | What the agent image (`agentImage`) receives and what the dispatcher reads back |
+| [docs/agent-harness.md](docs/agent-harness.md) | How the dispatcher, the harness and agent images work together |
