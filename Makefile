@@ -43,7 +43,7 @@ build: ## Build the binaries → dist/krci-agent-dispatcher-<arch>, dist/krci-ag
 # CRAP = CC^2 * (1 - coverage)^3 + CC per function, scored from the coverage profile of make test.
 # Gate logic and its other settings live in hack/crap-gate.sh. CRAP_CHECK=false skips the gate in make test.
 CRAP_CHECK ?= true
-CRAP_EXCLUDES ?= _gen\.go$$ /cmd/ /gitlabtest/ /substratetest/ /systemtest/
+CRAP_EXCLUDES ?= _gen\.go$$ /cmd/ /gitlabtest/ /substratetest/ /systemtest/ /statetest/
 CRAP_GATE = GO_CRAP=$(GO_CRAP) GOJQ=$(GOJQ) CRAP_EXCLUDES='$(CRAP_EXCLUDES)' ./hack/crap-gate.sh
 
 .PHONY: test

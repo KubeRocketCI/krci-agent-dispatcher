@@ -133,6 +133,74 @@ sequenceDiagram
 - Publish: the issue branch `agent/issue-<iid>` and its merge request to the project's default branch, only after `verify` passes.
 - No turn counter. A reply not yet posted is retried, once per session and turn number.
 
+### `krci-agent-harness run`
+
+`run` takes no arguments; no argument is usage, exit 64. It reads the env contract, then runs the turn loop. The Agent and Workspace adapters are not built: after a successful handshake `run` logs `agent and workspace adapters not built` and exits 69.
+
+Logs are JSON lines on stderr. Exit codes: 78 handshake failure, 69 adapters not built, 70 GitLab client not built.
+
+GitLab calls send the constant `PRIVATE-TOKEN: placeholder`; the egress gateway replaces it with the bot user's token.
+
+State directory: `$HOME/.krci-agent/state.json`, written atomically. `HOME` unset is a handshake failure, exit 78.
+
+### Env contract
+
+| Env | Rule |
+|---|---|
+| `GITLAB_URL` | `https://<host>[:<port>][/<path>]`, no user info, query or fragment |
+| `PROJECT_ID` | integer > 0 |
+| `ISSUE_IID` | integer > 0 |
+| `PROJECT_PATH` | non-empty |
+| `BOT_USERNAME` | non-empty |
+| `SESSION_ID` | `[0-9A-Za-z-]+` |
+| `AGENT_CONTRACT_VERSION` | `1` |
+| `TURN_TIMEOUT_SECONDS` | integer > 0, at most 9223372036 |
+| `POLL_SECONDS` | integer > 0, at most 9223372036 |
+| `TURN_LIMIT` | integer > 0 |
+| `AGENT_STEPS` | integer > 0 |
+| `ANTHROPIC_MODEL` | non-empty |
+
+Watchdog limit `W = TURN_TIMEOUT_SECONDS − POLL_SECONDS − 60 s`; the handshake requires `W ≥ 60 s`.
+
+A handshake failure logs one line that names the item and the rule, never the value, and exits 78.
+
+### Poll
+
+- One `Step` per `POLL_SECONDS`. The first read is a full read; later polls refresh the last read. A refreshed result with something to act on (a pending reply, or a turn that can start) is confirmed with a full read before the harness acts: a refresh keeps notes deleted since the last read.
+- A reply not yet posted (pending reply) comes first. It is held in memory and in the state file. It is dropped when the turn history holds a marker of its session with the same turn number, and the same poll goes on to the next turn; otherwise it is posted again and the poll ends. No new turn starts while a reply is pending.
+- The next turn starts when the turn history has a comment above the last marker's `last=`, or no marker, and the last marker's turn number is below `TURN_LIMIT`.
+- The watchdog deadline is `W` after the start of the poll. It covers workspace preparation, the agent run, the default branch read, verify and publish.
+- A call cut by the deadline gives exit 124. A cancelled harness posts no reply.
+- Reply body: the agent text, then `Turn failed at <step>, exit <rc>.` when `exit` is not 0, or `Turn done.` when the text is empty and `exit` is 0, then the marker.
+- The reply is saved, then posted with a context of its own, bounded to 30 s, not the watchdog context. A successful post clears the saved reply.
+
+### Failure handling by phase
+
+| Phase | Failure | Result |
+|---|---|---|
+| State read | read error | no work in this poll |
+| State read | corrupt file | read as empty; the next save replaces it |
+| Notes read | any error | no work; retry on the next poll |
+| Pending reply | post fails | stays pending; retry on the next poll |
+| Turn work | prepare, agent, default branch, verify, publish | the turn ends in this poll with a failed reply; never retried as work |
+| Reply save | state write fails | logged; no post; the next poll saves again, then posts |
+| Reply clear | state write fails | logged; the next poll finds the saved reply, drops it |
+| Session-started flag | state write fails | logged; the next turn clones and sets up again |
+
+| Outcome | `exit` |
+|---|---|
+| Turn completes | 0 |
+| Agent run completes with a code other than 0 | the agent code; the default branch read, verify and publish are skipped |
+| Agent run fails without a code | 1 |
+| Prepare, default branch read, verify or publish fails | 1 |
+| Watchdog expires | 124 |
+
+Steps named in a failed reply: `prepare`, `agent`, `verify`, `publish`; the default branch read is `publish`.
+
+Accepted: a reply held only in memory is lost on a restart, and its turn runs again. A marker deleted by a person after a successful post while the saved reply remains: the saved reply is posted again.
+
+Agent and Workspace calls get the watchdog context. Its deadline comes from `Clock.WithDeadline`. An Agent adapter sends TERM 30 s before the deadline and KILL at it; a call cut by the deadline returns an error.
+
 ## Turn marker
 
 The last line of every reply:
