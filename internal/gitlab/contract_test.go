@@ -16,6 +16,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 )
 
 const (
@@ -29,14 +30,7 @@ var (
 )
 
 // port is the GitLab port as the dispatcher declares it.
-type port interface {
-	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
-	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
-	Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error
-	CanTrigger(ctx context.Context, projectID int64, username string) (bool, error)
-	NoteMergeRequest(ctx context.Context, projectID int64, sourceBranch string, n models.NewNote) error
-	CheckProject(ctx context.Context, projectID int64) error
-}
+type port = dispatcher.GitLab
 
 var stopped = models.NewNote{Body: models.StoppedMRText + "\n" + models.StoppedMRMarker, Marker: models.StoppedMRMarker}
 
