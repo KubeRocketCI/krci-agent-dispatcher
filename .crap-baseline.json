@@ -274,6 +274,142 @@
     },
     {
       "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/harness/contract.go",
+      "function": "AllOK"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/harness/contract.go",
+      "function": "ContractChecks"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/harness/contract.go",
+      "function": "MountChecks"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/harness/contract.go",
+      "function": "OS"
+    },
+    {
+      "coverage": 88.9,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/harness/contract.go",
+      "function": "mountOptions"
+    },
+    {
+      "coverage": 100,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/harness/contract.go",
+      "function": "mountPathFree"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/harness/contract.go",
+      "function": "readOnly"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/harness/contract.go",
+      "function": "result"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/harness/contract.go",
+      "function": "underMount"
+    },
+    {
+      "coverage": 83.3,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/harness/contract.go",
+      "function": "writeProbeFile"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "*Probe.Beat"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "*Probe.Handler"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "*Probe.State"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "*Probe.fileCounter"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "New"
+    },
+    {
+      "coverage": 92.9,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "Run"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/harness/testbedprobe/probe.go",
+      "function": "check"
+    },
+    {
+      "coverage": 100,
       "crap": 5,
       "cyclomatic": 5,
       "effective_crap": 5,

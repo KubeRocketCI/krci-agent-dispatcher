@@ -1,0 +1,4 @@
+# Mounted read-only at /opt/krci-agent: the image root holds only the binary.
+FROM scratch
+ARG TARGETARCH
+COPY --chmod=0555 ./dist/krci-agent-harness-${TARGETARCH} /krci-agent-harness

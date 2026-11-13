@@ -120,7 +120,7 @@ sequenceDiagram
 
 ## Dispatcher → harness
 
-- The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and set as the command.
+- The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and `/opt/krci-agent/krci-agent-harness` as the command. The OCI image the harness ships in holds the binary at `/krci-agent-harness`.
 - The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, agent steps, the model and the profile's env.
 - Secrets never enter the actor. The egress gateway adds the GitLab and Anthropic credentials on the way out.
 - Egress: Anthropic, the GitLab host and the profile's hosts. Nothing else.
