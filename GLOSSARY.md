@@ -9,7 +9,7 @@ Claude working on one issue inside an actor.
 _Avoid_: bot (for the agent), worker
 
 **Turn**:
-One round on an issue: the comments since the last reply, then one agent run, then one reply. A run that fails still ends in a reply and is a turn.
+One round on an issue: the comments no turn of the session covered yet, then one agent run, then one reply. A run that fails still ends in a reply and is a turn.
 _Avoid_: run, iteration, round
 
 **Activation**:
@@ -113,6 +113,10 @@ _Avoid_: answer, response
 **Turn marker**:
 The hidden line in a reply that records the session, the turn number, its result and the last comment it covered.
 
+**Covered comment**:
+A comment at or below the `last` of a turn marker of the current session; a turn covers the comments it read when it started.
+_Avoid_: answered comment, seen comment
+
 **Turn history**:
 The replies with turn markers of the current session and the comments on an issue, ordered by note id.
 _Avoid_: history (alone), timeline
@@ -141,6 +145,14 @@ _Avoid_: hook, webhook
 **Harness**:
 The agent loop that runs inside every actor: handshake, turns, replies, publish. One binary from this repo, mounted into every actor by the dispatcher.
 _Avoid_: agent loop (for the binary), runner, wrapper
+
+**Turn protocol**:
+The rules the dispatcher and the harness share: turn marker, comment, turn history, next turn, watchdog limit and contract version.
+_Avoid_: agent contract, protocol (alone)
+
+**Handshake**:
+The harness's check at start of its env, the contract version, the profile file and the watchdog limit; a failed handshake ends the harness before any turn.
+_Avoid_: preflight, init
 
 **Turn loop**:
 The harness's repeated poll that runs one turn after another, each under the watchdog.
