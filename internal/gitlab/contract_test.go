@@ -33,17 +33,24 @@ var (
 // port is the GitLab port as the dispatcher declares it.
 type port = dispatcher.GitLab
 
+// replyPort is the GitLab port plus the calls the agent harness makes.
+type replyPort interface {
+	port
+	PostReply(ctx context.Context, key models.IssueKey, body string) (models.Note, error)
+	DefaultBranch(ctx context.Context, projectID int64) (string, error)
+}
+
 var stopped = models.NewNote{Body: models.StoppedMRText + "\n" + models.StoppedMRMarker, Marker: models.StoppedMRMarker}
 
 // subjects returns each adapter under test with trigger role trigger, built over the fake's state.
-func subjects(trigger models.Role) map[string]func(t *testing.T, f *gitlabtest.Fake) port {
-	return map[string]func(t *testing.T, f *gitlabtest.Fake) port{
-		"fake": func(_ *testing.T, f *gitlabtest.Fake) port {
+func subjects(trigger models.Role) map[string]func(t *testing.T, f *gitlabtest.Fake) replyPort {
+	return map[string]func(t *testing.T, f *gitlabtest.Fake) replyPort{
+		"fake": func(_ *testing.T, f *gitlabtest.Fake) replyPort {
 			f.SetTriggerRole(trigger)
 
 			return f
 		},
-		"rest": func(t *testing.T, f *gitlabtest.Fake) port {
+		"rest": func(t *testing.T, f *gitlabtest.Fake) replyPort {
 			srv := httptest.NewServer(f.Handler(token))
 			t.Cleanup(srv.Close)
 
@@ -97,6 +104,7 @@ func TestContract(t *testing.T) {
 		"WriteRetryAfterSavedMarkerNote":  WriteRetryAfterSavedMarkerNote,
 		"WriteRetryAfterSavedStatusNote":  WriteRetryAfterSavedStatusNote,
 		"WriteSavedStatusNoteEndsWrite":   WriteSavedStatusNoteEndsWrite,
+		"WriteFailBeforeNote":             WriteFailBeforeNote,
 	}
 
 	for subject, build := range subjects(models.Developer) {
@@ -337,6 +345,48 @@ func CanTriggerLookupError(t *testing.T, f *gitlabtest.Fake, p port) {
 	assert.False(t, ok)
 	assert.NotErrorIs(t, err, models.ErrNotFound)
 	assert.NotErrorIs(t, err, models.ErrForbidden)
+}
+
+func TestContractReply(t *testing.T) {
+	cases := map[string]func(t *testing.T, f *gitlabtest.Fake, p replyPort){
+		"PostReplyReturnsSavedNote": PostReplyReturnsSavedNote,
+		"PostReplyNotFound":         PostReplyNotFound,
+		"PostReplyForbidden":        PostReplyForbidden,
+		"PostReplyFailAfterSave":    PostReplyFailAfterSave,
+		"PostReplyFailBeforeSave":   PostReplyFailBeforeSave,
+		"DefaultBranchRead":         DefaultBranchRead,
+		"DefaultBranchNotFound":     DefaultBranchNotFound,
+		"DefaultBranchForbidden":    DefaultBranchForbidden,
+		"DefaultBranchEmpty":        DefaultBranchEmpty,
+	}
+
+	for subject, build := range subjects(models.Developer) {
+		for name, run := range cases {
+			t.Run(subject+"/"+name, func(t *testing.T) {
+				f := gitlabtest.NewFake(bot)
+				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
+				run(t, f, build(t, f))
+			})
+		}
+	}
+}
+
+func PostReplyReturnsSavedNote(t *testing.T, _ *gitlabtest.Fake, p replyPort) {
+	ctx := context.Background()
+	body := "Done.\n<!-- krci-agent-turn s=s1 n=1 exit=0 last=5 -->"
+
+	n, err := p.PostReply(ctx, key, body)
+	require.NoError(t, err)
+	assert.Positive(t, n.ID)
+	assert.Equal(t, bot, n.Author)
+	assert.Equal(t, body, n.Body)
+
+	v, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, v.Notes, 1)
+	assert.Equal(t, n.ID, v.Notes[0].ID)
+	assert.Equal(t, bot, v.Notes[0].Author)
+	assert.Equal(t, body, v.Notes[0].Body)
 }
 
 func TestContractTriggerRole(t *testing.T) {
@@ -671,4 +721,107 @@ func WriteSavedStatusNoteEndsWrite(t *testing.T, f *gitlabtest.Fake, p port) {
 
 	require.NoError(t, p.Write(ctx, key, nil, w))
 	assert.Len(t, f.Notes(key), 2, "the status note and the marker note once")
+}
+
+func PostReplyNotFound(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	_, err := p.PostReply(context.Background(), models.IssueKey{ProjectID: 12, IID: 99}, "reply")
+	require.ErrorIs(t, err, models.ErrNotFound)
+
+	_, err = p.PostReply(context.Background(), models.IssueKey{ProjectID: 99, IID: 7}, "reply")
+	require.ErrorIs(t, err, models.ErrNotFound)
+	assert.Empty(t, f.Ops())
+}
+
+func PostReplyForbidden(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.SetForbidden(key.ProjectID)
+
+	_, err := p.PostReply(context.Background(), key, "reply")
+	require.ErrorIs(t, err, models.ErrForbidden)
+	assert.NotContains(t, err.Error(), token)
+	assert.Empty(t, f.Notes(key))
+}
+
+func PostReplyFailAfterSave(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	ctx := context.Background()
+
+	f.FailAfterNote(errors.New("gateway timeout"))
+
+	_, err := p.PostReply(ctx, key, "reply")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, models.ErrNotFound)
+	assert.NotErrorIs(t, err, models.ErrForbidden)
+
+	v, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, v.Notes, 1, "the note is saved")
+	assert.Equal(t, "reply", v.Notes[0].Body)
+
+	_, err = p.PostReply(ctx, key, "again")
+	require.NoError(t, err, "the fault is spent")
+}
+
+func PostReplyFailBeforeSave(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	ctx := context.Background()
+
+	f.FailBeforeNote(errors.New("gateway timeout"))
+
+	_, err := p.PostReply(ctx, key, "reply")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, models.ErrNotFound)
+	assert.NotErrorIs(t, err, models.ErrForbidden)
+
+	v, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	assert.Empty(t, v.Notes, "no note is saved")
+
+	_, err = p.PostReply(ctx, key, "reply")
+	require.NoError(t, err, "the fault is spent")
+
+	v, err = p.Load(ctx, key)
+	require.NoError(t, err)
+	assert.Len(t, v.Notes, 1)
+}
+
+func WriteFailBeforeNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	status := models.Writes{Record: &models.Record{State: models.Waiting}}
+	plain := models.Writes{Notes: []models.NewNote{{Body: models.NoRoomText}}}
+
+	for i, w := range []models.Writes{status, plain} {
+		f.FailBeforeNote(errors.New("gateway timeout"))
+		require.Error(t, p.Write(ctx, key, nil, w))
+		assert.Len(t, f.Notes(key), i, "no note is saved")
+		require.NoError(t, p.Write(ctx, key, nil, w), "the fault is spent")
+		assert.Len(t, f.Notes(key), i+1)
+	}
+}
+
+func DefaultBranchRead(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.SetDefaultBranch(key.ProjectID, "trunk")
+
+	got, err := p.DefaultBranch(context.Background(), key.ProjectID)
+	require.NoError(t, err)
+	assert.Equal(t, "trunk", got)
+}
+
+func DefaultBranchNotFound(t *testing.T, _ *gitlabtest.Fake, p replyPort) {
+	_, err := p.DefaultBranch(context.Background(), 99)
+	require.ErrorIs(t, err, models.ErrNotFound)
+}
+
+func DefaultBranchForbidden(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.SetDefaultBranch(key.ProjectID, "trunk")
+	f.SetForbidden(key.ProjectID)
+
+	_, err := p.DefaultBranch(context.Background(), key.ProjectID)
+	require.ErrorIs(t, err, models.ErrForbidden)
+	assert.NotContains(t, err.Error(), token)
+}
+
+func DefaultBranchEmpty(t *testing.T, _ *gitlabtest.Fake, p replyPort) {
+	got, err := p.DefaultBranch(context.Background(), key.ProjectID)
+	require.Error(t, err, "an empty repository has no default branch")
+	assert.Empty(t, got)
+	assert.NotErrorIs(t, err, models.ErrNotFound)
+	assert.NotErrorIs(t, err, models.ErrForbidden)
 }

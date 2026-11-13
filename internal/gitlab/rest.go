@@ -406,6 +406,12 @@ func (c *REST) postNote(ctx context.Context, key models.IssueKey, body string) (
 	return models.Note{ID: n.ID, Body: body, Author: c.bot}, nil
 }
 
+// PostReply posts body as a new note on the issue and returns it. Errors: models.ErrNotFound (404),
+// models.ErrForbidden (403), any other failure as a failed call. The note may be saved when the call fails.
+func (c *REST) PostReply(ctx context.Context, key models.IssueKey, body string) (models.Note, error) {
+	return c.postNote(ctx, key, body)
+}
+
 func (c *REST) setStateLabel(ctx context.Context, key models.IssueKey, s models.AgentState) error {
 	label := c.labels.State(s)
 	remove := slices.DeleteFunc(c.labels.States(), func(l string) bool { return l == label })
@@ -517,6 +523,27 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 	}
 
 	return nil
+}
+
+// DefaultBranch returns the default branch of the project. Errors: models.ErrNotFound (404),
+// models.ErrForbidden (403), any other failure as a failed call; a project without a default branch is an error.
+func (c *REST) DefaultBranch(ctx context.Context, projectID int64) (string, error) {
+	var project struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+
+	path := fmt.Sprintf("/projects/%d", projectID)
+	resp, err := c.client.R().SetContext(ctx).SetResult(&project).Get(path)
+
+	if err := check(resp, err, http.MethodGet, path); err != nil {
+		return "", err
+	}
+
+	if project.DefaultBranch == "" {
+		return "", fmt.Errorf("gitlab GET %s: no default branch", path)
+	}
+
+	return project.DefaultBranch, nil
 }
 
 // CheckProject returns nil when the project is readable with the token, models.ErrNotFound when GitLab
