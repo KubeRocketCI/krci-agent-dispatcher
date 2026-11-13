@@ -80,13 +80,13 @@ func serverCert(t *testing.T) (tls.Certificate, []byte) {
 }
 
 // newGRPC serves f over bufconn with TLS and returns a GRPC adapter dialed to it.
-func newGRPC(t *testing.T, f *substratetest.Fake) grpcEnv {
+func newGRPC(t *testing.T, f *substratetest.Fake, opts ...grpc.ServerOption) grpcEnv {
 	t.Helper()
 
 	cert, caPEM := serverCert(t)
 	lis := bufconn.Listen(1 << 20)
 	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)))
+	srv := grpc.NewServer(append([]grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}, opts...)...)
 	ateapi.RegisterControlServer(srv, f.Server())
 
 	go func() { _ = srv.Serve(lis) }()
@@ -109,6 +109,47 @@ func newGRPC(t *testing.T, f *substratetest.Fake) grpcEnv {
 	env.client = c
 
 	return env
+}
+
+func TestCallDeadline(t *testing.T) {
+	cases := map[string]struct {
+		parent  time.Duration
+		atMost  time.Duration
+		atLeast time.Duration
+	}{
+		"none":           {atMost: 30 * time.Second, atLeast: 25 * time.Second},
+		"longer parent":  {parent: time.Hour, atMost: 30 * time.Second, atLeast: 25 * time.Second},
+		"shorter parent": {parent: 5 * time.Second, atMost: 5 * time.Second, atLeast: time.Second},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var left time.Duration
+
+			record := func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+				if d, ok := ctx.Deadline(); ok {
+					left = time.Until(d)
+				}
+
+				return h(ctx, req)
+			}
+
+			env := newGRPC(t, substratetest.NewFake(atespace), grpc.UnaryInterceptor(record))
+
+			ctx := context.Background()
+
+			if c.parent > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, c.parent)
+				t.Cleanup(cancel)
+			}
+
+			_, err := env.client.List(ctx, "issue-")
+			require.NoError(t, err)
+			assert.LessOrEqual(t, left, c.atMost)
+			assert.GreaterOrEqual(t, left, c.atLeast)
+		})
+	}
 }
 
 func TestBearerTokenRereadPerCall(t *testing.T) {

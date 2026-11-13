@@ -125,11 +125,8 @@ func (g *GRPC) ref(name string) *ateapi.ObjectRef {
 	return &ateapi.ObjectRef{Atespace: g.deploy.Atespace, Name: name}
 }
 
+// callCtx bounds one port call, every RPC of it, by callTimeout; an earlier deadline of ctx stays.
 func callCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
-		return context.WithCancel(ctx)
-	}
-
 	return context.WithTimeout(ctx, callTimeout)
 }
 
