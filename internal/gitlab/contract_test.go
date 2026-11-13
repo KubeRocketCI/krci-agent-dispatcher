@@ -99,6 +99,9 @@ func TestContract(t *testing.T) {
 		"WriteKnownWithoutStatusNote":     WriteKnownWithoutStatusNote,
 		"WriteKnownStatusNoteDeleted":     WriteKnownStatusNoteDeleted,
 		"WriteKnownSkipsMarkerNote":       WriteKnownSkipsMarkerNote,
+		"WriteRetryAfterSavedMarkerNote":  WriteRetryAfterSavedMarkerNote,
+		"WriteRetryAfterSavedStatusNote":  WriteRetryAfterSavedStatusNote,
+		"WriteSavedStatusNoteEndsWrite":   WriteSavedStatusNoteEndsWrite,
 	}
 
 	for subject, build := range subjects(models.Developer) {
@@ -627,4 +630,44 @@ func WriteKnownSkipsMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
 	require.NoError(t, p.Write(ctx, key, &known, models.Writes{Notes: []models.NewNote{refused, plain}}))
 
 	assert.Len(t, f.Notes(key), 3, "the marker note once, the plain note twice")
+}
+
+func WriteRetryAfterSavedMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	w := models.Writes{Notes: []models.NewNote{refused}}
+
+	known, err := p.Load(ctx, key)
+	require.NoError(t, err)
+
+	f.FailAfterNote(errors.New("gateway timeout"))
+	require.Error(t, p.Write(ctx, key, &known, w), "the note is saved, the write fails")
+	require.NoError(t, p.Write(ctx, key, nil, w), "the retry reads the notes")
+
+	assert.Len(t, f.Notes(key), 1, "the marker note once")
+}
+
+func WriteRetryAfterSavedStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	w := models.Writes{Record: &models.Record{State: models.Waiting}}
+
+	f.FailAfterNote(errors.New("gateway timeout"))
+	require.Error(t, p.Write(ctx, key, nil, w), "the status note is saved, the write fails")
+	require.NoError(t, p.Write(ctx, key, nil, w), "the retry edits the saved status note")
+	require.NoError(t, p.Write(ctx, key, nil, w), "no fault is left for a later write")
+
+	assert.Len(t, f.Notes(key), 1, "one status note")
+}
+
+func WriteSavedStatusNoteEndsWrite(t *testing.T, f *gitlabtest.Fake, p port) {
+	ctx := context.Background()
+	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	w := models.Writes{Record: &models.Record{State: models.Waiting}, Notes: []models.NewNote{refused}}
+
+	f.FailAfterNote(errors.New("gateway timeout"))
+	require.Error(t, p.Write(ctx, key, nil, w))
+	assert.Len(t, f.Notes(key), 1, "the status note only; the write ends before the marker note")
+
+	require.NoError(t, p.Write(ctx, key, nil, w))
+	assert.Len(t, f.Notes(key), 2, "the status note and the marker note once")
 }

@@ -12,7 +12,8 @@ import (
 // Refresh returns prev with the issue fields read again and the notes created or edited since prev was read; a
 // note deleted since then stays.
 //
-// Write finds the status note and the marker notes in known; nil makes it read them.
+// Write finds the status note and the marker notes in known; nil makes it read them. A failed Write can have
+// applied part of w; a retry passes nil.
 //
 // CanTrigger reports whether username has the trigger role or higher on the project. An empty username and a
 // project whose members are not shown to the bot user mean false.
