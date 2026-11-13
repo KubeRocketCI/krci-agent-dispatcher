@@ -1,7 +1,11 @@
-name: Commit Message Validation
+name: PR Validation
 
+# push to main saves the Go and tool caches that pull requests restore.
 on:
   pull_request:
+    branches:
+      - main
+  push:
     branches:
       - main
 
@@ -14,17 +18,19 @@ permissions:
   pull-requests: read
 
 jobs:
-  check-commit-message:
-    name: Validate commit messages
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      # Pull requests only; a failed check ends the job before lint.
       - name: Check commit format
+        if: github.event_name == 'pull_request'
         uses: gsactions/commit-message-checker@v2
         with:
           pattern: '^(EPMDEDP-\d+: (fix|feat|docs|style|refactor|test|chore)(!)?: .+|(chore|build)\(deps\): Bump .+)$'
@@ -35,6 +41,7 @@ jobs:
           accessToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check commit title length
+        if: github.event_name == 'pull_request'
         uses: gsactions/commit-message-checker@v2
         with:
           pattern: '^.{10,85}$'
@@ -43,3 +50,40 @@ jobs:
           excludeTitle: 'true'
           checkAllCommitMessages: 'true'
           accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # After checkout: go.mod pins the Go version, go.sum keys the module and build cache.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Makefile pins the tool versions; bin/ holds <tool>-<version> binaries.
+      - name: Cache tools
+        uses: actions/cache@v6
+        with:
+          path: bin
+          key: ${{ runner.os }}-tools-${{ hashFiles('Makefile') }}
+
+      - name: Cache golangci-lint
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/golangci-lint
+          key: ${{ runner.os }}-golangci-lint-${{ hashFiles('go.sum', '.golangci.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-golangci-lint-
+
+      - name: Lint
+        run: make lint
+
+      # Race detector, golden maps, CRAP gate against .crap-baseline.json.
+      - name: Test
+        run: make test
+
+      - name: Build
+        run: make build
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Helm lint
+        run: make helm-lint
