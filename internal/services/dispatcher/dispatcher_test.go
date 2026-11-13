@@ -137,6 +137,13 @@ func newEnv(t *testing.T) *env {
 func newEnvWith(t *testing.T, mod func(*dispatcher.Config)) *env {
 	t.Helper()
 
+	return newEnvOver(t, mod, func(f *gitlabtest.Fake) dispatcher.GitLab { return f })
+}
+
+// newEnvOver is newEnvWith with the GitLab port that gl builds over the fake.
+func newEnvOver(t *testing.T, mod func(*dispatcher.Config), gl func(*gitlabtest.Fake) dispatcher.GitLab) *env {
+	t.Helper()
+
 	e := &env{
 		t:    t,
 		logs: &syncBuffer{},
@@ -154,7 +161,7 @@ func newEnvWith(t *testing.T, mod func(*dispatcher.Config)) *env {
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
 	}
 	mod(&cfg)
-	e.d = dispatcher.New(e.gl, e.sb, e.clk, cfg)
+	e.d = dispatcher.New(gl(e.gl), e.sb, e.clk, cfg)
 
 	return e
 }
@@ -1338,6 +1345,90 @@ func TestCreateRetryAfterPartialStep(t *testing.T) {
 	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
 	assert.Equal(t, 1, e.sb.Count("resume", actor))
 	e.assertState(models.Waiting, "")
+}
+
+func TestGitLabWriteRetriedWithoutViewAfterSavedNote(t *testing.T) {
+	e := newEnv(t)
+	e.issue(nil, agentLabels.Trigger())
+	e.run()
+	e.idle()
+
+	before := e.gl.BlindWrites()
+
+	e.gl.FailAfterNote(errRP)
+	e.handle(intake.Start, reporter)
+	e.idle()
+
+	assert.Equal(t, 1, e.gl.BlindWrites()-before, "only the retry reads the notes again")
+	assert.Equal(t, 1, e.notesWith(models.StartRefusedMarker))
+}
+
+// writeSpy records whether each Write names a view.
+type writeSpy struct {
+	*gitlabtest.Fake
+
+	mu    sync.Mutex
+	known []bool
+	left  []time.Duration
+}
+
+func (s *writeSpy) Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error {
+	d, _ := ctx.Deadline()
+
+	s.mu.Lock()
+	s.known = append(s.known, known != nil)
+	s.left = append(s.left, time.Until(d))
+	s.mu.Unlock()
+
+	return s.Fake.Write(ctx, key, known, w)
+}
+
+func (s *writeSpy) calls() []bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.known)
+}
+
+func TestGitLabWriteEveryRetryWithoutView(t *testing.T) {
+	var spy *writeSpy
+
+	e := newEnvOver(t, func(*dispatcher.Config) {}, func(f *gitlabtest.Fake) dispatcher.GitLab {
+		spy = &writeSpy{Fake: f}
+		return spy
+	})
+	e.issue(nil, agentLabels.Trigger())
+	e.run()
+	e.idle()
+
+	before := len(spy.calls())
+
+	e.gl.FailWrite(errRP, errRP, errRP, errRP)
+	e.handle(intake.Start, reporter)
+	e.idle()
+
+	assert.Equal(t, []bool{true, false, false, false}, spy.calls()[before:], "the first try names the view")
+}
+
+func TestGitLabWriteBudgetOutlastsARequestTimeout(t *testing.T) {
+	var spy *writeSpy
+
+	e := newEnvOver(t, func(*dispatcher.Config) {}, func(f *gitlabtest.Fake) dispatcher.GitLab {
+		spy = &writeSpy{Fake: f}
+		return spy
+	})
+	e.issue(nil, agentLabels.Trigger())
+	e.run()
+	e.idle()
+	e.handle(intake.Start, reporter)
+	e.idle()
+
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+
+	require.NotEmpty(t, spy.left)
+	assert.InDelta(t, float64(time.Minute), float64(spy.left[len(spy.left)-1]), float64(time.Second),
+		"a write and its retries share 60 s, above one 30 s GitLab request timeout")
 }
 
 func TestGitLabWriteRetried(t *testing.T) {

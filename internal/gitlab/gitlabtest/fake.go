@@ -58,6 +58,7 @@ type Fake struct {
 	ops           []string
 	loadErr       []error
 	writeErr      []error
+	noteErr       []error
 	canTriggerErr error
 	canTriggerQ   []error
 	mrErr         []error
@@ -273,6 +274,15 @@ func (f *Fake) FailWrite(errs ...error) {
 	defer f.mu.Unlock()
 
 	f.writeErr = append(f.writeErr, errs...)
+}
+
+// FailAfterNote makes the next issue notes created through the port or the Handler, status notes included,
+// return errs, one per note, after the note is added. Edits and AddNote do not take them.
+func (f *Fake) FailAfterNote(errs ...error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.noteErr = append(f.noteErr, errs...)
 }
 
 // SetTriggerRole sets the lowest role that can trigger the agent.
@@ -509,6 +519,11 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 			f.editNoteLocked(key, prev.ID, body)
 		} else {
 			f.createNoteLocked(key, body)
+
+			if err := popErr(&f.noteErr); err != nil {
+				f.mu.Unlock()
+				return err
+			}
 		}
 	}
 
@@ -523,6 +538,11 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 		}
 
 		f.createNoteLocked(key, n.Body)
+
+		if err := popErr(&f.noteErr); err != nil {
+			f.mu.Unlock()
+			return err
+		}
 	}
 
 	fn := f.onWrite
@@ -832,7 +852,13 @@ func (f *Fake) postNote(w http.ResponseWriter, r *http.Request, key models.Issue
 
 	f.mu.Lock()
 	n := f.createNoteLocked(key, req.Body)
+	err := popErr(&f.noteErr)
 	f.mu.Unlock()
+
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, toJSONNote(n))
 }

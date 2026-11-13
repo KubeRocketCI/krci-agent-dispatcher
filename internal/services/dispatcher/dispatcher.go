@@ -19,10 +19,13 @@ import (
 // loop that a recover request continues or starts is not counted.
 const RecoveryConcurrency = 8
 
+// writeTimeout bounds one GitLab write with its retries, detached from ctx. It leaves room for a retry after one
+// GitLab request timeout (30 s) when enough remains; not for every attempt.
+const writeTimeout = 60 * time.Second
+
 const (
 	actorPrefix    = "issue-"
 	recheckPause   = 2 * time.Second
-	writeTimeout   = 30 * time.Second
 	statusTimeUTC  = time.RFC3339
 	retryAttempts  = 3
 	retryFirstWait = time.Second

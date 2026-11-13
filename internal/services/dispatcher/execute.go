@@ -173,7 +173,7 @@ func (d *Dispatcher) write(ctx context.Context, log *slog.Logger, key models.Iss
 }
 
 // put applies w as given; a record without status rows keeps the rows of the status note. known is the last
-// view of the issue, nil when none was read.
+// view of the issue, nil when none was read. Retries pass nil.
 func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.IssueKey, known *models.IssueView,
 	w models.Writes,
 ) {
@@ -184,7 +184,11 @@ func (d *Dispatcher) put(ctx context.Context, log *slog.Logger, key models.Issue
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 	defer cancel()
 
-	if err := d.retry(wctx, func() error { return d.gl.Write(wctx, key, known, w) }); err != nil {
+	if err := d.retry(wctx, func() error {
+		defer func() { known = nil }()
+
+		return d.gl.Write(wctx, key, known, w)
+	}); err != nil {
 		log.Error("Cannot write to GitLab", "error", err)
 		return
 	}

@@ -23,8 +23,9 @@ spec:
     spec:
       serviceAccountName: {{ include "krci-agent-dispatcher.fullname" . }}
       automountServiceAccountToken: false
-      # Above HTTP shutdown (30 s) + GitLab write timeout (30 s).
-      terminationGracePeriodSeconds: 75
+      # Above the longest lane drain: two GitLab write budgets in a row (2 x 60 s), plus 15 s.
+      # HTTP shutdown (30 s) runs at the same time.
+      terminationGracePeriodSeconds: 135
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
