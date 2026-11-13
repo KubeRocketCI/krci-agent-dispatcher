@@ -7,7 +7,7 @@ Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services
 ## Build & Test
 
 ```
-make build      # → dist/krci-agent-dispatcher-<arch> (CGO_ENABLED=0)
+make build      # → dist/krci-agent-dispatcher-<arch>, dist/krci-agent-harness-<arch> (linux, input of Dockerfile.harness); CGO_ENABLED=0
 make test       # go test -race ./... -coverprofile=coverage.out, then the CRAP gate (CRAP_CHECK=false skips it)
 make crap       # worst CRAP scores from coverage.out
 make crap-baseline  # rewrite .crap-baseline.json after an intended change
@@ -27,16 +27,20 @@ Rewrite the golden maps after an intended change to `Decide` or `Poll`: `go test
 
 ```
 cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
+cmd/krci-agent-harness/      harness command: selftest
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
 internal/models/             IssueKey, Issue, Note, Marker, TurnHistory, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
+internal/services/selftest/  agent image contract checks; ports.go
 internal/services/dispatcher/ Handle, Run: issue lanes, observation (observe), plan runner (perform), activation loop, restart recovery, sweep; ports.go
 internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contract suite
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite
 internal/substrate/templates/ ActorTemplate + EgressPolicy render, pure
+internal/system/             System port adapters: OS, systemtest fake, contract suite
 deploy-templates/            Helm chart
+Dockerfile.harness           harness image: FROM scratch, binary at /krci-agent-harness
 hack/register-hook.sh        project hook add|remove|list
 hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseline
 ```
@@ -54,6 +58,8 @@ hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseli
 - A rule's plan holds every effect it causes, in order, with its failure handling. The dispatcher performs plans and adds only the failure handling named by `decide.Fail`, the cancelled-ctx rule and retries; behaviour changes go into `decide`.
 - A new request kind, agent state or actor state goes into its enumerator (`intake.Kinds`, `models.AgentStates`, `models.ActorStates`); tests fail until it is listed and the golden maps classify it.
 - Tests go through module interfaces (`Handle`, `Run`, `Decide`, `Poll`, port contracts).
+- Expected values in tests come from the spec, not from production constants or lists.
+- A command's exit codes are tested on the process: the test binary re-runs itself as the command (`cmd/krci-agent-harness/process_test.go`).
 - No secret value in logs, argv, errors or test output.
 
 ## Agent skills
