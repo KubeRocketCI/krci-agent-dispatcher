@@ -9,6 +9,7 @@ import (
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
 )
 
@@ -18,15 +19,7 @@ const (
 )
 
 // port is the Substrate port as the dispatcher declares it.
-type port interface {
-	Inspect(ctx context.Context, name string) (models.ActorView, error)
-	List(ctx context.Context, prefix string) ([]models.ActorSummary, error)
-	Create(ctx context.Context, name string, spec models.ActorSpec) error
-	Resume(ctx context.Context, name string) error
-	Suspend(ctx context.Context, name string) error
-	Revert(ctx context.Context, name string) error
-	Delete(ctx context.Context, name string) error
-}
+type port = dispatcher.Substrate
 
 func subjects() map[string]func(t *testing.T, f *substratetest.Fake) port {
 	return map[string]func(t *testing.T, f *substratetest.Fake) port{
