@@ -1,0 +1,48 @@
+# Dispatcher actor template (internal/substrate/templates/testdata/actortemplate.golden.yaml) plus the `harness` volume, no egress policy.
+# run.sh replaces ${ATESPACE}, ${POOL}, ${ROOT_IMAGE} and ${HARNESS}; both references are pinned by digest.
+metadata:
+  atespace: ${ATESPACE}
+  name: mount-check
+workerSelector:
+  matchLabels:
+    workload: ${POOL}
+containers:
+- name: claude
+  image: ${ROOT_IMAGE}
+  command: ["/opt/krci-agent/krci-agent-harness", "testbed-probe"]
+  env:
+  - name: POLL_SECONDS
+    value: "15"
+  - name: ANTHROPIC_API_KEY
+    value: placeholder
+  - name: SSL_CERT_FILE
+    value: /run/ate/egress-trust-bundle/trust-bundle.pem
+  - name: NODE_EXTRA_CA_CERTS
+    value: /run/ate/egress-trust-bundle/trust-bundle.pem
+  - name: GIT_SSL_CAINFO
+    value: /run/ate/egress-trust-bundle/trust-bundle.pem
+  volumeMounts:
+  - name: system-info
+    mountPath: /run/ate
+  - name: harness
+    mountPath: /opt/krci-agent
+volumes:
+- name: system-info
+  systemInfo:
+    dataSources:
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: egress-trust-bundle/trust-bundle.pem
+- name: harness
+  image:
+    reference: ${HARNESS}
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 2147483648 # 2Gi
+snapshotConfig:
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
+  goldenSnapshotConfig:
+    mode: GOLDEN_SNAPSHOT_MODE_DISABLED
