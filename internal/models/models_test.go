@@ -44,7 +44,7 @@ func TestStatusNoteFindsBotRecord(t *testing.T) {
 	notes := []Note{
 		personNote(100, RecordLine(Record{State: Done})),
 		botNote(101, StatusBody(Record{State: Waiting}, StatusView{State: Waiting})),
-		botNote(102, "<!-- krci-agent-turn n=1 exit=0 last=100 -->"),
+		botNote(102, "<!-- krci-agent-turn s=s1 n=1 exit=0 last=100 -->"),
 	}
 
 	n, ok := StatusNote(notes, bot)
@@ -112,11 +112,11 @@ func TestIssueViewEnabled(t *testing.T) {
 
 func TestHasMarker(t *testing.T) {
 	notes := []Note{
-		personNote(100, "<!-- krci-agent-refused -->"),
-		botNote(101, "Agent stopped for this issue. Open a new issue to start again.\n<!-- krci-agent-refused -->"),
+		personNote(100, "<!-- krci-agent-start-refused -->"),
+		botNote(101, "Only Developers or higher can start the agent.\n<!-- krci-agent-start-refused -->"),
 	}
 
-	assert.True(t, HasMarker(notes, bot, RefusedMarker))
-	assert.False(t, HasMarker(notes[:1], bot, RefusedMarker), "a person's copy does not count")
-	assert.False(t, HasMarker(notes, bot, StartRefusedMarker))
+	assert.True(t, HasMarker(notes, bot, StartRefusedMarker))
+	assert.False(t, HasMarker(notes[:1], bot, StartRefusedMarker), "a person's copy does not count")
+	assert.False(t, HasMarker(notes, bot, StoppedMRMarker))
 }

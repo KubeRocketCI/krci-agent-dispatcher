@@ -180,8 +180,14 @@ func WriteSingleStateLabel(t *testing.T, f *gitlabtest.Fake, p port) {
 	assert.ElementsMatch(t, []string{agentLabels.Trigger(), "bug", agentLabels.State(models.Done)}, f.Labels(key))
 }
 
+// refusedNote is a note with a marker.
+func refusedNote() models.NewNote {
+	return models.NewNote{Body: models.StartRefusedText(models.Developer) + "\n" + models.StartRefusedMarker,
+		Marker: models.StartRefusedMarker}
+}
+
 func WriteSkipsExistingMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
-	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	refused := refusedNote()
 	f.AddNote(key, models.Note{Body: refused.Body, Author: "owner"})
 
 	require.NoError(t, p.Write(context.Background(), key, nil, models.Writes{Notes: []models.NewNote{refused}}))
@@ -447,7 +453,7 @@ func RefreshMergesNewAndEditedNotes(t *testing.T, f *gitlabtest.Fake, p port) {
 	require.NoError(t, err)
 
 	f.AddNote(key, models.Note{Body: "one more", Author: "owner"})
-	f.EditNote(key, edited, "done\n<!-- krci-agent-turn n=1 exit=0 last=5 -->")
+	f.EditNote(key, edited, "done\n<!-- krci-agent-turn s=s2 n=1 exit=0 last=5 -->")
 	f.EditNote(key, status, models.StatusBody(models.Record{State: models.Working}, models.StatusView{Session: "s2"}))
 
 	got, err := p.Refresh(ctx, prev)
@@ -459,7 +465,7 @@ func RefreshMergesNewAndEditedNotes(t *testing.T, f *gitlabtest.Fake, p port) {
 	assert.Equal(t, models.Working, got.Record.State)
 	assert.Equal(t, "s2", got.Status.Session)
 
-	m, ok := turn.NewHistory(got.Notes, bot).MarkerAfter(0)
+	m, ok := turn.NewHistory(got.Notes, bot, got.Status.Session).MarkerAfter(0)
 	require.True(t, ok, "a marker added by an edit is read")
 	assert.Equal(t, edited, m.NoteID)
 
@@ -613,7 +619,7 @@ func WriteKnownStatusNoteDeleted(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteKnownSkipsMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
 	ctx := context.Background()
-	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	refused := refusedNote()
 	plain := models.NewNote{Body: models.NoRoomText}
 
 	known, err := p.Load(ctx, key)
@@ -629,7 +635,7 @@ func WriteKnownSkipsMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteRetryAfterSavedMarkerNote(t *testing.T, f *gitlabtest.Fake, p port) {
 	ctx := context.Background()
-	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	refused := refusedNote()
 	w := models.Writes{Notes: []models.NewNote{refused}}
 
 	known, err := p.Load(ctx, key)
@@ -656,7 +662,7 @@ func WriteRetryAfterSavedStatusNote(t *testing.T, f *gitlabtest.Fake, p port) {
 
 func WriteSavedStatusNoteEndsWrite(t *testing.T, f *gitlabtest.Fake, p port) {
 	ctx := context.Background()
-	refused := models.NewNote{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}
+	refused := refusedNote()
 	w := models.Writes{Record: &models.Record{State: models.Waiting}, Notes: []models.NewNote{refused}}
 
 	f.FailAfterNote(errors.New("gateway timeout"))

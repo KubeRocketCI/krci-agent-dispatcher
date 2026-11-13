@@ -143,9 +143,13 @@ The last line of every reply:
 
 `s` session, `n` turn number in the session, `exit` result of the turn, `last` highest comment note id the turn covered.
 
+- Fixed field order, every field required; `s` is `[0-9A-Za-z-]+`. Per note the last marker counts, then its session is checked.
 - Turn history: the markers of the current session and the comments. A session without a marker starts turn 1 at once. A later turn starts only on a comment after `last`.
+- Current session: the dispatcher's is the `Session` row of the status note; the harness's is its `SESSION_ID`. Recovery rule, dispatcher only: with no session in the status note, the session of the newest bot marker. A set session without a marker takes no other session.
+- Re-enable creates the actor with a new session: turn 1 over every comment, the turn limit counted again. Old notes stay.
 - The turn limit counts `n` of the current session.
 - The dispatcher reads markers only from the bot user's notes.
+- Marker text in the agent's reply is written as `&lt;!-- krci-agent-turn` and does not parse.
 
 ## Agent image
 

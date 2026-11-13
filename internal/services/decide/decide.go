@@ -66,9 +66,11 @@ type Facts struct {
 // Rule names the branch that made a decision. It is logged with each decision (rule=).
 type Rule string
 
-// Rules of Decide. Enabled: the issue is open and has the trigger label. Record: the record of the status note;
-// a clear-error request ignores a record in error; without a record, krci::agent::done on an enabled issue stands for
-// one, and so does krci::agent::error unless the request is clear-error. Partial create: an actor template or actor
+// Rules of Decide. Enabled: the issue is open and has the trigger label. Turn history: the markers of the session
+// of the status note (turn.NewHistory); a clear-error request that ignores the record keeps that session. Record:
+// the record of the status note; a clear-error request ignores a record in error; without a record,
+// krci::agent::done on an enabled issue stands for one, and so does krci::agent::error unless the request is
+// clear-error. Partial create: an actor template or actor
 // without the egress policy. Complete actor: the egress policy exists. Label repair: the state label is set from
 // the record when the issue does not have exactly that one state label.
 const (
@@ -90,9 +92,11 @@ const (
 
 	// Record done, actor running, any request. Stop.
 	RuleDoneRunningStop Rule = "done-running-stop"
-	// Record done, start request. The refused note, label repair.
-	RuleDoneStartRefused Rule = "done-start-refused"
-	// Record done, any other request. Label repair.
+	// Record done, actor not running and not transitional, start request, author can trigger. Create with a new
+	// session; an actor left is deleted first. A transitional actor is re-checked first (RuleTransitionalRecheck,
+	// RuleActorBusy).
+	RuleDoneStartCreate Rule = "done-start-create"
+	// Record done, any other case. Label repair.
 	RuleDoneKept Rule = "done-kept"
 	// Record error, actor running. Suspend, label repair.
 	RuleErrorSuspend Rule = "error-suspend"
@@ -119,18 +123,19 @@ const (
 	// Partial create, no record, request other than start, clear-error and recover. Nothing.
 	RulePartialCreateIgnored Rule = "partial-create-ignored"
 
-	// No complete actor, start or clear-error request, author check failed. No create, no note; the state
-	// label is set from the status note record.
+	// No complete actor, start or clear-error request, or record done and start request; author check failed. No
+	// create, no note; the state label is set from the status note record.
 	RuleAuthorUnknown Rule = "author-unknown"
-	// No complete actor, start or clear-error request, author cannot trigger. The start-refused note; the state
-	// label is set from the status note record.
+	// No complete actor, start or clear-error request, or record done and start request; author cannot trigger.
+	// The start-refused note; the state label is set from the status note record.
 	RuleStartRefused Rule = "start-refused"
 	// No complete actor, clear-error request, author can trigger. Create.
 	RuleClearErrorCreate Rule = "clear-error-create"
 
-	// Complete actor, transitional, re-checks below MaxRechecks. Recheck.
+	// Complete actor, or record done, start request and author can trigger; transitional, re-checks below
+	// MaxRechecks. Recheck.
 	RuleTransitionalRecheck Rule = "transitional-recheck"
-	// Complete actor, transitional, re-checks at MaxRechecks. Record error, reason actor busy.
+	// As RuleTransitionalRecheck, re-checks at MaxRechecks. Record error, reason actor busy.
 	RuleActorBusy Rule = "actor-busy"
 	// Complete actor, running. Continue; record working unless the record and the state label are working.
 	RuleRunningContinue Rule = "running-continue"
@@ -153,9 +158,10 @@ const (
 	RuleWaitingKept Rule = "waiting-kept"
 )
 
-// Rules of Poll, in evaluation order. New marker: the bot user's turn marker with the highest note id above
-// PollFacts.Since. Timed out: PollFacts.Elapsed is at or over the turn timeout. Read failed: the issue is
-// unavailable or the actor unknown. Issue gone comes first and is RuleIssueGone: discard; the activation ends.
+// Rules of Poll, in evaluation order. New marker: the bot user's turn marker of the status note's session with the
+// highest note id above PollFacts.Since. Timed out: PollFacts.Elapsed is at or over the turn timeout. Read failed:
+// the issue is unavailable or the actor unknown. Issue gone comes first and is RuleIssueGone: discard; the
+// activation ends.
 const (
 	// Read failed, timed out. Suspend, record error, reason turn timeout, with status rows from a fresh read; the
 	// activation ends. Read failed, not timed out: wait.
@@ -213,7 +219,7 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	is := facts{f: f, l: l, rec: f.View.Record, hasRec: f.View.HasRecord}
-	is.turns = turn.NewHistory(f.View.Notes, l.Bot)
+	is.turns = turn.NewHistory(f.View.Notes, l.Bot, f.View.Status.Session)
 
 	// A clear-error request ignores a record in error: the issue continues as if it had no record and no
 	// krci::agent::error label.
@@ -235,18 +241,7 @@ func Decide(f Facts, l Limits) Decision {
 	}
 
 	if is.hasRec && is.rec.State == models.Done {
-		if f.Actor.State == models.Running {
-			return Decision{Rule: RuleDoneRunningStop, Plan: stopPlan(f.Actor)}
-		}
-
-		if f.Request != intake.Start {
-			return is.repair(RuleDoneKept)
-		}
-
-		w := is.repairWrites()
-		w.Notes = []models.NewNote{{Body: models.RefusedText + "\n" + models.RefusedMarker, Marker: models.RefusedMarker}}
-
-		return decision(RuleDoneStartRefused, w)
+		return is.done()
 	}
 
 	if is.hasRec && is.rec.State == models.Error {
@@ -398,11 +393,7 @@ func (is facts) complete() Decision {
 
 	switch st := f.Actor.State; {
 	case st.Transitional():
-		if f.Rechecks < MaxRechecks {
-			return Decision{Rule: RuleTransitionalRecheck, Plan: Plan{recheck()}}
-		}
-
-		return decision(RuleActorBusy, record(models.Error, models.ReasonActorBusy))
+		return is.transitional()
 	case st == models.Running:
 		var w models.Writes
 		if !is.hasRec || is.rec.State != models.Working || !is.labelIs(models.Working) {
@@ -452,6 +443,31 @@ func (is facts) complete() Decision {
 	}
 
 	return is.repair(RuleWaitingKept)
+}
+
+// done: record done. A start re-enables the agent with a new session.
+func (is facts) done() Decision {
+	f := is.f
+
+	switch {
+	case f.Actor.State == models.Running:
+		return Decision{Rule: RuleDoneRunningStop, Plan: stopPlan(f.Actor)}
+	case f.Request != intake.Start:
+		return is.repair(RuleDoneKept)
+	case f.Actor.State.Transitional() && f.AuthorOK && !f.AuthorUnknown:
+		return is.transitional()
+	}
+
+	return is.create(RuleDoneStartCreate)
+}
+
+// transitional re-checks a transitional actor up to MaxRechecks, then records actor busy.
+func (is facts) transitional() Decision {
+	if is.f.Rechecks < MaxRechecks {
+		return Decision{Rule: RuleTransitionalRecheck, Plan: Plan{recheck()}}
+	}
+
+	return decision(RuleActorBusy, record(models.Error, models.ReasonActorBusy))
 }
 
 // stopPlan notes the agent's merge request, deletes the actor when it exists, running or not, then records done. The
@@ -608,7 +624,7 @@ func Poll(p PollFacts, l Limits) PollDecision {
 		return d
 	}
 
-	h := turn.NewHistory(p.View.Notes, l.Bot)
+	h := turn.NewHistory(p.View.Notes, l.Bot, p.View.Status.Session)
 	m, hasNew := h.MarkerAfter(p.Since)
 	settled := p.Actor.State.Settled()
 

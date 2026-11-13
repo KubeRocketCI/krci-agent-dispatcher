@@ -212,7 +212,7 @@ func TestRefreshRequestsDoNotGrowWithNotes(t *testing.T) {
 	assert.Equal(t, prev, got)
 	assert.Equal(t, []string{"GET ", "GET /notes"}, requests())
 
-	f.AddNote(key, models.Note{Body: "<!-- krci-agent-turn n=1 exit=0 last=1 -->", Author: bot})
+	f.AddNote(key, models.Note{Body: "<!-- krci-agent-turn s=s1 n=1 exit=0 last=1 -->", Author: bot})
 
 	got, err = c.Refresh(ctx, got)
 	require.NoError(t, err)

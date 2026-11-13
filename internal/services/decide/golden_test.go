@@ -80,7 +80,8 @@ var actorValues = []actorValue{
 }
 
 func markerBody(turn int, last int64) string {
-	return "reply\n<!-- krci-agent-turn n=" + strconv.Itoa(turn) + " exit=0 last=" + strconv.FormatInt(last, 10) + " -->"
+	return "reply\n<!-- krci-agent-turn s=" + session + " n=" + strconv.Itoa(turn) + " exit=0 last=" +
+		strconv.FormatInt(last, 10) + " -->"
 }
 
 // markerAxis returns the marker axis: none, turns 1 to the turn limit, and a marker written by a person. Each
@@ -100,6 +101,17 @@ func markerAxis[T any](view func(*T) *models.IssueView, id int64, extra ...axisV
 	a.add("by-person", func(t *T) {
 		*view(t) = issue{*view(t)}.note(id, person, markerBody(limits.TurnLimit, lastID)).v
 	})
+
+	return a
+}
+
+// sessionAxis returns the marker session axis: the status note session against the session of every marker
+// (session). current: the same; other: another one; none: no status note session, the recovery rule.
+func sessionAxis[T any](view func(*T) *models.IssueView) *axis[T] {
+	a := &axis[T]{name: "marker-session"}
+	a.add("current", func(t *T) { view(t).Status.Session = session })
+	a.add("other", func(t *T) { view(t).Status.Session = "s2" })
+	a.add("none", func(t *T) { view(t).Status.Session = "" })
 
 	return a
 }
@@ -195,7 +207,8 @@ func decideAxes() []*axis[Facts] {
 	}
 
 	return []*axis[Facts]{
-		issueState, trigger, record, label, request, actor, markerAxis(view, markerID), afterLast, author, rechecks,
+		issueState, trigger, record, label, request, actor, markerAxis(view, markerID), sessionAxis(view), afterLast,
+		author, rechecks,
 	}
 }
 
@@ -220,7 +233,7 @@ func pollAxes() []*axis[PollFacts] {
 	comment.add("after-last", func(p *PollFacts) { p.View = issue{p.View}.note(commentID, person, "a comment").v })
 	comment.add("by-bot", func(p *PollFacts) { p.View = issue{p.View}.note(commentID, bot, "a bot note").v })
 
-	return []*axis[PollFacts]{issueState, trigger, stop, actor, marker, comment, elapsedAxis()}
+	return []*axis[PollFacts]{issueState, trigger, stop, actor, marker, sessionAxis(view), comment, elapsedAxis()}
 }
 
 // pollUnreadAxes are the inputs of Poll after a failed issue read. The actor axis shows that the read outcome and

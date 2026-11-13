@@ -49,4 +49,23 @@ func TestActorSpecValidate(t *testing.T) {
 		err := s.Validate()
 		assert.ErrorContains(t, err, name, name)
 	}
+
+	for _, id := range []string{"s_1", "s 1", "s/1", "s.1", "s1\n", "sé"} {
+		s := ok
+		s.SessionID = id
+		assert.ErrorContains(t, s.Validate(), "session ID", "%q", id)
+	}
+
+	s := ok
+	s.SessionID = "9f3c2a1e-0B7d-4c5e-a1b2-c3d4e5f60718"
+	assert.NoError(t, s.Validate(), "a UUID is a session ID")
+}
+
+func TestValidSessionID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"s1": true, "session-1": true, "A-z-0-9": true, "-": true,
+		"": false, "s_1": false, "s 1": false, "s=1": false, "s1-->": false,
+	} {
+		assert.Equal(t, want, ValidSessionID(id), "%q", id)
+	}
 }

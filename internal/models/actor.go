@@ -2,6 +2,7 @@ package models
 
 import (
 	"errors"
+	"regexp"
 	"slices"
 )
 
@@ -72,7 +73,13 @@ type ActorSpec struct {
 	BotUsername string
 }
 
-// Validate returns an error naming the first empty field of s; IID must be positive.
+var sessionIDRe = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
+
+// ValidSessionID reports whether id matches [0-9A-Za-z-]+, the session of a turn marker.
+func ValidSessionID(id string) bool { return sessionIDRe.MatchString(id) }
+
+// Validate returns an error naming the first empty or malformed field of s; IID must be positive, SessionID a
+// valid session ID.
 func (s ActorSpec) Validate() error {
 	switch {
 	case s.ProjectPath == "":
@@ -81,6 +88,8 @@ func (s ActorSpec) Validate() error {
 		return errors.New("issue IID is not positive")
 	case s.SessionID == "":
 		return errors.New("session ID is empty")
+	case !ValidSessionID(s.SessionID):
+		return errors.New("session ID is not [0-9A-Za-z-]+")
 	case s.BotUsername == "":
 		return errors.New("bot username is empty")
 	}
