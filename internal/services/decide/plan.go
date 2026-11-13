@@ -51,14 +51,15 @@ func (k EffectKind) String() string { return kindNames[k] }
 // EffectKinds returns every effect kind.
 func EffectKinds() []EffectKind { return slices.Clone(kinds) }
 
-// Fail is what the dispatcher does when an effect fails. Effects that call nothing out (loop, advance, recheck) do
-// not fail.
+// Fail is what the dispatcher does when inspect, delete, create, revert, resume or suspend fails. write, note-mr
+// and reload log their own failures and go on, also when ctx ended; plans of this package give them FailLog.
+// loop, advance and recheck do not fail.
 //
 // FailLog: log, then the next effect. FailAbort: log, end the plan. FailError: record substrate error with the
 // current view and actor, end the plan. FailErrorFresh: FailError with status rows from a reload. FailNoRoom: on
 // ErrNoRoom, note no room with status rows from a reload and end the plan, also when ctx ended; on any other error,
-// FailErrorFresh. Any other failure cut by the end of ctx ends the plan and records nothing, whatever its Fail: the
-// actor is left for the next restart recovery.
+// FailErrorFresh. Any other failure when ctx ended ends the plan and records nothing, whatever its Fail: the actor
+// is left for the next restart recovery.
 type Fail int
 
 // Failure handling.

@@ -1985,6 +1985,46 @@ func TestTurnTimeoutRecordedWithFreshStatusRows(t *testing.T) {
 	assert.Empty(t, statusRows(e).Pod, "the turn timeout is recorded with status rows read after the suspend")
 }
 
+func TestTurnTimeoutRecordedWhenReloadCancelled(t *testing.T) {
+	e := waitingIssue(t)
+	e.run()
+	e.idle()
+	e.comment(dev)
+
+	var (
+		down, cancelled atomic.Bool
+		before          models.StatusView
+	)
+
+	e.gl.OnLoad(func(models.IssueKey) {
+		switch {
+		case e.sb.Count("suspend", actor) > 0 && cancelled.CompareAndSwap(false, true):
+			e.cancel()
+			e.gl.FailLoad(context.Canceled)
+		case down.Load():
+			e.gl.FailLoad(errRP)
+		}
+	})
+	e.sb.OnSuspend(func(string) { before = statusRows(e) })
+	e.clk.setOnSleep(func(d time.Duration) {
+		if d == 10*time.Second {
+			down.Store(e.sb.Count("suspend", actor) == 0)
+		}
+	})
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	require.True(t, cancelled.Load(), "the reload after the suspend was cancelled")
+	e.assertState(models.Error, models.ReasonTurnTimeout)
+
+	after := statusRows(e)
+	assert.Equal(t, models.Error, after.State)
+	assert.Equal(t, models.ReasonTurnTimeout, after.Reason)
+
+	after.State, after.Reason = before.State, before.Reason
+	assert.Equal(t, before, after, "the status rows are kept")
+}
+
 // --- restart recovery load
 
 // waitingIssues adds n settled issues: record waiting, a suspended actor, nothing to do.

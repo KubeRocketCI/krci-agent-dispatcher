@@ -143,8 +143,9 @@ func (d *Dispatcher) writeCurrent(ctx context.Context, log *slog.Logger, c *curr
 	d.write(ctx, log, c.key, *c.view, c.actor, w)
 }
 
-// reload reads the issue, then the actor, each with retry. A failed issue read leaves both unknown; a failed actor
-// read leaves the actor unknown.
+// reload reads the issue, then the actor, each with retry, for the status rows of the next write. A failed issue
+// read leaves both unknown; a failed actor read leaves the actor unknown. A failed or cancelled read does not end
+// the plan.
 func (d *Dispatcher) reload(ctx context.Context, log *slog.Logger, c *current) {
 	var view models.IssueView
 
