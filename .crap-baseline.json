@@ -137,10 +137,10 @@
       "function": "*REST.Refresh"
     },
     {
-      "coverage": 89.5,
-      "crap": 13.2,
+      "coverage": 100,
+      "crap": 13,
       "cyclomatic": 13,
-      "effective_crap": 13.2,
+      "effective_crap": 13,
       "file": "internal/gitlab/rest.go",
       "function": "*REST.Write"
     },
@@ -185,7 +185,7 @@
       "function": "*REST.notesSince"
     },
     {
-      "coverage": 80,
+      "coverage": 100,
       "crap": 2,
       "cyclomatic": 2,
       "effective_crap": 2,
@@ -201,10 +201,10 @@
       "function": "*REST.setStateLabel"
     },
     {
-      "coverage": 81.3,
-      "crap": 9.5,
+      "coverage": 87.5,
+      "crap": 9.2,
       "cyclomatic": 9,
-      "effective_crap": 9.5,
+      "effective_crap": 9.2,
       "file": "internal/gitlab/rest.go",
       "function": "*REST.writeStatus"
     },
@@ -215,6 +215,14 @@
       "effective_crap": 8,
       "file": "internal/gitlab/rest.go",
       "function": "NewREST"
+    },
+    {
+      "coverage": 0,
+      "crap": 2,
+      "cyclomatic": 1,
+      "effective_crap": 2,
+      "file": "internal/gitlab/rest.go",
+      "function": "WithAgentLabels"
     },
     {
       "coverage": 100,
@@ -353,6 +361,46 @@
       "function": "ParseGitLabURL"
     },
     {
+      "coverage": 0,
+      "crap": 2,
+      "cyclomatic": 1,
+      "effective_crap": 2,
+      "file": "internal/models/labels.go",
+      "function": "AgentLabels.IsState"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/labels.go",
+      "function": "AgentLabels.State"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/models/labels.go",
+      "function": "AgentLabels.StateFrom"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/labels.go",
+      "function": "AgentLabels.States"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/labels.go",
+      "function": "AgentLabels.Trigger"
+    },
+    {
       "coverage": 100,
       "crap": 5,
       "cyclomatic": 5,
@@ -402,9 +450,9 @@
     },
     {
       "coverage": 100,
-      "crap": 3,
-      "cyclomatic": 3,
-      "effective_crap": 3,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
       "file": "internal/models/marker.go",
       "function": "parseMarker"
     },
@@ -487,30 +535,6 @@
       "effective_crap": 2,
       "file": "internal/models/models.go",
       "function": "NewIssueView"
-    },
-    {
-      "coverage": 100,
-      "crap": 4,
-      "cyclomatic": 4,
-      "effective_crap": 4,
-      "file": "internal/models/models.go",
-      "function": "StateFromLabels"
-    },
-    {
-      "coverage": 100,
-      "crap": 1,
-      "cyclomatic": 1,
-      "effective_crap": 1,
-      "file": "internal/models/models.go",
-      "function": "StateLabel"
-    },
-    {
-      "coverage": 100,
-      "crap": 2,
-      "cyclomatic": 2,
-      "effective_crap": 2,
-      "file": "internal/models/models.go",
-      "function": "StateLabels"
     },
     {
       "coverage": 100,
@@ -1041,7 +1065,7 @@
       "function": "*Dispatcher.noteAgentMR"
     },
     {
-      "coverage": 85.7,
+      "coverage": 88.9,
       "crap": 4,
       "cyclomatic": 4,
       "effective_crap": 4,
@@ -1265,7 +1289,7 @@
       "function": "*Dispatcher.holdRecovery"
     },
     {
-      "coverage": 83.3,
+      "coverage": 100,
       "crap": 3,
       "cyclomatic": 3,
       "effective_crap": 3,
@@ -1305,10 +1329,10 @@
       "function": "*Dispatcher.sweepLoop"
     },
     {
-      "coverage": 75,
-      "crap": 6.6,
+      "coverage": 100,
+      "crap": 6,
       "cyclomatic": 6,
-      "effective_crap": 6.6,
+      "effective_crap": 6,
       "file": "internal/services/dispatcher/recovery.go",
       "function": "parseActorName"
     },
@@ -1473,10 +1497,10 @@
       "function": "StateOf"
     },
     {
-      "coverage": 66.7,
-      "crap": 2.1,
-      "cyclomatic": 2,
-      "effective_crap": 2.1,
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
       "file": "internal/substrate/grpc.go",
       "function": "callCtx"
     },
