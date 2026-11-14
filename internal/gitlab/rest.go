@@ -116,10 +116,12 @@ func NewREST(baseURL, token, caFile, bot string, trigger models.Role, opts ...Op
 }
 
 type apiIssue struct {
-	IID        int64    `json:"iid"`
-	State      string   `json:"state"`
-	Labels     []string `json:"labels"`
-	References struct {
+	IID         int64    `json:"iid"`
+	State       string   `json:"state"`
+	Labels      []string `json:"labels"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	References  struct {
 		Full string `json:"full"`
 	} `json:"references"`
 }
@@ -214,6 +216,8 @@ func (c *REST) issue(ctx context.Context, key models.IssueKey) (models.Issue, er
 		ProjectPath: strings.TrimSuffix(is.References.Full, "#"+strconv.FormatInt(key.IID, 10)),
 		IssueState:  is.State,
 		Labels:      is.Labels,
+		Title:       is.Title,
+		Description: is.Description,
 	}, nil
 }
 

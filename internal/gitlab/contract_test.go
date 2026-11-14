@@ -68,6 +68,7 @@ func TestContract(t *testing.T) {
 		"LoadParsesRecord":                LoadParsesRecord,
 		"LoadNotFound":                    LoadNotFound,
 		"LoadIssueFields":                 LoadIssueFields,
+		"LoadIssueTitleAndDescription":    LoadIssueTitleAndDescription,
 		"WriteOrderRecordLabelNotes":      WriteOrderRecordLabelNotes,
 		"WriteSingleStateLabel":           WriteSingleStateLabel,
 		"WriteSkipsExistingMarkerNote":    WriteSkipsExistingMarkerNote,
@@ -167,6 +168,15 @@ func LoadIssueFields(t *testing.T, f *gitlabtest.Fake, p port) {
 	require.Len(t, v.Notes, 1)
 	assert.True(t, v.Notes[0].System)
 	assert.Equal(t, "owner", v.Notes[0].Author)
+}
+
+func LoadIssueTitleAndDescription(t *testing.T, f *gitlabtest.Fake, p port) {
+	f.SetIssueText(key, "Add a README", "Describe the build.\n\n- make build")
+
+	v, err := p.Load(context.Background(), key)
+	require.NoError(t, err)
+	assert.Equal(t, "Add a README", v.Issue.Title)
+	assert.Equal(t, "Describe the build.\n\n- make build", v.Issue.Description)
 }
 
 func WriteOrderRecordLabelNotes(t *testing.T, f *gitlabtest.Fake, p port) {

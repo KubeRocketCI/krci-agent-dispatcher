@@ -23,6 +23,7 @@ func validEnv() map[string]string {
 		"TURN_LIMIT":             "5",
 		"AGENT_STEPS":            "40",
 		"ANTHROPIC_MODEL":        "model-x",
+		"HOME":                   "/home/agent",
 	}
 }
 
@@ -30,10 +31,10 @@ func getenv(m map[string]string) harness.Getenv {
 	return func(k string) string { return m[k] }
 }
 
-func TestNewAcceptsTheEnvContract(t *testing.T) {
-	h, err := harness.New(getenv(validEnv()), harness.Ports{})
+func TestHandshakeAcceptsTheEnvContract(t *testing.T) {
+	cfg, err := harness.Handshake(getenv(validEnv()))
 	require.NoError(t, err)
-	assert.NotNil(t, h)
+	assert.Equal(t, "/home/agent", cfg.Home)
 }
 
 // refused runs the handshake over validEnv with item set to value and returns the handshake error.
@@ -43,7 +44,7 @@ func refused(t *testing.T, item, value string) *harness.HandshakeError {
 	env := validEnv()
 	env[item] = value
 
-	_, err := harness.New(getenv(env), harness.Ports{})
+	_, err := harness.Handshake(getenv(env))
 	require.Error(t, err, "%s", item)
 
 	var he *harness.HandshakeError
@@ -66,6 +67,7 @@ func TestHandshakeNamesTheItemNotTheValue(t *testing.T) {
 		{"PROJECT_PATH", []string{""}},
 		{"BOT_USERNAME", []string{""}},
 		{"ANTHROPIC_MODEL", []string{""}},
+		{"HOME", []string{""}},
 		{"SESSION_ID", []string{"", "s_" + leak, "s 1", "s=1"}},
 	}
 	for _, tt := range tests {
@@ -109,7 +111,7 @@ func TestHandshakeAcceptsTheLargestDuration(t *testing.T) {
 	env := validEnv()
 	env["TURN_TIMEOUT_SECONDS"] = "9223372036"
 
-	_, err := harness.New(getenv(env), harness.Ports{})
+	_, err := harness.Handshake(getenv(env))
 	require.NoError(t, err)
 }
 
@@ -128,7 +130,7 @@ func TestHandshakeRequiresAWatchdogLimitOfOneMinute(t *testing.T) {
 		env := validEnv()
 		env["TURN_TIMEOUT_SECONDS"], env["POLL_SECONDS"] = tt.timeout, tt.poll
 
-		_, err := harness.New(getenv(env), harness.Ports{})
+		_, err := harness.Handshake(getenv(env))
 		if tt.ok {
 			require.NoError(t, err, "%s/%s", tt.timeout, tt.poll)
 			continue

@@ -85,14 +85,7 @@ func runTurnLoop(sys selftest.System, stderr io.Writer) int {
 		return exitConfig
 	}
 
-	home := sys.Getenv("HOME")
-	if home == "" {
-		log.Error("handshake failed", "error", "HOME: must not be empty")
-
-		return exitConfig
-	}
-
-	notes, err := gitlab.NewREST(cfg.GitLabURL.String(), placeholderToken, "", cfg.Bot, models.Developer,
+	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), placeholderToken, "", cfg.Bot, models.Developer,
 		gitlab.WithLogger(log))
 	if err != nil {
 		log.Error("cannot build the GitLab client", "error", err)
@@ -100,14 +93,9 @@ func runTurnLoop(sys selftest.System, stderr io.Writer) int {
 		return exitSoftware
 	}
 
-	ports := harness.Ports{
-		Notes: notes, Clock: system.Clock{}, State: state.NewFile(filepath.Join(home, stateDirName)), Log: log,
-	}
-	if _, err := harness.New(sys.Getenv, ports); err != nil {
-		log.Error("handshake failed", "error", err)
-
-		return exitConfig
-	}
+	_ = harness.New(cfg, harness.Ports{
+		GitLab: gl, Clock: system.Clock{}, State: state.NewFile(filepath.Join(cfg.Home, stateDirName)), Log: log,
+	})
 
 	log.Error("agent and workspace adapters not built")
 

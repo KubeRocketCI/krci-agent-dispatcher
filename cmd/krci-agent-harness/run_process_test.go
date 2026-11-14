@@ -24,6 +24,7 @@ func validEnv() map[string]string {
 		"TURN_LIMIT":             "5",
 		"AGENT_STEPS":            "40",
 		"ANTHROPIC_MODEL":        "model-x",
+		"HOME":                   "/home/agent",
 	}
 }
 
@@ -84,7 +85,7 @@ func TestProcessRunHandshakeFailureExitsConfig(t *testing.T) {
 			env[tt.item] = tt.value
 
 			code, stderr := runProcess(t, env)
-			assert.Equal(t, exitConfig, code)
+			assert.Equal(t, 78, code)
 
 			rec := logLine(t, stderr)
 			assert.Contains(t, rec["error"], tt.item)
@@ -98,21 +99,21 @@ func TestProcessRunRefusesAWatchdogLimitBelowOneMinute(t *testing.T) {
 	env["TURN_TIMEOUT_SECONDS"], env["POLL_SECONDS"] = "129", "10"
 
 	code, stderr := runProcess(t, env)
-	assert.Equal(t, exitConfig, code)
+	assert.Equal(t, 78, code)
 	assert.Contains(t, logLine(t, stderr)["error"], "watchdog limit")
 }
 
 func TestProcessRunAfterTheHandshakeExitsUnavailable(t *testing.T) {
-	env := validEnv()
-	env["HOME"] = t.TempDir()
-
-	code, stderr := runProcess(t, env)
-	assert.Equal(t, exitUnavailable, code)
+	code, stderr := runProcess(t, validEnv())
+	assert.Equal(t, 69, code)
 	assert.Equal(t, "agent and workspace adapters not built", logLine(t, stderr)["msg"])
 }
 
 func TestProcessRunWithoutHomeExitsConfig(t *testing.T) {
-	code, stderr := runProcess(t, validEnv())
-	assert.Equal(t, exitConfig, code)
+	env := validEnv()
+	delete(env, "HOME")
+
+	code, stderr := runProcess(t, env)
+	assert.Equal(t, 78, code)
 	assert.Contains(t, logLine(t, stderr)["error"], "HOME")
 }

@@ -122,6 +122,7 @@ sequenceDiagram
 
 - The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and `/opt/krci-agent/krci-agent-harness` as the command. The harness image holds the binary at `/krci-agent-harness`.
 - The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, agent steps, the model and the profile's env.
+- A start on a done issue whose actor is transitional, by an author who can trigger, is rechecked, then recorded as error `actor busy`; a suspended, crashed or partial actor is deleted and recreated with a new session.
 - Secrets never enter the actor. The egress gateway adds the GitLab and Anthropic credentials on the way out.
 - Egress: Anthropic, the GitLab host and the profile's hosts. Nothing else.
 
@@ -141,7 +142,7 @@ Logs are JSON lines on stderr. Exit codes: 78 handshake failure, 69 adapters not
 
 GitLab calls send the constant `PRIVATE-TOKEN: placeholder`; the egress gateway replaces it with the bot user's token.
 
-State directory: `$HOME/.krci-agent/state.json`, written atomically. `HOME` unset is a handshake failure, exit 78.
+State directory: `$HOME/.krci-agent/state.json`, written atomically. `HOME` unset or empty is a handshake failure, exit 78.
 
 ### Env contract
 
@@ -166,12 +167,14 @@ A handshake failure logs one line that names the item and the rule, never the va
 
 ### Poll
 
-- One `Step` per `POLL_SECONDS`. The first read is a full read; later polls refresh the last read. A refreshed result with something to act on (a pending reply, or a turn that can start) is confirmed with a full read before the harness acts: a refresh keeps notes deleted since the last read.
+- One poll per `POLL_SECONDS`. The first read, and every read while a reply is pending, is a full read; later polls refresh the last read. A refreshed result with a turn that can start is confirmed with a full read before the harness acts: a refresh keeps notes deleted since the last read.
 - A reply not yet posted (pending reply) comes first. It is held in memory and in the state file. It is dropped when the turn history holds a marker of its session with the same turn number, and the same poll goes on to the next turn; otherwise it is posted again and the poll ends. No new turn starts while a reply is pending.
 - The next turn starts when the turn history has a comment above the last marker's `last=`, or no marker, and the last marker's turn number is below `TURN_LIMIT`.
 - The watchdog deadline is `W` after the start of the poll. It covers workspace preparation, the agent run, the default branch read, verify and publish.
 - A call cut by the deadline gives exit 124. A cancelled harness posts no reply.
-- Reply body: the agent text, then `Turn failed at <step>, exit <rc>.` when `exit` is not 0, or `Turn done.` when the text is empty and `exit` is 0, then the marker.
+- Turn 1 prompt: the issue title and description, then the comments. Later turns: the comments no turn covered.
+- Reply body: the agent text, then `Turn failed at <phase>, exit <rc>.` when `exit` is not 0, or `Turn done.` when the text is empty and `exit` is 0, then the marker.
+- A reply body is at most 50,000 characters; longer text is cut and ends with `[Reply truncated.]` before the marker.
 - The reply is saved, then posted with a context of its own, bounded to 30 s, not the watchdog context. A successful post clears the saved reply.
 
 ### Failure handling by phase
@@ -179,7 +182,7 @@ A handshake failure logs one line that names the item and the rule, never the va
 | Phase | Failure | Result |
 |---|---|---|
 | State read | read error | no work in this poll |
-| State read | corrupt file | read as empty; the next save replaces it |
+| State read | corrupt file | logged once; read as empty; the next save replaces it |
 | Notes read | any error | no work; retry on the next poll |
 | Pending reply | post fails | stays pending; retry on the next poll |
 | Turn work | prepare, agent, default branch, verify, publish | the turn ends in this poll with a failed reply; never retried as work |
@@ -195,11 +198,11 @@ A handshake failure logs one line that names the item and the rule, never the va
 | Prepare, default branch read, verify or publish fails | 1 |
 | Watchdog expires | 124 |
 
-Steps named in a failed reply: `prepare`, `agent`, `verify`, `publish`; the default branch read is `publish`.
+Phases named in a failed reply: `prepare`, `agent`, `verify`, `publish`; the default branch read is `publish`.
 
 Accepted: a reply held only in memory is lost on a restart, and its turn runs again. A marker deleted by a person after a successful post while the saved reply remains: the saved reply is posted again.
 
-Agent and Workspace calls get the watchdog context. Its deadline comes from `Clock.WithDeadline`. An Agent adapter sends TERM 30 s before the deadline and KILL at it; a call cut by the deadline returns an error.
+Agent, Workspace and default branch read calls get the watchdog context. Its deadline comes from `Clock.WithDeadline`. An Agent adapter sends TERM 30 s before the deadline and KILL at it. A call cut at TERM returns an error that wraps `context.DeadlineExceeded`; a call that returns any error after the deadline was cut too. Both give exit 124.
 
 ## Turn marker
 
@@ -213,11 +216,13 @@ The last line of every reply:
 
 - Fixed field order, every field required; `s` is `[0-9A-Za-z-]+`. Per note the last marker counts, then its session is checked.
 - Turn history: the markers of the current session and the comments. A session without a marker starts turn 1 at once. A later turn starts only on a comment after `last`.
-- Current session: the dispatcher's is the `Session` row of the status note; the harness's is its `SESSION_ID`. Recovery rule, dispatcher only: with no session in the status note, the session of the newest bot marker. A set session without a marker takes no other session.
+- Current session: the dispatcher's is the `SESSION_ID` of the actor template while the actor exists, else the `Session` row of the status note; the harness's is its `SESSION_ID`. Recovery rule, dispatcher only: with neither, the session of the newest bot marker. A set session without a marker takes no other session.
+- Re-enable cut: the status note records done and the actor's template names another session than the status note's. The re-enable created the actor and its record writes did not land. The done record is no record then, for every request: the issue goes on as after the create. Without a turn marker of the actor's session, the first activation; a partial actor is created again on a start or a recover request; a running actor is continued.
+- Any other done issue with an actor (a label-only done, the actor's own session, an actor without a session) is a done set by a person: a running actor is stopped, any other is left as it is.
 - Re-enable creates the actor with a new session: turn 1 over every comment, the turn limit counted again. Old notes stay.
 - The turn limit counts `n` of the current session.
 - The dispatcher reads markers only from the bot user's notes.
-- Marker text in the agent's reply is written as `&lt;!-- krci-agent-turn` and does not parse.
+- Every `<!-- krci-agent-` in the agent's reply (turn, status, start-refused, stopped markers) is written as `&lt;!-- krci-agent-` and does not parse.
 
 ## Agent image
 

@@ -388,6 +388,264 @@ func TestStartReEnablesWithNewSession(t *testing.T) {
 	e.assertState(models.Waiting, "")
 }
 
+func TestStartReEnableKeepsNewSessionWhenWaitingWriteFails(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))
+	e.comment(dev)
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 5, 0)})
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})
+	})
+	e.run()
+	e.gl.FailWrite(errRP, errRP, errRP, errRP)
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Equal(t, "session-1", e.session(key), "the status note names the new session")
+	assert.NotContains(t, e.logs.String(), "read-timeout")
+	assert.NotContains(t, e.logs.String(), "turn-timeout")
+	e.assertState(models.Waiting, "")
+}
+
+func TestStartReEnableKeepsNewSessionWhenWaitingWriteAndReloadFail(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))
+	e.comment(dev)
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 2, 0)})
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.FailLoad(failing(errRP, 4)...)
+		e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})
+	})
+	e.run()
+	e.gl.FailWrite(failing(errRP, 4)...)
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Equal(t, "session-1", e.session(key), "the status note converges to the new session")
+	assert.NotContains(t, e.logs.String(), "turn-timeout")
+	assert.NotContains(t, e.logs.String(), "rule=timeout")
+	e.assertState(models.Waiting, "")
+}
+
+func TestClearErrorCreateKeepsNewSessionWhenWaitingWriteAndReloadFail(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Error, Reason: models.ReasonActorMissing}, agentLabels.Trigger(),
+		agentLabels.State(models.Error))
+	e.comment(dev)
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 2, 0)})
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.FailLoad(failing(errRP, 4)...)
+		e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})
+	})
+	e.run()
+	e.gl.FailWrite(failing(errRP, 4)...)
+	e.handle(intake.ClearError, dev)
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "rule=clear-error-create")
+	assert.Equal(t, "session-1", e.session(key), "the status note converges to the new session")
+	assert.NotContains(t, e.logs.String(), "rule=timeout")
+	e.assertState(models.Waiting, "")
+}
+
+// reEnableCutAfterCreate is a done issue whose re-enable was cut by a dispatcher restart right after the actor was
+// created: the status note still says done with the old session.
+func reEnableCutAfterCreate(t *testing.T) *env {
+	t.Helper()
+
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))
+	e.comment(dev)
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 2, 0)})
+	e.comment(dev)
+	e.sb.OnResume(func(string) {
+		e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})
+	})
+
+	return e
+}
+
+func TestRecoveryContinuesReEnableCutAfterCreate(t *testing.T) {
+	e := reEnableCutAfterCreate(t)
+	require.NoError(t, e.sb.Create(context.Background(), actor, models.ActorSpec{
+		ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
+	}))
+	e.run()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "rule=first-activation")
+	assert.Equal(t, 1, e.sb.Count("create-actor", actor), "the actor made before the restart is kept")
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor))
+	assert.Equal(t, 1, e.sb.Count("resume", actor))
+	assert.Equal(t, "session-1", e.session(key), "the status note converges to the actor's session")
+	assert.Equal(t, 1, e.notesWith("s=session-1 n=1 "), "turn 1 of the new session")
+	assert.NotContains(t, e.logs.String(), "rule=timeout")
+	e.assertState(models.Waiting, "")
+}
+
+func TestRecoveryContinuesReEnableCutInsideCreate(t *testing.T) {
+	e := reEnableCutAfterCreate(t)
+	e.sb.Fail("create-policy", errRP)
+	require.Error(t, e.sb.Create(context.Background(), actor, models.ActorSpec{
+		ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-0b", BotUsername: bot,
+	}))
+	e.run()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "rule=recover-partial-create")
+	assert.Equal(t, 1, e.sb.Count("delete-actor", actor), "the partial create is deleted")
+	assert.Equal(t, 2, e.sb.Count("create-actor", actor))
+	assert.Equal(t, 1, e.sb.Count("resume", actor))
+	assert.Equal(t, "session-1", e.session(key), "the status note names the new session")
+	assert.Equal(t, 1, e.notesWith("s=session-1 n=1 "), "turn 1 of the new session")
+	e.assertState(models.Waiting, "")
+}
+
+func TestRecoveryContinuesReEnableCutAfterResume(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))
+	e.comment(dev)
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 2, 0)})
+	e.comment(dev)
+
+	ctx, cut := context.WithCancel(context.Background())
+	first := make(chan struct{})
+
+	e.sb.OnResume(func(string) {
+		e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})
+		cut()
+	})
+	e.gl.FailWrite(failing(errRP, 8)...)
+
+	go func() {
+		defer close(first)
+
+		_ = e.d.Run(ctx)
+	}()
+
+	require.Eventually(t, e.d.Idle, 5*time.Second, time.Millisecond)
+	e.handle(intake.Start, dev)
+	<-first
+
+	require.Equal(t, models.Record{State: models.Done}, e.record(), "the cut leaves the record done")
+	require.Equal(t, session0, e.session(key), "the cut leaves the old session in the status note")
+	require.Equal(t, 1, e.sb.Count("resume", actor))
+
+	e.d = dispatcher.New(e.gl, e.sb, e.clk, dispatcher.Config{
+		Bot: bot, TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
+		NewSessionID: func() string { return "session-2" },
+		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
+	})
+	e.run()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "rule=running-continue")
+	assert.NotContains(t, e.logs.String(), "rule=done-running-stop")
+	assert.Equal(t, 0, e.sb.Count("delete-actor", actor), "the running actor is not stopped")
+	assert.Equal(t, 1, e.sb.Count("create-actor", actor))
+	assert.Equal(t, 1, e.sb.Count("resume", actor), "the actor is not resumed again")
+	assert.Equal(t, "session-1", e.session(key), "the status note converges to the actor's session")
+	assert.Equal(t, 1, e.notesWith("s=session-1 n=1 "), "turn 1 of the new session")
+	assert.NotContains(t, e.logs.String(), "rule=timeout")
+	e.assertState(models.Waiting, "")
+}
+
+// reEnableStalledByWriteOutage is a re-enable cut by a GitLab write outage: every record write of the activation
+// fails, with its retries. The actor of the new session is left suspended under a status note that says done with
+// the old session.
+func reEnableStalledByWriteOutage(t *testing.T, reply bool) *env {
+	t.Helper()
+
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done)) // 101
+	e.comment(dev)                                                                                     // 102
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 2, 102)})         // 103
+
+	if reply {
+		var once sync.Once
+
+		e.sb.OnResume(func(string) {
+			once.Do(func() {
+				e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 102)})
+			})
+		})
+	}
+
+	e.run()
+	e.gl.FailWrite(failing(errRP, 12)...)
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	require.Contains(t, e.logs.String(), "rule=done-start-create")
+	require.Equal(t, models.Record{State: models.Done}, e.record(), "every write failed: the record is still done")
+	require.Equal(t, session0, e.session(key))
+
+	v, err := e.sb.Inspect(t.Context(), actor)
+	require.NoError(t, err)
+	require.Equal(t, models.Suspended, v.State)
+	require.Equal(t, "session-1", v.Session)
+
+	return e
+}
+
+func TestReEnableStalledByWriteOutageActivatesOnComment(t *testing.T) {
+	e := reEnableStalledByWriteOutage(t, false)
+	resumes := e.sb.Count("resume", actor)
+
+	e.comment(dev)
+	e.handle(intake.Activate, dev)
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "rule=first-activation")
+	assert.Equal(t, resumes+1, e.sb.Count("resume", actor), "a comment resumes the re-enabled actor")
+	assert.Equal(t, "session-1", e.session(key), "the status note converges to the actor's session")
+}
+
+func TestRestartAfterReEnableStalledByWriteOutageResumesNoIdleActor(t *testing.T) {
+	e := reEnableStalledByWriteOutage(t, true)
+	resumes := e.sb.Count("resume", actor)
+
+	e.cancel()
+	e.d = dispatcher.New(e.gl, e.sb, e.clk, dispatcher.Config{
+		Bot: bot, TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
+		NewSessionID: func() string { return "session-2" },
+		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
+	})
+	e.run()
+	e.idle()
+
+	assert.Contains(t, e.logs.String(), "rule=no-record-waiting")
+	assert.Equal(t, resumes, e.sb.Count("resume", actor), "turn 1 was replied and no comment waits: no resume")
+	assert.NotContains(t, e.logs.String(), "rule=timeout")
+	assert.Equal(t, "session-1", e.session(key))
+	e.assertState(models.Waiting, "")
+}
+
+// The status note names the old session; the actor's template names session-1, whose turn 1 covered the developer's
+// comments. A reporter's comment is no trigger comment of the actor's session.
+func TestTriggerCheckReadsTheActorSession(t *testing.T) {
+	e := newEnv(t)
+	e.issue(&models.Record{State: models.Waiting}, agentLabels.Trigger(), agentLabels.State(models.Waiting)) // 101
+	e.comment(dev)                                                                                           // 102
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker(session0, 2, 102)})               // 103
+	e.comment(dev)                                                                                           // 104
+	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})            // 105
+	e.comment(reporter)                                                                                      // 106
+	require.NoError(t, e.sb.Create(t.Context(), actor, models.ActorSpec{
+		ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
+	}))
+	e.run()
+	e.idle()
+	e.handle(intake.Activate, reporter)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("resume", actor), "a reporter's comment is no trigger comment")
+	assert.NotContains(t, e.logs.String(), "rule=trigger-activate")
+}
+
 func TestStartOnDoneRefusedForReporter(t *testing.T) {
 	e := newEnv(t)
 	e.issue(&models.Record{State: models.Done}, agentLabels.Trigger(), agentLabels.State(models.Done))

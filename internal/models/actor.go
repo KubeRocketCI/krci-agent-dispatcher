@@ -46,7 +46,8 @@ type ActorSummary struct {
 	State ActorState
 }
 
-// ActorView is the Substrate side of one issue: which parts exist and the actor state.
+// ActorView is the Substrate side of one issue: which parts exist and the actor state. Session is the SESSION_ID of
+// the actor template; empty without a template.
 type ActorView struct {
 	Template     bool
 	Actor        bool
@@ -54,6 +55,7 @@ type ActorView struct {
 	State        ActorState
 	UID          string
 	Pod          string
+	Session      string
 }
 
 // Complete reports whether the actor and its egress policy exist; the policy is created last.

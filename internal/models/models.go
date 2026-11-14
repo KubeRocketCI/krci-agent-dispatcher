@@ -36,6 +36,8 @@ type Issue struct {
 	ProjectPath string
 	IssueState  string
 	Labels      []string
+	Title       string
+	Description string
 }
 
 // Note is one issue note. UpdatedAt is the time of its last edit, the creation time when never edited.
@@ -173,9 +175,10 @@ func StatusNote(notes []Note, bot string) (Note, bool) {
 	return Note{}, false
 }
 
-func isBotNote(n Note, bot string) bool { return !n.System && n.Author == bot }
+// IsBotNote reports whether n is a note written by the bot user, not a system note.
+func IsBotNote(n Note, bot string) bool { return !n.System && n.Author == bot }
 
 // HasMarker reports whether a bot user note contains marker.
 func HasMarker(notes []Note, bot, marker string) bool {
-	return slices.ContainsFunc(notes, func(n Note) bool { return isBotNote(n, bot) && strings.Contains(n.Body, marker) })
+	return slices.ContainsFunc(notes, func(n Note) bool { return IsBotNote(n, bot) && strings.Contains(n.Body, marker) })
 }

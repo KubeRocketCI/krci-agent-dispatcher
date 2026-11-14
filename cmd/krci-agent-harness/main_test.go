@@ -32,9 +32,9 @@ func TestRun(t *testing.T) {
 		wantStdout string
 		wantStderr string
 	}{
-		{name: "no command", want: exitUsage, wantStderr: "usage:"},
-		{name: "unknown command", args: []string{"turn"}, want: exitUsage, wantStderr: "usage:"},
-		{name: "extra argument", args: []string{"selftest", "-v"}, want: exitUsage, wantStderr: "usage:"},
+		{name: "no command", want: 64, wantStderr: "usage:"},
+		{name: "unknown command", args: []string{"turn"}, want: 64, wantStderr: "usage:"},
+		{name: "extra argument", args: []string{"selftest", "-v"}, want: 64, wantStderr: "usage:"},
 		{name: "help", args: []string{"help"}, want: exitOK, wantStdout: "usage:"},
 		{name: "-h", args: []string{"-h"}, want: exitOK, wantStdout: "usage:"},
 		{name: "--help", args: []string{"--help"}, want: exitOK, wantStdout: "usage:"},

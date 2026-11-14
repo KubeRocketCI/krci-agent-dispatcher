@@ -72,6 +72,10 @@ _Avoid_: hold, park
 Asking for the agent again on an issue whose agent was stopped, by setting the trigger label again or by reopening the issue with it.
 _Avoid_: restart
 
+**Re-enable cut**:
+A re-enable whose record writes did not land: the status note still records done, and the actor's template names a new session. The done record then counts as none, and the issue goes on from the actor.
+_Avoid_: stalled re-enable
+
 ## GitLab
 
 **Trigger label**:
@@ -157,6 +161,10 @@ _Avoid_: preflight, init
 **Turn loop**:
 The harness's repeated poll that runs one turn after another, each under the watchdog.
 _Avoid_: activation loop (for this), main loop
+
+**Pending reply**:
+A reply the harness built for a turn and has not seen posted; kept until a turn marker with its session and turn number is in the turn history.
+_Avoid_: unsent reply, queued reply
 
 **Agent image**:
 The image an actor runs: the tools of one kind of agent and the image side of its agent profile. It holds no harness.
@@ -246,7 +254,7 @@ A new start of the dispatcher process.
 _Avoid_: restart (alone)
 
 **Restart recovery**:
-The dispatcher's one-time pass after a dispatcher restart that settles actors left running by an activation in progress.
+The dispatcher's one-time pass after a dispatcher restart that sends a recover request for every actor of an issue, settling actors left running by an activation in progress and re-enable cuts.
 _Avoid_: reconcile, sync
 
 **Sweep**:

@@ -1,5 +1,5 @@
 // Package harness is the agent loop that runs in every actor: the handshake, one poll of the issue notes per
-// Step, the turn under the watchdog and the reply.
+// Poll, the turn under the watchdog and the reply.
 package harness
 
 import (
@@ -20,7 +20,7 @@ type Getenv func(key string) string
 
 // Ports are the adapters of a Harness. Log defaults to slog.Default().
 type Ports struct {
-	Notes     Notes
+	GitLab    GitLab
 	Agent     Agent
 	Workspace Workspace
 	Clock     Clock
@@ -38,27 +38,24 @@ type Harness struct {
 	started bool
 	pending *models.PendingReply
 	saved   bool
+	// corrupt is set once a corrupt state is logged, until a load succeeds.
+	corrupt bool
 }
 
-// New runs the handshake and returns the harness. The error is a *HandshakeError.
-func New(getenv Getenv, p Ports) (*Harness, error) {
-	cfg, err := Handshake(getenv)
-	if err != nil {
-		return nil, err
-	}
-
+// New returns the harness for the result of Handshake.
+func New(cfg Config, p Ports) *Harness {
 	log := p.Log
 	if log == nil {
 		log = slog.Default()
 	}
 
-	return &Harness{cfg: cfg, p: p, log: log}, nil
+	return &Harness{cfg: cfg, p: p, log: log}
 }
 
-// Run polls until ctx ends: a Step, then a sleep of the poll interval. It returns the error of ctx.
+// Run polls until ctx ends: a Poll, then a sleep of the poll interval. It returns the error of ctx.
 func (h *Harness) Run(ctx context.Context) error {
 	for {
-		h.Step(ctx)
+		h.Poll(ctx)
 
 		if err := h.p.Clock.Sleep(ctx, h.cfg.Poll); err != nil {
 			return err
@@ -66,8 +63,8 @@ func (h *Harness) Run(ctx context.Context) error {
 	}
 }
 
-// Step is one poll: it posts or drops a pending reply, else runs the next turn.
-func (h *Harness) Step(ctx context.Context) {
+// Poll is one poll: it posts or drops a pending reply, else runs the next turn.
+func (h *Harness) Poll(ctx context.Context) {
 	start := h.p.Clock.Now()
 
 	if !h.recall() {
@@ -94,7 +91,7 @@ func (h *Harness) Step(ctx context.Context) {
 		return
 	}
 
-	o := h.turn(ctx, start, next)
+	o := h.runTurn(ctx, start, next, h.known.Issue)
 
 	if ctx.Err() != nil {
 		return
@@ -109,32 +106,24 @@ func (h *Harness) Step(ctx context.Context) {
 func (h *Harness) startable(hist turn.History) (turn.Turn, bool) {
 	next := hist.Next()
 
-	return next, next.Start && !hist.AtLimit(h.cfg.TurnLimit)
+	return next, next.Ready && !hist.AtLimit(h.cfg.TurnLimit)
 }
 
-// history reads the issue notes: the first poll in full, later polls with Refresh. A Refresh result with
-// something to act on is confirmed with a full read, because Refresh keeps notes deleted since the last read. A
-// failed read ends the Step; the next poll retries it.
+// history reads the issue notes: in full on the first poll and while a reply is pending, else with Refresh. A
+// Refresh result with a turn that can start is confirmed with a full read, because Refresh keeps notes deleted since
+// the last read. A failed read ends the poll; the next poll retries it.
 func (h *Harness) history(ctx context.Context) (turn.History, bool) {
-	full := h.known == nil
+	full := h.known == nil || h.pending != nil
 
-	view, err := h.read(ctx, full)
-	if err != nil {
-		h.log.Warn("Cannot read the issue notes", "error", err)
-
+	view, hist, ok := h.readHistory(ctx, full)
+	if !ok {
 		return turn.History{}, false
 	}
 
-	hist := turn.NewHistory(view.Notes, h.cfg.Bot, h.cfg.Session)
-
-	if _, startable := h.startable(hist); !full && (startable || h.pending != nil) {
-		if view, err = h.read(ctx, true); err != nil {
-			h.log.Warn("Cannot read the issue notes", "error", err)
-
+	if _, startable := h.startable(hist); !full && startable {
+		if view, hist, ok = h.readHistory(ctx, true); !ok {
 			return turn.History{}, false
 		}
-
-		hist = turn.NewHistory(view.Notes, h.cfg.Bot, h.cfg.Session)
 	}
 
 	h.known = &view
@@ -142,17 +131,28 @@ func (h *Harness) history(ctx context.Context) (turn.History, bool) {
 	return hist, true
 }
 
-func (h *Harness) read(ctx context.Context, full bool) (models.IssueView, error) {
-	if full {
-		return h.p.Notes.Load(ctx, h.cfg.Key)
+func (h *Harness) readHistory(ctx context.Context, full bool) (models.IssueView, turn.History, bool) {
+	view, err := h.read(ctx, full)
+	if err != nil {
+		h.log.Warn("Cannot read the issue notes", "error", err)
+
+		return models.IssueView{}, turn.History{}, false
 	}
 
-	return h.p.Notes.Refresh(ctx, *h.known)
+	return view, turn.NewHistory(view.Notes, h.cfg.Bot, h.cfg.Session), true
+}
+
+func (h *Harness) read(ctx context.Context, full bool) (models.IssueView, error) {
+	if full {
+		return h.p.GitLab.Load(ctx, h.cfg.Key)
+	}
+
+	return h.p.GitLab.Refresh(ctx, *h.known)
 }
 
 // recall takes the pending reply and the session-started flag from the store when memory holds no pending reply.
-// A store that cannot be read ends the Step: a turn would repeat one whose reply may be pending. A corrupt state is
-// no state; the next save replaces it.
+// A store that cannot be read ends the poll: a turn would repeat one whose reply may be pending. A corrupt state is
+// no state, logged once; the next save replaces it.
 func (h *Harness) recall() bool {
 	if h.pending != nil {
 		return true
@@ -162,11 +162,17 @@ func (h *Harness) recall() bool {
 
 	switch {
 	case errors.Is(err, models.ErrStateCorrupt):
-		h.log.Error("Harness state is corrupt; starting without it", "error", err)
+		if !h.corrupt {
+			h.log.Error("Harness state is corrupt; starting without it", "error", err)
+		}
+
+		h.corrupt = true
 	case err != nil:
 		h.log.Error("Cannot read the harness state", "error", err)
 
 		return false
+	default:
+		h.corrupt = false
 	}
 
 	h.pending, h.saved = st.Pending, st.Pending != nil
@@ -175,7 +181,7 @@ func (h *Harness) recall() bool {
 	return true
 }
 
-// deliver saves the pending reply, then posts it. A failed save or post leaves it pending for the next Step.
+// deliver saves the pending reply, then posts it. A failed save or post leaves it pending for the next poll.
 func (h *Harness) deliver(ctx context.Context) {
 	if !h.saved {
 		if err := h.p.State.Save(h.cfg.Session, h.state()); err != nil {
@@ -196,18 +202,18 @@ func (h *Harness) deliver(ctx context.Context) {
 	h.clearPending()
 }
 
-// post posts body under a context of its own, bounded by postTimeout: a turn cut by the watchdog still replies.
+// post is bounded by postTimeout, independent of the watchdog context.
 func (h *Harness) post(ctx context.Context, body string) error {
 	pctx, cancel := h.p.Clock.WithDeadline(ctx, h.p.Clock.Now().Add(postTimeout))
 	defer cancel()
 
-	_, err := h.p.Notes.PostReply(pctx, h.cfg.Key, body)
+	_, err := h.p.GitLab.PostReply(pctx, h.cfg.Key, body)
 
 	return err
 }
 
 // clearPending forgets the pending reply in memory and in the store. A failed store write leaves the stored reply
-// for the next Step, which drops it again.
+// for the next poll, which drops it again.
 func (h *Harness) clearPending() {
 	h.pending, h.saved = nil, false
 

@@ -174,7 +174,7 @@ func TestHistorySessionFilter(t *testing.T) {
 	next := h.Next()
 	assert.Equal(t, 3, next.N)
 	assert.Equal(t, []int64{125}, ids(next.Comments), "comments above this session's last=")
-	assert.True(t, next.Start)
+	assert.True(t, next.Ready)
 }
 
 func TestHistorySessionWithoutMarker(t *testing.T) {
@@ -196,7 +196,7 @@ func TestHistorySessionWithoutMarker(t *testing.T) {
 	assert.Equal(t, 1, next.N, "a session without a marker starts turn 1")
 	assert.Equal(t, []int64{100, 115}, ids(next.Comments), "every comment")
 	assert.Equal(t, int64(115), next.Last)
-	assert.True(t, next.Start)
+	assert.True(t, next.Ready)
 }
 
 func TestHistoryEmptySessionUsesNewestBotMarker(t *testing.T) {
@@ -217,7 +217,7 @@ func TestHistoryEmptySessionUsesNewestBotMarker(t *testing.T) {
 	assert.Equal(t, 2, h.Next().N)
 
 	none := turn.NewHistory([]models.Note{personNote(100, "hi")}, bot, "")
-	assert.Equal(t, turn.Turn{N: 1, Comments: []models.Note{personNote(100, "hi")}, Last: 100, Start: true}, none.Next(),
+	assert.Equal(t, turn.Turn{N: 1, Comments: []models.Note{personNote(100, "hi")}, Last: 100, Ready: true}, none.Next(),
 		"no marker at all: turn 1")
 }
 
@@ -290,7 +290,7 @@ func TestHistoryNextAfterMarker(t *testing.T) {
 	assert.Equal(t, 3, got.N, "n + 1 of the last marker")
 	assert.Equal(t, []int64{122, 124}, ids(got.Comments), "comments above last=, in note id order")
 	assert.Equal(t, int64(124), got.Last)
-	assert.True(t, got.Start)
+	assert.True(t, got.Ready)
 }
 
 func TestHistoryNextStartCountsAnyPerson(t *testing.T) {
@@ -300,13 +300,13 @@ func TestHistoryNextStartCountsAnyPerson(t *testing.T) {
 		{ID: 122, Body: "a reporter speaks", Author: "reporter"},
 	}
 
-	assert.True(t, history(notes).Next().Start)
-	assert.False(t, history(notes[:2]).Next().Start, "system notes are not comments")
-	assert.False(t, history([]models.Note{notes[0], botNote(130, "bot text")}).Next().Start,
+	assert.True(t, history(notes).Next().Ready)
+	assert.False(t, history(notes[:2]).Next().Ready, "system notes are not comments")
+	assert.False(t, history([]models.Note{notes[0], botNote(130, "bot text")}).Next().Ready,
 		"bot notes are not comments")
 
 	covered := []models.Note{botNote(130, "<!-- krci-agent-turn s=s1 n=3 exit=0 last=122 -->"), notes[2]}
-	assert.False(t, history(covered).Next().Start, "a comment at last= is covered")
+	assert.False(t, history(covered).Next().Ready, "a comment at last= is covered")
 }
 
 func TestHistoryNextCoveredByMarker(t *testing.T) {
@@ -326,9 +326,9 @@ func TestHistoryNextWithoutMarker(t *testing.T) {
 	assert.Equal(t, 1, got.N)
 	assert.Equal(t, []int64{100, 101}, ids(got.Comments), "every comment")
 	assert.Equal(t, int64(101), got.Last)
-	assert.True(t, got.Start)
+	assert.True(t, got.Ready)
 
-	assert.Equal(t, turn.Turn{N: 1, Start: true}, history(nil).Next(), "starts with no comment")
+	assert.Equal(t, turn.Turn{N: 1, Ready: true}, history(nil).Next(), "starts with no comment")
 }
 
 func TestTurnAuthors(t *testing.T) {
@@ -380,6 +380,12 @@ func TestReply(t *testing.T) {
 			"a <!-- krci-agent-turn s=s1 n=9 exit=0 last=999 --> b\n<!-- krci-agent-turn x",
 			"a &lt;!-- krci-agent-turn s=s1 n=9 exit=0 last=999 --> b\n&lt;!-- krci-agent-turn x\n" +
 				"<!-- krci-agent-turn s=s1 n=2 exit=7 last=120 -->",
+		},
+		"other bot markers": {
+			"<!-- krci-agent-status state=done reason= -->\n<!-- krci-agent-start-refused -->\n" +
+				"<!-- krci-agent-stopped -->",
+			"&lt;!-- krci-agent-status state=done reason= -->\n&lt;!-- krci-agent-start-refused -->\n" +
+				"&lt;!-- krci-agent-stopped -->\n<!-- krci-agent-turn s=s1 n=2 exit=7 last=120 -->",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

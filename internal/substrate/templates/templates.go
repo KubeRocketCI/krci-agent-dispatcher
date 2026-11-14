@@ -93,3 +93,16 @@ func render(funcs template.FuncMap, name string, p Params, out proto.Message) er
 
 	return nil
 }
+
+// SessionOf returns the SESSION_ID env of the first container that sets it; empty when none does.
+func SessionOf(tmpl *ateapi.ActorTemplate) string {
+	for _, c := range tmpl.GetContainers() {
+		for _, e := range c.GetEnv() {
+			if e.GetName() == "SESSION_ID" {
+				return e.GetValue()
+			}
+		}
+	}
+
+	return ""
+}
