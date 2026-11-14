@@ -26,9 +26,11 @@ const (
 )
 
 type issue struct {
-	path   string
-	state  string
-	labels []string
+	path        string
+	state       string
+	labels      []string
+	title       string
+	description string
 }
 
 type mrKey struct{ projectID, iid int64 }
@@ -188,6 +190,15 @@ func (f *Fake) SetIssue(key models.IssueKey, state string, labels ...string) {
 
 	f.issues[key].state = state
 	f.issues[key].labels = slices.Clone(labels)
+}
+
+// SetIssueText sets the title and the description of an existing issue.
+func (f *Fake) SetIssueText(key models.IssueKey, title, description string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.issues[key].title = title
+	f.issues[key].description = description
 }
 
 // DeleteIssue removes an issue and its notes.
@@ -499,7 +510,10 @@ func (f *Fake) viewLocked(key models.IssueKey, notes []models.Note) (models.Issu
 		return models.IssueView{}, fmt.Errorf("issue %s: %w", key, models.ErrNotFound)
 	}
 
-	issue := models.Issue{Key: key, ProjectPath: is.path, IssueState: is.state, Labels: slices.Clone(is.labels)}
+	issue := models.Issue{
+		Key: key, ProjectPath: is.path, IssueState: is.state, Labels: slices.Clone(is.labels),
+		Title: is.title, Description: is.description,
+	}
 
 	return models.NewIssueView(issue, notes, f.bot), nil
 }
@@ -869,11 +883,13 @@ func (f *Fake) getIssue(w http.ResponseWriter, _ *http.Request, key models.Issue
 	f.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"iid":        key.IID,
-		"project_id": key.ProjectID,
-		"state":      is.state,
-		"labels":     is.labels,
-		"references": map[string]string{"full": fmt.Sprintf("%s#%d", is.path, key.IID)},
+		"iid":         key.IID,
+		"project_id":  key.ProjectID,
+		"state":       is.state,
+		"labels":      is.labels,
+		"title":       is.title,
+		"description": is.description,
+		"references":  map[string]string{"full": fmt.Sprintf("%s#%d", is.path, key.IID)},
 	})
 }
 

@@ -7,12 +7,13 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-// Notes is the harness's view of the Git provider. Load, Refresh and PostReply act on the issue key; the rules of
-// the dispatcher's GitLab port apply: Refresh keeps a note deleted since the last read, Load does not.
+// GitLab is the harness's view of the Git provider. Load, Refresh and PostReply act on the issue key; the rules of
+// the dispatcher's GitLab port apply: Refresh keeps a note deleted since the last read, Load does not. DefaultBranch
+// gets the watchdog context, as for Agent.
 //
 // Errors: models.ErrNotFound when the issue or its project does not exist; models.ErrForbidden when the Git
 // provider refuses the token. Any other error is a failed call; the harness retries it on the next poll.
-type Notes interface {
+type GitLab interface {
 	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
 	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
 	PostReply(ctx context.Context, key models.IssueKey, body string) (models.Note, error)
@@ -23,8 +24,8 @@ type Notes interface {
 // an error means the run gave no usable exit code.
 //
 // Every call gets the watchdog context. Its deadline comes from Clock.WithDeadline. An adapter sends TERM 30 s
-// before the deadline and KILL at it, and a call cut by the deadline returns an error; the turn loop maps it to
-// exit 124.
+// before the deadline and KILL at it. A call cut at TERM returns an error that wraps context.DeadlineExceeded; the
+// turn loop maps it, and any error returned after the deadline, to exit 124.
 type Agent interface {
 	Run(ctx context.Context, prompt string) (text string, exitCode int, err error)
 }
@@ -32,8 +33,8 @@ type Agent interface {
 // Workspace is the checkout of the project and its publish steps.
 //
 // Every call gets the watchdog context, as for Agent. Prepare clones the project and runs the setup when fresh,
-// else fetches. Verify runs the verify step. Publish pushes the issue branch and opens or updates its merge
-// request to defaultBranch.
+// replacing any existing checkout, else fetches. Verify runs the verify step. Publish pushes the issue branch and
+// opens or updates its merge request to defaultBranch.
 type Workspace interface {
 	Prepare(ctx context.Context, fresh bool) error
 	Verify(ctx context.Context) error

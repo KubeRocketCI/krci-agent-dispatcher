@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
@@ -39,8 +40,9 @@ type Marker struct {
 }
 
 const (
-	markerPrefix  = "<!-- krci-agent-turn"
-	markerEscaped = "&lt;!-- krci-agent-turn"
+	markerPrefix = "<!-- krci-agent-turn"
+	botPrefix    = "<!-- krci-agent-"
+	botEscaped   = "&lt;!-- krci-agent-"
 )
 
 // markerLikeRe finds every marker-like text; markerRe parses one. A marker-like text that does not parse is no
@@ -56,10 +58,24 @@ func render(m Marker) string {
 	return fmt.Sprintf("%s s=%s n=%d exit=%d last=%d -->", markerPrefix, m.Session, m.Turn, m.Exit, m.Last)
 }
 
-// Reply returns the body of a reply: text, then the marker m as its own last line. Every marker prefix in text is
-// written as &lt;!-- krci-agent-turn, so text never parses as a marker.
+// maxReplyLen is the longest reply body in characters; a GitLab note holds 1,000,000.
+const maxReplyLen = 50_000
+
+const truncationNotice = "\n\n[Reply truncated.]"
+
+// Reply returns the body of a reply: text, then the marker m as its own last line. Every hidden bot marker prefix
+// in text is written as &lt;!-- krci-agent-, so text never parses as a marker. A body above 50,000 characters ends
+// its text with a truncation notice.
 func Reply(text string, m Marker) string {
-	return strings.ReplaceAll(text, markerPrefix, markerEscaped) + "\n" + render(m)
+	text = strings.ReplaceAll(text, botPrefix, botEscaped)
+	tail := "\n" + render(m)
+
+	if budget := maxReplyLen - utf8.RuneCountInString(tail); utf8.RuneCountInString(text) > budget {
+		keep := budget - utf8.RuneCountInString(truncationNotice)
+		text = string([]rune(text)[:keep]) + truncationNotice
+	}
+
+	return text + tail
 }
 
 // parseMarker reads the last marker-like text of a note. The harness appends the real marker after the agent's
@@ -89,13 +105,21 @@ func parseMarker(n models.Note) (Marker, bool) {
 
 func isComment(n models.Note, bot string) bool { return !n.System && n.Author != bot }
 
-func isBotNote(n models.Note, bot string) bool { return !n.System && n.Author == bot }
-
 // History is the turn markers of one session and the comments of an issue, ordered by note id, never by turn
 // number: a turn repeated after a revert has the same n.
 type History struct {
 	markers  []Marker
 	comments []models.Note
+}
+
+// Session returns the session of the turn history: the actor's while its template names one, else the status note's.
+// Empty when neither names one; NewHistory then takes the session of the newest marker.
+func Session(actor models.ActorView, status models.StatusView) string {
+	if actor.Session != "" {
+		return actor.Session
+	}
+
+	return status.Session
 }
 
 // NewHistory reads the turn history of session from notes: markers from the bot user's notes, comments from the
@@ -109,7 +133,7 @@ func NewHistory(notes []models.Note, bot, session string) History {
 		switch {
 		case isComment(n, bot):
 			h.comments = append(h.comments, n)
-		case isBotNote(n, bot):
+		case models.IsBotNote(n, bot):
 			if m, ok := parseMarker(n); ok {
 				h.markers = append(h.markers, m)
 			}
@@ -138,8 +162,8 @@ func (h History) HasTurn(n int) bool {
 	return slices.ContainsFunc(h.markers, func(m Marker) bool { return m.Turn == n })
 }
 
-// last returns the marker with the highest note id.
-func (h History) last() (Marker, bool) {
+// Last returns the marker with the highest note id.
+func (h History) Last() (Marker, bool) {
 	if len(h.markers) == 0 {
 		return Marker{}, false
 	}
@@ -149,7 +173,7 @@ func (h History) last() (Marker, bool) {
 
 // MarkerAfter returns the marker with the highest note id when that id is above since.
 func (h History) MarkerAfter(since int64) (Marker, bool) {
-	m, ok := h.last()
+	m, ok := h.Last()
 	if !ok || m.NoteID <= since {
 		return Marker{}, false
 	}
@@ -168,24 +192,24 @@ func (h History) PreviousID() int64 {
 
 // AtLimit reports whether the last marker's turn number is at or above limit; false without a marker.
 func (h History) AtLimit(limit int) bool {
-	m, ok := h.last()
+	m, ok := h.Last()
 
 	return ok && m.Turn >= limit
 }
 
 // Turn is the next turn of a history. Comments are the comments no turn covered, in note id order; Last is the
-// highest note id among them, 0 when there is none.
+// highest note id among them, 0 when there is none. Ready reports that the turn has something to run.
 type Turn struct {
 	N        int
 	Comments []models.Note
 	Last     int64
-	Start    bool
+	Ready    bool
 }
 
-// Next returns the next turn: after the last marker, turn n + 1 over the comments above its last=, started when there
-// is one; without a marker, turn 1 over every comment, started with or without a comment.
+// Next returns the next turn: after the last marker, turn n + 1 over the comments above its last=, ready when there
+// is one; without a marker, turn 1 over every comment, ready with or without a comment.
 func (h History) Next() Turn {
-	m, marked := h.last()
+	m, marked := h.Last()
 	t := Turn{N: m.Turn + 1}
 
 	for _, n := range h.comments {
@@ -195,7 +219,7 @@ func (h History) Next() Turn {
 		}
 	}
 
-	t.Start = !marked || len(t.Comments) > 0
+	t.Ready = !marked || len(t.Comments) > 0
 
 	return t
 }

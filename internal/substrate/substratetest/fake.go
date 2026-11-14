@@ -188,7 +188,8 @@ func (f *Fake) ClearOps() {
 	f.ops = nil
 }
 
-// Spec returns the spec of the last successful Create of name through the port; deleting the actor clears it.
+// Spec returns the spec of the Create of name through the port that made its template; deleting the template clears
+// it.
 func (f *Fake) Spec(name string) (models.ActorSpec, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -198,7 +199,7 @@ func (f *Fake) Spec(name string) (models.ActorSpec, bool) {
 	return s, ok
 }
 
-// SentTemplate returns the last actor template of name the gRPC server received in a create; nil when none or
+// SentTemplate returns the actor template of name that the gRPC server stored in a create; nil when none or
 // after the template is deleted.
 func (f *Fake) SentTemplate(name string) *ateapi.ActorTemplate {
 	f.mu.Lock()
@@ -253,6 +254,9 @@ func (f *Fake) Inspect(_ context.Context, name string) (models.ActorView, error)
 	}
 
 	v := models.ActorView{Template: f.templates[name], EgressPolicy: f.policies[name], State: models.None}
+	if v.Template {
+		v.Session = f.specs[name].SessionID
+	}
 
 	a, st := f.observeLocked(name)
 	if a == nil {
@@ -335,13 +339,18 @@ func (f *Fake) Create(_ context.Context, name string, spec models.ActorSpec) err
 		return fmt.Errorf("create %s: %w: %w", name, models.ErrInvalidSpec, err)
 	}
 
-	for _, step := range []func(string) error{f.createTemplateLocked, f.createActorLocked, f.createPolicyLocked} {
+	switch err := f.createTemplateLocked(name); {
+	case err == nil:
+		f.specs[name] = spec
+	case !errors.Is(err, errAlreadyExists):
+		return err
+	}
+
+	for _, step := range []func(string) error{f.createActorLocked, f.createPolicyLocked} {
 		if err := step(name); err != nil && !errors.Is(err, errAlreadyExists) {
 			return err
 		}
 	}
-
-	f.specs[name] = spec
 
 	return nil
 }
@@ -515,7 +524,6 @@ func (f *Fake) deleteActorLocked(name string) bool {
 	}
 
 	delete(f.actors, name)
-	delete(f.specs, name)
 	f.opLocked("delete-actor", name)
 
 	return true
@@ -527,6 +535,7 @@ func (f *Fake) deleteTemplateLocked(name string) bool {
 	}
 
 	delete(f.templates, name)
+	delete(f.specs, name)
 	delete(f.sentTmpl, name)
 	f.opLocked("delete-template", name)
 
@@ -586,9 +595,12 @@ func (s *server) GetActorTemplate(
 		return nil, status.Error(codes.NotFound, "actor template not found")
 	}
 
-	md := &ateapi.ResourceMetadata{Atespace: s.f.atespace, Name: req.GetActorTemplate().GetName()}
+	name := req.GetActorTemplate().GetName()
+	if sent := s.f.sentTmpl[name]; sent != nil {
+		return proto.CloneOf(sent), nil
+	}
 
-	return &ateapi.ActorTemplate{Metadata: md}, nil
+	return &ateapi.ActorTemplate{Metadata: &ateapi.ResourceMetadata{Atespace: s.f.atespace, Name: name}}, nil
 }
 
 func (s *server) GetActor(ctx context.Context, req *ateapi.GetActorRequest) (*ateapi.Actor, error) {
@@ -677,9 +689,13 @@ func (s *server) CreateActorTemplate(
 	}
 
 	return req.GetActorTemplate(), s.locked(func() error {
+		if err := s.f.createTemplateLocked(md.GetName()); err != nil {
+			return err
+		}
+
 		s.f.sentTmpl[md.GetName()] = proto.CloneOf(req.GetActorTemplate())
 
-		return s.f.createTemplateLocked(md.GetName())
+		return nil
 	})
 }
 

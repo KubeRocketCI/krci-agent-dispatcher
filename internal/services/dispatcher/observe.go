@@ -49,7 +49,7 @@ func (d *Dispatcher) observe(ctx context.Context, log *slog.Logger, r intake.Req
 	comments, author := decide.TriggerChecks(f, d.limits)
 
 	if comments {
-		f.TriggerAfterLast = d.triggerAfterLast(ctx, log, view)
+		f.TriggerAfterLast = d.triggerAfterLast(ctx, log, view, f.Actor)
 	}
 
 	if author {

@@ -113,6 +113,14 @@
       "function": "*REST.CheckProject"
     },
     {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.DefaultBranch"
+    },
+    {
       "coverage": 80,
       "crap": 3.1,
       "cyclomatic": 3,
@@ -127,6 +135,14 @@
       "effective_crap": 11.8,
       "file": "internal/gitlab/rest.go",
       "function": "*REST.NoteMergeRequest"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/gitlab/rest.go",
+      "function": "*REST.PostReply"
     },
     {
       "coverage": 83.3,
@@ -274,9 +290,9 @@
     },
     {
       "coverage": 100,
-      "crap": 5,
-      "cyclomatic": 5,
-      "effective_crap": 5,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
       "file": "internal/models/actor.go",
       "function": "ActorSpec.Validate"
     },
@@ -327,6 +343,14 @@
       "effective_crap": 3,
       "file": "internal/models/actor.go",
       "function": "ActorView.Partial"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/models/actor.go",
+      "function": "ValidSessionID"
     },
     {
       "coverage": 100,
@@ -426,6 +450,14 @@
     },
     {
       "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/models/models.go",
+      "function": "IsBotNote"
+    },
+    {
+      "coverage": 100,
       "crap": 1,
       "cyclomatic": 1,
       "effective_crap": 1,
@@ -501,14 +533,6 @@
       "crap": 2,
       "cyclomatic": 2,
       "effective_crap": 2,
-      "file": "internal/models/models.go",
-      "function": "isBotNote"
-    },
-    {
-      "coverage": 100,
-      "crap": 2,
-      "cyclomatic": 2,
-      "effective_crap": 2,
       "file": "internal/models/record.go",
       "function": "MergeStatus"
     },
@@ -578,9 +602,9 @@
     },
     {
       "coverage": 100,
-      "crap": 20,
-      "cyclomatic": 20,
-      "effective_crap": 20,
+      "crap": 18,
+      "cyclomatic": 18,
+      "effective_crap": 18,
       "file": "internal/services/decide/decide.go",
       "function": "Decide"
     },
@@ -682,9 +706,9 @@
     },
     {
       "coverage": 100,
-      "crap": 17,
-      "cyclomatic": 17,
-      "effective_crap": 17,
+      "crap": 16,
+      "cyclomatic": 16,
+      "effective_crap": 16,
       "file": "internal/services/decide/decide.go",
       "function": "facts.complete"
     },
@@ -711,6 +735,30 @@
       "effective_crap": 7,
       "file": "internal/services/decide/decide.go",
       "function": "facts.disabled"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.done"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.doneRecover"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.doneStart"
     },
     {
       "coverage": 100,
@@ -751,6 +799,14 @@
       "effective_crap": 3,
       "file": "internal/services/decide/decide.go",
       "function": "facts.repairWrites"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/decide/decide.go",
+      "function": "facts.transitional"
     },
     {
       "coverage": 100,
@@ -1105,7 +1161,7 @@
       "function": "*Dispatcher.loop"
     },
     {
-      "coverage": 92.3,
+      "coverage": 100,
       "crap": 8,
       "cyclomatic": 8,
       "effective_crap": 8,
@@ -1269,6 +1325,246 @@
       "crap": 1,
       "cyclomatic": 1,
       "effective_crap": 1,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*HandshakeError.Error"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.contractVersion"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.gitlabURL"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.nonEmpty"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.positive"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.refuse"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.seconds"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/handshake.go",
+      "function": "*reader.session"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/harness/handshake.go",
+      "function": "Handshake"
+    },
+    {
+      "coverage": 94.1,
+      "crap": 7,
+      "cyclomatic": 7,
+      "effective_crap": 7,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.Poll"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.Run"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.clearPending"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.deliver"
+    },
+    {
+      "coverage": 75,
+      "crap": 6.6,
+      "cyclomatic": 6,
+      "effective_crap": 6.6,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.history"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.post"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.read"
+    },
+    {
+      "coverage": 50,
+      "crap": 2.5,
+      "cyclomatic": 2,
+      "effective_crap": 2.5,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.readHistory"
+    },
+    {
+      "coverage": 100,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.recall"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.startable"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/harness/harness.go",
+      "function": "*Harness.state"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/services/harness/harness.go",
+      "function": "New"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/services/harness/work.go",
+      "function": "*Harness.markStarted"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/harness/work.go",
+      "function": "*Harness.prepare"
+    },
+    {
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/harness/work.go",
+      "function": "*Harness.publish"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/harness/work.go",
+      "function": "*Harness.runTurn"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
+      "file": "internal/services/harness/work.go",
+      "function": "*Harness.work"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/harness/work.go",
+      "function": "exitCode"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/services/harness/work.go",
+      "function": "failed"
+    },
+    {
+      "coverage": 87.5,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
+      "file": "internal/services/harness/work.go",
+      "function": "outcome.body"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/services/harness/work.go",
+      "function": "prompt"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
       "file": "internal/services/intake/intake.go",
       "function": "Kind.String"
     },
@@ -1377,6 +1673,54 @@
       "function": "result"
     },
     {
+      "coverage": 90.9,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/state/file.go",
+      "function": "*File.Load"
+    },
+    {
+      "coverage": 52.9,
+      "crap": 14.7,
+      "cyclomatic": 8,
+      "effective_crap": 14.7,
+      "file": "internal/state/file.go",
+      "function": "*File.Save"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/state/file.go",
+      "function": "*File.path"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/state/file.go",
+      "function": "NewFile"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/state/file.go",
+      "function": "syncDir"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/state/file.go",
+      "function": "writeSync"
+    },
+    {
       "coverage": 100,
       "crap": 1,
       "cyclomatic": 1,
@@ -1385,10 +1729,10 @@
       "function": "*GRPC.Close"
     },
     {
-      "coverage": 83.3,
-      "crap": 4.1,
+      "coverage": 91.7,
+      "crap": 4,
       "cyclomatic": 4,
-      "effective_crap": 4.1,
+      "effective_crap": 4,
       "file": "internal/substrate/grpc.go",
       "function": "*GRPC.Create"
     },
@@ -1521,12 +1865,44 @@
       "function": "Render"
     },
     {
+      "coverage": 0,
+      "crap": 20,
+      "cyclomatic": 4,
+      "effective_crap": 20,
+      "file": "internal/substrate/templates/templates.go",
+      "function": "SessionOf"
+    },
+    {
       "coverage": 55.6,
       "crap": 7.2,
       "cyclomatic": 5,
       "effective_crap": 7.2,
       "file": "internal/substrate/templates/templates.go",
       "function": "render"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/system/clock.go",
+      "function": "Clock.Now"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/system/clock.go",
+      "function": "Clock.Sleep"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/system/clock.go",
+      "function": "Clock.WithDeadline"
     },
     {
       "coverage": 100,
@@ -1586,6 +1962,22 @@
     },
     {
       "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/turn/turn.go",
+      "function": "History.HasTurn"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/turn/turn.go",
+      "function": "History.Last"
+    },
+    {
+      "coverage": 100,
       "crap": 3,
       "cyclomatic": 3,
       "effective_crap": 3,
@@ -1610,19 +2002,27 @@
     },
     {
       "coverage": 100,
-      "crap": 2,
-      "cyclomatic": 2,
-      "effective_crap": 2,
-      "file": "internal/turn/turn.go",
-      "function": "History.last"
-    },
-    {
-      "coverage": 100,
       "crap": 5,
       "cyclomatic": 5,
       "effective_crap": 5,
       "file": "internal/turn/turn.go",
       "function": "NewHistory"
+    },
+    {
+      "coverage": 75,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/turn/turn.go",
+      "function": "Reply"
+    },
+    {
+      "coverage": 0,
+      "crap": 6,
+      "cyclomatic": 2,
+      "effective_crap": 6,
+      "file": "internal/turn/turn.go",
+      "function": "Session"
     },
     {
       "coverage": 100,
@@ -1634,11 +2034,11 @@
     },
     {
       "coverage": 100,
-      "crap": 2,
-      "cyclomatic": 2,
-      "effective_crap": 2,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
       "file": "internal/turn/turn.go",
-      "function": "isBotNote"
+      "function": "WatchdogLimit"
     },
     {
       "coverage": 100,
@@ -1650,11 +2050,27 @@
     },
     {
       "coverage": 100,
-      "crap": 4,
-      "cyclomatic": 4,
-      "effective_crap": 4,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/turn/turn.go",
+      "function": "ofSession"
+    },
+    {
+      "coverage": 100,
+      "crap": 5,
+      "cyclomatic": 5,
+      "effective_crap": 5,
       "file": "internal/turn/turn.go",
       "function": "parseMarker"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/turn/turn.go",
+      "function": "render"
     }
   ]
 }

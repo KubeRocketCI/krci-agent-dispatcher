@@ -24,6 +24,7 @@ type Config struct {
 	Bot         string
 	Session     string
 	Model       string
+	Home        string
 	TurnLimit   int
 	AgentSteps  int
 	TurnTimeout time.Duration
@@ -118,6 +119,7 @@ func Handshake(getenv Getenv) (Config, error) {
 		Bot:         r.nonEmpty("BOT_USERNAME"),
 		Session:     r.session("SESSION_ID"),
 		Model:       r.nonEmpty("ANTHROPIC_MODEL"),
+		Home:        r.nonEmpty("HOME"),
 	}
 
 	c.Key = models.IssueKey{ProjectID: r.positive("PROJECT_ID"), IID: r.positive("ISSUE_IID")}
@@ -127,7 +129,7 @@ func Handshake(getenv Getenv) (Config, error) {
 
 	r.contractVersion("AGENT_CONTRACT_VERSION")
 
-	// A poll above the turn timeout stays out of WatchdogLimit: its difference would overflow.
+	// WatchdogLimit takes a poll below the turn timeout.
 	if c.TurnTimeout > c.Poll {
 		c.Watchdog = turn.WatchdogLimit(c.TurnTimeout, c.Poll)
 	}

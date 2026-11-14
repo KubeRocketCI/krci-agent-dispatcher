@@ -15,7 +15,6 @@ import (
 const (
 	fileName = "state.json"
 	dirMode  = 0o700
-	fileMode = 0o600
 )
 
 // File keeps the state of one session in <dir>/state.json. Save replaces the file atomically; state of another
@@ -87,7 +86,7 @@ func (f *File) Save(session string, s models.HarnessState) error {
 		return fmt.Errorf("write harness state: %w", err)
 	}
 
-	if err := writeClose(tmp, b); err != nil {
+	if err := writeSync(tmp, b); err != nil {
 		_ = os.Remove(tmp.Name())
 
 		return fmt.Errorf("write harness state: %w", err)
@@ -99,11 +98,29 @@ func (f *File) Save(session string, s models.HarnessState) error {
 		return fmt.Errorf("write harness state: %w", err)
 	}
 
+	if err := syncDir(f.dir); err != nil {
+		return fmt.Errorf("sync harness state dir: %w", err)
+	}
+
 	return nil
 }
 
-func writeClose(f *os.File, b []byte) error {
+// writeSync writes b, flushes it to disk and closes f.
+func writeSync(f *os.File, b []byte) error {
 	_, err := f.Write(b)
+	if err == nil {
+		err = f.Sync()
+	}
 
 	return errors.Join(err, f.Close())
+}
+
+// syncDir flushes the directory entry of a renamed file.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+
+	return errors.Join(d.Sync(), d.Close())
 }

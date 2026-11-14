@@ -171,7 +171,7 @@ func (d *Dispatcher) reload(ctx context.Context, log *slog.Logger, c *current) {
 	c.actor = actor
 }
 
-// createActor creates the actor with a new session and sets the session on the current view.
+// createActor creates the actor with a new session.
 func (d *Dispatcher) createActor(ctx context.Context, log *slog.Logger, c *current) error {
 	name := c.key.ActorName()
 	session := d.cfg.NewSessionID()
@@ -183,8 +183,6 @@ func (d *Dispatcher) createActor(ctx context.Context, log *slog.Logger, c *curre
 	if err := d.retry(ctx, func() error { return d.sb.Create(ctx, name, spec) }); err != nil {
 		return err
 	}
-
-	c.view.Status.Session = session
 
 	log.Info("Actor created", "actor", name, "session", session)
 

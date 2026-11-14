@@ -2,6 +2,7 @@ package substrate_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,7 @@ func TestContract(t *testing.T) {
 		"DeleteRunning":          DeleteRunning,
 		"CreateInvalidSpec":      CreateInvalidSpec,
 		"DeleteClearsRecorded":   DeleteClearsRecorded,
+		"InspectReportsSession":  InspectReportsSession,
 	}
 
 	for subject, build := range subjects() {
@@ -260,4 +262,29 @@ func DeleteClearsRecorded(t *testing.T, f *substratetest.Fake, p port) {
 	assert.False(t, recorded)
 	assert.Nil(t, f.SentTemplate(actor))
 	assert.Nil(t, f.SentEgressPolicy(actor))
+}
+
+func InspectReportsSession(t *testing.T, f *substratetest.Fake, p port) {
+	ctx := context.Background()
+
+	v, err := p.Inspect(ctx, actor)
+	require.NoError(t, err)
+	assert.Empty(t, v.Session, "no template, no session")
+
+	require.NoError(t, p.Create(ctx, actor, spec))
+
+	v, err = p.Inspect(ctx, actor)
+	require.NoError(t, err)
+	assert.Equal(t, "s1", v.Session)
+
+	f.Fail("create-actor", errors.New("create cut"))
+	require.Error(t, p.Create(ctx, "issue-12-8", models.ActorSpec{
+		ProjectPath: "krci/app", IID: 8, SessionID: "s2", BotUsername: "krci-agent",
+	}))
+
+	v, err = p.Inspect(ctx, "issue-12-8")
+	require.NoError(t, err)
+	assert.True(t, v.Partial())
+	assert.False(t, v.Actor)
+	assert.Equal(t, "s2", v.Session, "a partial create with only the template")
 }

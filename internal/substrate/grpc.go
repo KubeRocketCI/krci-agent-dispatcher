@@ -164,11 +164,11 @@ func (g *GRPC) Inspect(ctx context.Context, name string) (models.ActorView, erro
 
 	v := models.ActorView{State: models.None}
 
-	_, err := g.client.GetActorTemplate(ctx, &ateapi.GetActorTemplateRequest{ActorTemplate: g.ref(name)})
+	tmpl, err := g.client.GetActorTemplate(ctx, &ateapi.GetActorTemplateRequest{ActorTemplate: g.ref(name)})
 
 	switch {
 	case err == nil:
-		v.Template = true
+		v.Template, v.Session = true, templates.SessionOf(tmpl)
 	case !isNotFound(err):
 		return v, mapErr("get actor template", name, err)
 	}

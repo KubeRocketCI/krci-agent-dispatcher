@@ -75,6 +75,11 @@ var (
 	moving    = models.ActorView{Template: true, Actor: true, EgressPolicy: true, State: models.Resuming}
 )
 
+func withSession(a models.ActorView, s string) models.ActorView {
+	a.Session = s
+	return a
+}
+
 func lbl(s models.AgentState) string { return agentLabels.State(s) }
 
 type decideCase struct {
@@ -200,6 +205,125 @@ func decideCases() []decideCase {
 			"done-start-create delete!error > create!error > inspect!error > " +
 				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
 				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, recover, partial create of the new session: create again", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(partial, "s2"),
+			Request: intake.Recover,
+		},
+			"recover-partial-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, recover, template only: create again", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   models.ActorView{Template: true, State: models.None, Session: "s2"},
+			Request: intake.Recover,
+		},
+			"recover-partial-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, comment, partial create of the new session: nothing", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(partial, "s2"),
+			Request: intake.Activate,
+		},
+			"partial-create-ignored -"},
+		{"re-enable cut, recover, suspended actor before its turn 1: first activation", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").marker(130, 3, 100).v,
+			Actor:   withSession(suspended, "s2"),
+			Request: intake.Recover,
+		},
+			"first-activation write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, comment, suspended actor before its turn 1: first activation", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").marker(130, 3, 100).v,
+			Actor:   withSession(suspended, "s2"),
+			Request: intake.Activate,
+		},
+			"first-activation write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, start, suspended actor before its turn 1: first activation, no new session", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    withSession(suspended, "s2"),
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"first-activation write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, start by a reporter: first activation, the re-enable is authorised", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(suspended, "s2"),
+			Request: intake.Start,
+		},
+			"first-activation write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, recover, partial running actor: create again", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   models.ActorView{Template: true, Actor: true, State: models.Running, Session: "s2"},
+			Request: intake.Recover,
+		},
+			"recover-partial-create delete!error > create!error > inspect!error > " +
+				"write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, crashed actor before its turn 1: revert, first activation", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(crashed, "s2"),
+			Request: intake.Recover,
+		},
+			"first-activation write(record=waiting,label=waiting)!log > revert!error-fresh > " +
+				"resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+		{"re-enable cut, recover, turn 1 replied, no trigger comment: record waiting, no resume", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").markerOf(140, "s2", 1, 100).v,
+			Actor:   withSession(suspended, "s2"),
+			Request: intake.Recover,
+		},
+			"no-record-waiting write(record=waiting,label=waiting)!log"},
+		{"re-enable cut, comment after turn 1: record waiting, activate", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").
+				markerOf(140, "s2", 1, 100).v,
+			Actor:            withSession(suspended, "s2"),
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"trigger-activate write(record=waiting,label=waiting)!log > resume!no-room > reload!log > " +
+				"write(record=working,label=working)!log > loop(since=140)"},
+		{"re-enable cut, comment, the new session at the turn limit: turn limit", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").
+				markerOf(140, "s2", 3, 100).v,
+			Actor:            withSession(suspended, "s2"),
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"turn-limit write(record=error/turn-limit,label=error)!log"},
+		{"re-enable cut, recover, transitional actor: re-check", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(moving, "s2"),
+			Request: intake.Recover,
+		},
+			"transitional-recheck recheck"},
+		{"recover, record done, suspended actor of the recorded session: label kept", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(suspended, session),
+			Request: intake.Recover,
+		},
+			"done-kept -"},
+		{"recover, record done, actor without a session: label kept", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   partial,
+			Request: intake.Recover,
+		},
+			"done-kept -"},
+		{"recover, state label done without a record, suspended actor: label kept", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).v,
+			Actor:   withSession(suspended, "s2"),
+			Request: intake.Recover,
+		},
+			"done-kept -"},
+		{"recover, record done, no actor: label kept", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   noActor,
+			Request: intake.Recover,
+		},
+			"done-kept -"},
 		{"start by a developer, record done, transitional actor: re-check", Facts{
 			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
 			Actor:    moving,
@@ -252,6 +376,58 @@ func decideCases() []decideCase {
 			Actor:    running,
 			Request:  intake.Start,
 			AuthorOK: true,
+		},
+			"done-running-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
+		{"recover, re-enable cut, running actor: continue", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(running, "s2"),
+			Request: intake.Recover,
+		},
+			"running-continue write(record=working,label=working)!log > loop(since=0,recovered)"},
+		{"activate, re-enable cut, running actor: continue", Facts{
+			View:             open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:            withSession(running, "s2"),
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"running-continue write(record=working,label=working)!log > loop(since=0,recovered)"},
+		{"start, re-enable cut, running actor: continue", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    withSession(running, "s2"),
+			Request:  intake.Start,
+			AuthorOK: true,
+		},
+			"running-continue write(record=working,label=working)!log > loop(since=0,recovered)"},
+		{"clear-error, re-enable cut, running actor: continue", Facts{
+			View:     open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:    withSession(running, "s2"),
+			Request:  intake.ClearError,
+			AuthorOK: true,
+		},
+			"running-continue write(record=working,label=working)!log > loop(since=0,recovered)"},
+		{"re-enable cut, running actor: loop from the previous marker of the actor's session", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").
+				marker(90, 3, 80).markerOf(110, "s2", 1, 100).markerOf(140, "s2", 2, 135).v,
+			Actor:   withSession(running, "s2"),
+			Request: intake.Recover,
+		},
+			"running-continue write(record=working,label=working)!log > loop(since=110,recovered)"},
+		{"recover, record done, running actor of the recorded session: stop", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").v,
+			Actor:   withSession(running, session),
+			Request: intake.Recover,
+		},
+			"done-running-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
+		{"recover, record done, running actor without a session: stop", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).record(models.Done, "").session("s2").v,
+			Actor:   running,
+			Request: intake.Recover,
+		},
+			"done-running-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
+		{"recover, state label done without a record, running actor: stop", Facts{
+			View:    open(agentLabels.Trigger(), lbl(models.Done)).v,
+			Actor:   withSession(running, "s2"),
+			Request: intake.Recover,
 		},
 			"done-running-stop note-mr!log > delete!error > write(record=done,label=done)!log"},
 		{"record error, trigger comment: no activation, label repaired", Facts{
@@ -699,6 +875,31 @@ func decideCases() []decideCase {
 			TriggerAfterLast: true,
 		},
 			"turn-limit write(record=error/turn-limit,label=error)!log"},
+		{"session: an actor without a session takes the status note's", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").session("s2").
+				marker(130, 3, 125).markerOf(140, "s2", 1, 125).v,
+			Actor:            suspended,
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"trigger-activate resume!no-room > reload!log > write(record=working,label=working)!log > " +
+				"loop(since=140)"},
+		{"session: an actor session without a marker is turn 1 again", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").
+				marker(130, 3, 125).v,
+			Actor:            withSession(suspended, "s2"),
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"trigger-activate resume!no-room > reload!log > write(record=working,label=working)!log > loop(since=0)"},
+		{"session: the actor's session at the turn limit, a status note of another session", Facts{
+			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").session("s2").
+				marker(130, 3, 125).markerOf(140, "s2", 1, 125).v,
+			Actor:            withSession(suspended, session),
+			Request:          intake.Activate,
+			TriggerAfterLast: true,
+		},
+			"turn-limit write(record=error/turn-limit,label=error)!log"},
 		{"session without a marker: turn 1 again, loop from no marker", Facts{
 			View: open(agentLabels.Trigger(), lbl(models.Waiting)).record(models.Waiting, "").session("s2").
 				marker(130, 3, 125).v,
@@ -987,6 +1188,21 @@ func pollCases() []pollCase {
 		},
 			"marker-limit suspend!error > inspect!log > " +
 				"write(record=error/turn-limit,label=error)!log next=end marker=120/n=3/last=110"},
+		{"new marker of the actor's session while the status note names another", PollFacts{
+			View:    base.markerOf(120, "s2", 2, 110).v,
+			Actor:   withSession(running, "s2"),
+			Since:   110,
+			Elapsed: time.Minute,
+		},
+			"marker-idle suspend!error > inspect!log > " +
+				"write(record=waiting,label=waiting)!log next=end marker=120/n=2/last=110"},
+		{"new marker of the status note's session while the actor names another", PollFacts{
+			View:    base.marker(120, 2, 110).v,
+			Actor:   withSession(running, "s2"),
+			Since:   110,
+			Elapsed: time.Minute,
+		},
+			"wait - next=continue -"},
 		{"a person's forged marker is not a marker", PollFacts{
 			View:    base.note(120, "dev1", "<!-- krci-agent-turn s=s1 n=2 exit=0 last=119 -->").v,
 			Actor:   running,

@@ -35,7 +35,7 @@ internal/turn/               turn protocol: Marker, History, Turn; pure
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
 internal/services/selftest/  agent image contract checks; ports.go
-internal/services/harness/   harness: handshake (New), Step, Run; ports.go
+internal/services/harness/   harness: Handshake, New, Poll, Run; ports.go
 internal/services/dispatcher/ Handle, Run: issue lanes, observation (observe), plan runner (perform), activation loop, restart recovery, sweep; ports.go
 internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contract suite
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite

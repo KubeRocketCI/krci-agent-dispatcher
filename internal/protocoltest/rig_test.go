@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +19,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness/harnesstest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/state/statetest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
@@ -41,71 +41,6 @@ var (
 	agentLabels models.AgentLabels
 )
 
-// fakeAgent records its prompts. onTurn runs inside the agent run with the number of the call.
-type fakeAgent struct {
-	mu     sync.Mutex
-	log    []string
-	onTurn func(call int)
-}
-
-func (a *fakeAgent) Run(_ context.Context, prompt string) (string, int, error) {
-	a.mu.Lock()
-	a.log = append(a.log, prompt)
-	call, onTurn := len(a.log), a.onTurn
-	a.mu.Unlock()
-
-	if onTurn != nil {
-		onTurn(call)
-	}
-
-	return fmt.Sprintf("agent run %d", call), 0, nil
-}
-
-func (a *fakeAgent) prompts() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	return slices.Clone(a.log)
-}
-
-// fakeWorkspace records its calls.
-type fakeWorkspace struct {
-	mu  sync.Mutex
-	log []string
-}
-
-func (w *fakeWorkspace) record(call string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	w.log = append(w.log, call)
-}
-
-func (w *fakeWorkspace) Prepare(_ context.Context, fresh bool) error {
-	w.record(fmt.Sprintf("prepare fresh=%t", fresh))
-
-	return nil
-}
-
-func (w *fakeWorkspace) Verify(context.Context) error {
-	w.record("verify")
-
-	return nil
-}
-
-func (w *fakeWorkspace) Publish(_ context.Context, branch string) error {
-	w.record("publish " + branch)
-
-	return nil
-}
-
-func (w *fakeWorkspace) calls() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	return slices.Clone(w.log)
-}
-
 // env is the dispatcher and the harness of the actor over one GitLab fake, one Substrate fake and one clock. The
 // harness is built from the spec the Substrate fake holds, on each resume; its state store lives as long as the
 // session of the actor.
@@ -116,8 +51,8 @@ type env struct {
 	clk   *systemtest.Clock
 	d     *dispatcher.Dispatcher
 	rest  *gitlab.REST
-	agent *fakeAgent
-	ws    *fakeWorkspace
+	agent *harnesstest.Agent
+	ws    *harnesstest.Workspace
 
 	mu           sync.Mutex
 	h            *harness.Harness
@@ -133,8 +68,8 @@ func newEnv(t *testing.T) *env {
 		gl:    gitlabtest.NewFake(bot),
 		sb:    substratetest.NewFake("krci-agents"),
 		clk:   systemtest.NewClock(time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)),
-		agent: &fakeAgent{},
-		ws:    &fakeWorkspace{},
+		agent: &harnesstest.Agent{},
+		ws:    &harnesstest.Workspace{},
 	}
 	e.gl.SetMember(key.ProjectID, dev, 30)
 	e.gl.SetDefaultBranch(key.ProjectID, "main")
@@ -188,15 +123,16 @@ func (e *env) boot(name string) {
 		"TURN_LIMIT":             "5",
 		"AGENT_STEPS":            "40",
 		"ANTHROPIC_MODEL":        "model-x",
+		"HOME":                   "/home/agent",
 	}
 
-	h, err := harness.New(func(k string) string { return env[k] }, harness.Ports{
-		Notes: e.rest, Agent: e.agent, Workspace: e.ws, Clock: e.clk, State: e.store,
-		Log: slog.New(slog.DiscardHandler),
-	})
+	cfg, err := harness.Handshake(func(k string) string { return env[k] })
 	require.NoError(e.t, err)
 
-	e.h = h
+	e.h = harness.New(cfg, harness.Ports{
+		GitLab: e.rest, Agent: e.agent, Workspace: e.ws, Clock: e.clk, State: e.store,
+		Log: slog.New(slog.DiscardHandler),
+	})
 }
 
 // onSleep gives the harness one poll after each dispatcher poll while the actor runs.
@@ -215,7 +151,7 @@ func (e *env) onSleep(d time.Duration) {
 	e.mu.Unlock()
 
 	if h != nil {
-		h.Step(context.Background())
+		h.Poll(context.Background())
 	}
 }
 
