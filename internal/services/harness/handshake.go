@@ -12,8 +12,6 @@ import (
 
 const (
 	maxSeconds = math.MaxInt64 / int64(time.Second)
-	// minWatchdog is the shortest watchdog limit that leaves a turn time to start.
-	minWatchdog = time.Minute
 )
 
 // Config is the handshake result.
@@ -134,7 +132,7 @@ func Handshake(getenv Getenv) (Config, error) {
 		c.Watchdog = turn.WatchdogLimit(c.TurnTimeout, c.Poll)
 	}
 
-	if c.Watchdog < minWatchdog {
+	if c.Watchdog < turn.MinWatchdog {
 		r.refuse("watchdog limit", "TURN_TIMEOUT_SECONDS minus POLL_SECONDS minus one minute is below one minute")
 	}
 

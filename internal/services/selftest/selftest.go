@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
 )
 
 const (
 	// MountPath is where the dispatcher mounts the harness image, read-only.
 	MountPath = "/opt/krci-agent"
+	// HomeDir is the HOME of the actor; the actor template sets it.
+	HomeDir = "/home/agent"
 	// WorkDir is the agent image's work directory.
 	WorkDir = "/work"
 	// AgentUID is the user the agent image runs as.
@@ -22,6 +26,7 @@ const (
 	nameHomeWritable  = "home_writable"
 	nameWorkWritable  = "work_writable"
 	nameMountPathFree = "mount_path_free"
+	nameProfileValid  = "profile_valid"
 )
 
 // tools must be on PATH; each has the check path_<tool>.
@@ -53,7 +58,8 @@ func result(name string, err error) Check {
 	return Check{Name: name, OK: true}
 }
 
-// AgentImageChecks checks the agent image contract, except the profile file, which the handshake checks.
+// AgentImageChecks checks the agent image contract. The profile file check fails on a file harness.ReadProfile
+// rejects, as the handshake does; no file passes.
 // Run it with the binary outside MountPath: a harness mounted at MountPath hides what the image holds there.
 func AgentImageChecks(sys System) []Check {
 	out := make([]Check, 0, len(tools))
@@ -63,20 +69,16 @@ func AgentImageChecks(sys System) []Check {
 		out = append(out, result("path_"+tool, err))
 	}
 
-	homeErr := errHomeUnset
-	if home := sys.Getenv("HOME"); home != "" {
-		homeErr = sys.WriteProbe(home)
-	}
+	_, profileErr := harness.ReadProfile(sys.ReadFile)
 
 	return append(out,
 		agentUID(sys),
-		result(nameHomeWritable, homeErr),
+		result(nameHomeWritable, sys.WriteProbe(HomeDir)),
 		result(nameWorkWritable, sys.WriteProbe(WorkDir)),
 		mountPathFree(sys),
+		result(nameProfileValid, profileErr),
 	)
 }
-
-var errHomeUnset = errors.New("HOME is not set")
 
 func agentUID(sys System) Check {
 	if uid := sys.UID(); uid != AgentUID {

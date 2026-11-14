@@ -35,10 +35,11 @@ func TestActorViewExists(t *testing.T) {
 }
 
 func TestActorSpecValidate(t *testing.T) {
-	ok := ActorSpec{ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
+	ok := ActorSpec{ProjectID: 12, ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
 	assert.NoError(t, ok.Validate())
 
 	for name, mod := range map[string]func(*ActorSpec){
+		"project ID":   func(s *ActorSpec) { s.ProjectID = 0 },
 		"project path": func(s *ActorSpec) { s.ProjectPath = "" },
 		"issue IID":    func(s *ActorSpec) { s.IID = 0 },
 		"session ID":   func(s *ActorSpec) { s.SessionID = "" },

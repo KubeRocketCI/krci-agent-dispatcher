@@ -38,8 +38,22 @@ type mrKey struct{ projectID, iid int64 }
 type mergeRequest struct {
 	sourceProject int64
 	sourceBranch  string
+	target        string
+	title         string
+	description   string
 	state         string
 	notes         []models.Note
+}
+
+// MergeRequest is a merge request of the fake as MergeRequests returns it.
+type MergeRequest struct {
+	IID             int64
+	SourceProjectID int64
+	Source          string
+	Target          string
+	Title           string
+	Description     string
+	State           string
 }
 
 // Fake is an in-memory GitLab: projects, issues, notes, merge requests, project members. A project exists once
@@ -109,6 +123,16 @@ func (f *Fake) AddMergeRequest(projectID, iid int64, sourceBranch, state string)
 	defer f.mu.Unlock()
 
 	f.mrs[mrKey{projectID, iid}] = &mergeRequest{sourceProject: projectID, sourceBranch: sourceBranch, state: state}
+}
+
+// SetMergeRequestState sets the state of a merge request: opened, closed or merged.
+func (f *Fake) SetMergeRequestState(projectID, iid int64, state string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if mr := f.mrs[mrKey{projectID, iid}]; mr != nil {
+		mr.state = state
+	}
 }
 
 // AddForkMergeRequest adds a merge request into projectID from a branch of another project (a fork).
@@ -737,6 +761,65 @@ func (f *Fake) DefaultBranch(_ context.Context, projectID int64) (string, error)
 	return branch, nil
 }
 
+// EnsureMergeRequest implements the harness GitLab port.
+func (f *Fake) EnsureMergeRequest(_ context.Context, projectID int64, mr models.NewMergeRequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := f.forbiddenLocked(projectID); err != nil {
+		return err
+	}
+
+	if !f.projects[projectID] {
+		return fmt.Errorf("project %d: %w", projectID, models.ErrNotFound)
+	}
+
+	if len(f.openMRsLocked(projectID, mr.Source)) == 0 {
+		f.openMRLocked(projectID, mr)
+	}
+
+	return nil
+}
+
+// openMRLocked adds an opened merge request of projectID from its own branch mr.Source; its IID is the next free one.
+func (f *Fake) openMRLocked(projectID int64, mr models.NewMergeRequest) int64 {
+	iid := int64(1)
+
+	for k := range f.mrs {
+		if k.projectID == projectID && k.iid >= iid {
+			iid = k.iid + 1
+		}
+	}
+
+	f.mrs[mrKey{projectID, iid}] = &mergeRequest{
+		sourceProject: projectID, sourceBranch: mr.Source, target: mr.Target, title: mr.Title,
+		description: mr.Description, state: "opened",
+	}
+
+	return iid
+}
+
+// MergeRequests returns the merge requests into projectID, by IID.
+func (f *Fake) MergeRequests(projectID int64) []MergeRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var out []MergeRequest
+
+	for k, mr := range f.mrs {
+		if k.projectID == projectID {
+			out = append(out, MergeRequest{
+				IID: k.iid, SourceProjectID: mr.sourceProject, Source: mr.sourceBranch, Target: mr.target,
+				Title: mr.title, Description: mr.description, State: mr.state,
+			})
+		}
+	}
+
+	slices.SortFunc(out, func(a, b MergeRequest) int { return cmp.Compare(a.IID, b.IID) })
+
+	return out
+}
+
 func (f *Fake) openMRsLocked(projectID int64, sourceBranch string) []mrKey {
 	var out []mrKey
 
@@ -808,6 +891,7 @@ func (f *Fake) Handler(token string) http.Handler {
 	handle("GET /api/v4/projects/{pid}/members/all", f.listMembers)
 	handle("GET /api/v4/projects/{pid}", f.getProject)
 	handle("GET /api/v4/projects/{pid}/merge_requests", f.listMRs)
+	handle("POST /api/v4/projects/{pid}/merge_requests", f.postMR)
 	handle("GET /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.listMRNotes))
 	handle("POST /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.postMRNote))
 
@@ -1047,6 +1131,46 @@ func (f *Fake) listMRs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+// postMR opens a merge request; like GitLab, it answers 409 when an open one of the source branch exists.
+func (f *Fake) postMR(w http.ResponseWriter, r *http.Request) {
+	pid, _ := strconv.ParseInt(r.PathValue("pid"), 10, 64)
+
+	var req struct {
+		SourceBranch string `json:"source_branch"`
+		TargetBranch string `json:"target_branch"`
+		Title        string `json:"title"`
+		Description  string `json:"description"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourceBranch == "" || req.TargetBranch == "" ||
+		req.Title == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{messageKey: "source_branch, target_branch or title is missing"})
+		return
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if !f.projects[pid] {
+		writeJSON(w, http.StatusNotFound, map[string]string{messageKey: "404 Project Not Found"})
+		return
+	}
+
+	if len(f.openMRsLocked(pid, req.SourceBranch)) > 0 {
+		writeJSON(w, http.StatusConflict, map[string][]string{messageKey: {
+			"Another open merge request already exists for this source branch",
+		}})
+
+		return
+	}
+
+	iid := f.openMRLocked(pid, models.NewMergeRequest{
+		Source: req.SourceBranch, Target: req.TargetBranch, Title: req.Title, Description: req.Description,
+	})
+
+	writeJSON(w, http.StatusCreated, map[string]any{"iid": iid, "source_branch": req.SourceBranch})
 }
 
 type mrHandler func(w http.ResponseWriter, r *http.Request, k mrKey)

@@ -30,6 +30,8 @@ type fileState struct {
 	Session string        `json:"session"`
 	Pending *pendingState `json:"pending,omitempty"`
 	Started bool          `json:"started,omitempty"`
+
+	MergeRequestPending bool `json:"merge_request_pending,omitempty"`
 }
 
 type pendingState struct {
@@ -58,7 +60,7 @@ func (f *File) Load(session string) (models.HarnessState, error) {
 		return models.HarnessState{}, nil
 	}
 
-	s := models.HarnessState{Started: rec.Started}
+	s := models.HarnessState{Started: rec.Started, MergeRequestPending: rec.MergeRequestPending}
 	if rec.Pending != nil {
 		s.Pending = &models.PendingReply{Turn: rec.Pending.Turn, Body: rec.Pending.Body}
 	}
@@ -67,7 +69,7 @@ func (f *File) Load(session string) (models.HarnessState, error) {
 }
 
 func (f *File) Save(session string, s models.HarnessState) error {
-	rec := fileState{Session: session, Started: s.Started}
+	rec := fileState{Session: session, Started: s.Started, MergeRequestPending: s.MergeRequestPending}
 	if s.Pending != nil {
 		rec.Pending = &pendingState{Turn: s.Pending.Turn, Body: s.Pending.Body}
 	}

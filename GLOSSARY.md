@@ -41,8 +41,16 @@ The harness's time limit on one turn inside the actor, derived from the turn tim
 _Avoid_: turn timeout (for this), budget, deadline
 
 **Publish**:
-Pushing the issue branch and opening or updating its merge request.
+Pushing the issue branch, never forced, and opening its merge request when it has none open. A turn without new commits does not push; it opens a merge request still pending from an earlier push.
 _Avoid_: push, deliver
+
+**Workspace**:
+The harness's checkout of the project on the issue branch, under `/work`; it is prepared (clone and setup, or fetch) at the start of each turn.
+_Avoid_: repo dir, sandbox
+
+**New-commits check**:
+The publish step that asks whether the issue branch has commits no remote branch has. Without new commits the turn skips verify and push. With new commits, untracked files that `.gitignore` does not exclude fail it; the prompt of the next turn names them.
+_Avoid_: diff check, changes
 
 **Issue branch**:
 The branch the agent works on for one issue.
@@ -155,7 +163,7 @@ The rules the dispatcher and the harness share: turn marker, comment, turn histo
 _Avoid_: agent contract, protocol (alone)
 
 **Handshake**:
-The harness's check at start of its env, the contract version, the profile file and the watchdog limit; a failed handshake ends the harness before any turn.
+The harness's check at start of its env, the contract version, the watchdog limit, then the profile file; a failed handshake ends the harness before any turn.
 _Avoid_: preflight, init
 
 **Turn loop**:
@@ -175,7 +183,7 @@ The OCI image the harness ships in: the static binary at `/krci-agent-harness` a
 _Avoid_: agent image (for this), harness container
 
 **Agent image contract**:
-What an agent image provides for the harness: `claude`, `git` and `sh` on `PATH`; uid 1000 with writable `HOME` and `/work`; `/opt/krci-agent` free; the profile file, optional. `krci-agent-harness selftest` checks it, except the profile file, with the binary outside `/opt/krci-agent`; the handshake checks the profile file.
+What an agent image provides for the harness: `claude`, `git` and `sh` on `PATH`; uid 1000 with writable `/home/agent` (the `HOME` the actor template sets) and `/work`; `/opt/krci-agent` free; the profile file, optional. `krci-agent-harness selftest` checks it with the binary outside `/opt/krci-agent`; its profile file check fails where the handshake would.
 _Avoid_: image contract, harness contract
 
 **Agent profile**:

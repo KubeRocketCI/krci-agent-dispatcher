@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"text/template"
+	"time"
 
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -15,18 +16,27 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
 
 //go:embed actortemplate.yaml.tmpl egresspolicy.yaml.tmpl
 var files embed.FS
 
-// Deployment holds the settings shared by every issue actor. Atespace is set as metadata by the adapter.
+// Deployment holds the settings shared by every issue actor. Atespace is set as metadata by the adapter. Image is
+// the agent image, HarnessImage the harness image mounted at /opt/krci-agent. TurnTimeout and HarnessPoll are
+// rendered in whole seconds.
 type Deployment struct {
 	Atespace         string
 	Pool             string
 	SecretsNamespace string
 	Image            string
+	HarnessImage     string
 	GitLabURL        models.GitLabURL
+	Model            string
+	AgentSteps       int
+	TurnLimit        int
+	TurnTimeout      time.Duration
+	HarnessPoll      time.Duration
 }
 
 // Params are the values of one issue's actor: the deployment settings and the actor spec.
@@ -56,6 +66,8 @@ func Render(p Params) (*ateapi.ActorTemplate, *ateapi.EgressPolicy, error) {
 		"secret": func(path string) string {
 			return "ate-secret://k8s.io/default/" + p.SecretsNamespace + "/" + path
 		},
+		"seconds":         func(d time.Duration) int64 { return int64(d / time.Second) },
+		"contractVersion": func() int { return turn.ContractVersion },
 	}
 
 	tmpl := &ateapi.ActorTemplate{}

@@ -64,7 +64,9 @@ func missingIsZero(t *testing.T, s subject) {
 }
 
 func pendingRoundTrips(t *testing.T, s subject) {
-	want := models.HarnessState{Pending: &models.PendingReply{Turn: 3, Body: "text\n<!-- m -->"}, Started: true}
+	want := models.HarnessState{
+		Pending: &models.PendingReply{Turn: 3, Body: "text\n<!-- m -->"}, Started: true, MergeRequestPending: true,
+	}
 	require.NoError(t, s.store.Save("s1", want))
 
 	got, err := s.store.Load("s1")

@@ -63,12 +63,13 @@ Image reference: repository@digest, else repository:tag, else repository:appVers
 {{- end }}
 
 {{/*
-Agent image: <repo>[:<tag>]@sha256:<digest>.
+Image pinned by digest, <repo>[:<tag>]@sha256:<digest>, from the value named by the argument: agentImage or harnessImage.
 */}}
-{{- define "krci-agent-dispatcher.agentImage" -}}
-{{- $image := required "agentImage is required" .Values.agentImage }}
+{{- define "krci-agent-dispatcher.pinnedImage" -}}
+{{- $name := index . 1 }}
+{{- $image := required (printf "%s is required" $name) (index (index . 0).Values $name) }}
 {{- if not (regexMatch "^[^[:space:]@]+@sha256:[a-f0-9]{64}$" $image) }}
-{{- fail "agentImage must be pinned by digest: <repo>[:<tag>]@sha256:<digest>" }}
+{{- fail (printf "%s must be pinned by digest: <repo>[:<tag>]@sha256:<digest>" $name) }}
 {{- end }}
 {{- $image }}
 {{- end }}

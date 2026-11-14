@@ -33,12 +33,16 @@ const (
 var key = models.IssueKey{ProjectID: 12, IID: 7}
 
 // gitlabSpy counts the DefaultBranch calls of the GitLab fake. With onBlockDefaultBranch set, DefaultBranch calls it,
-// then harnesstest.Await; defaultBranchNotCut reports harnesstest.ErrNotCut.
+// then harnesstest.Await; defaultBranchNotCut reports harnesstest.ErrNotCut. onBlockMR and mrNotCut do the same for
+// EnsureMergeRequest; mrErr fails it.
 type gitlabSpy struct {
 	*gitlabtest.Fake
 	defaultBranchCalls   atomic.Int32
 	onBlockDefaultBranch func()
 	defaultBranchNotCut  atomic.Bool
+	onBlockMR            func()
+	mrNotCut             atomic.Bool
+	mrErr                error
 
 	mu           sync.Mutex
 	postErr      error
@@ -68,6 +72,23 @@ func (n *gitlabSpy) DefaultBranch(ctx context.Context, projectID int64) (string,
 	}
 
 	return n.Fake.DefaultBranch(ctx, projectID)
+}
+
+func (n *gitlabSpy) EnsureMergeRequest(ctx context.Context, projectID int64, mr models.NewMergeRequest) error {
+	if n.onBlockMR != nil {
+		n.onBlockMR()
+
+		err := harnesstest.Await(ctx)
+		n.mrNotCut.Store(errors.Is(err, harnesstest.ErrNotCut))
+
+		return err
+	}
+
+	if n.mrErr != nil {
+		return n.mrErr
+	}
+
+	return n.Fake.EnsureMergeRequest(ctx, projectID, mr)
 }
 
 type rig struct {
@@ -150,6 +171,7 @@ func lastLine(body string) string {
 func TestPollRunsTheFirstTurnAndReplies(t *testing.T) {
 	r := newRig(t)
 	r.gl.SetDefaultBranch(key.ProjectID, "trunk")
+	r.gl.SetIssueText(key, "Add a README", "")
 	id := r.comment("please add a README")
 	r.start().h.Poll(context.Background())
 
@@ -161,8 +183,209 @@ func TestPollRunsTheFirstTurnAndReplies(t *testing.T) {
 	prompts := r.agent.Prompts()
 	require.Len(t, prompts, 1)
 	assert.Contains(t, prompts[0], "please add a README")
-	assert.Equal(t, []string{"prepare fresh=true", "verify", "publish trunk"}, r.ws.Calls(),
-		"publish targets the project's default branch")
+	assert.Equal(t, []string{"prepare fresh=true", "new-commits check", "verify", "push"}, r.ws.Calls())
+
+	mrs := r.gl.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1)
+	assert.Equal(t, "agent/issue-7", mrs[0].Source)
+	assert.Equal(t, "trunk", mrs[0].Target, "the merge request targets the project's default branch")
+	assert.Equal(t, `Draft: Resolve "Add a README"`, mrs[0].Title)
+	assert.Equal(t, "Closes #7", mrs[0].Description)
+}
+
+func TestPollMergeRequestTitleQuotesTheRawIssueTitle(t *testing.T) {
+	r := newRig(t)
+	r.gl.SetIssueText(key, `Fix "x" in C:\tmp`, "")
+	r.comment("do it")
+	r.start().h.Poll(context.Background())
+
+	mrs := r.gl.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1)
+	assert.Equal(t, `Draft: Resolve "Fix "x" in C:\tmp"`, mrs[0].Title)
+}
+
+func TestPollWithoutNewCommitsSkipsVerifyAndPublish(t *testing.T) {
+	r := newRig(t)
+	id := r.comment("what does the build do?")
+	r.ws.NoNewCommits = true
+	r.start().h.Poll(context.Background())
+
+	replies := r.replies()
+	require.Len(t, replies, 1)
+	assert.Equal(t, "agent run 1\n"+marker(1, 0, id), replies[0].Body, "an answer without commits is a done turn")
+	assert.Equal(t, []string{"prepare fresh=true", "new-commits check"}, r.ws.Calls())
+	assert.Empty(t, r.gl.MergeRequests(key.ProjectID))
+	assert.Zero(t, r.spy.defaultBranchCalls.Load(), "no default branch read without a branch to open a merge request for")
+}
+
+// A merge request the person closed stays closed while the agent pushes nothing new.
+func TestPollWithoutNewCommitsLeavesAClosedMergeRequestClosed(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.start().h.Poll(context.Background())
+
+	mrs := r.gl.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1)
+	r.gl.SetMergeRequestState(key.ProjectID, mrs[0].IID, "closed")
+
+	r.ws.NoNewCommits = true
+	r.comment("why did you change the handler?")
+	r.h.Poll(context.Background())
+
+	require.Len(t, r.replies(), 2)
+	mrs = r.gl.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1, "no new merge request")
+	assert.Equal(t, "closed", mrs[0].State)
+}
+
+// A merge request that failed after the push opens on the next turn, which has no new commits, also after a restart
+// of the harness.
+func TestPollRetriesAFailedMergeRequestOnTheNextTurn(t *testing.T) {
+	r := newRig(t)
+	id := r.comment("do it")
+	r.spy.mrErr = errors.New("gitlab POST merge_requests: status 502")
+	r.start().h.Poll(context.Background())
+
+	require.Len(t, r.replies(), 1)
+	assert.Equal(t, marker(1, 1, id), lastLine(r.replies()[0].Body))
+	require.Empty(t, r.gl.MergeRequests(key.ProjectID))
+
+	r.spy.mrErr = nil
+	r.ws.NoNewCommits = true
+	next := r.comment("and now?")
+	r.start().h.Poll(context.Background())
+
+	require.Len(t, r.replies(), 2)
+	assert.Equal(t, marker(2, 0, next), lastLine(r.replies()[1].Body))
+	assert.Len(t, r.gl.MergeRequests(key.ProjectID), 1)
+
+	r.comment("thanks")
+	r.h.Poll(context.Background())
+	assert.Len(t, r.gl.MergeRequests(key.ProjectID), 1, "an opened merge request is not ensured again")
+	assert.Equal(t, int32(2), r.spy.defaultBranchCalls.Load(), "the default branch is read in turns 1 and 2 only")
+}
+
+// The first prompt of a new conversation has the issue and every comment, also when turn 1 never reached the agent.
+func TestPollNewConversationAfterAFailedFirstTurnGetsTheIssue(t *testing.T) {
+	r := newRig(t)
+	r.gl.SetIssueText(key, "Add a README", "Describe the build steps.")
+	r.comment("please start")
+	r.ws.PrepareErr = errors.New("clone failed")
+	r.start().h.Poll(context.Background())
+	require.Empty(t, r.agent.Prompts(), "turn 1 never reached the agent")
+
+	r.ws.PrepareErr = nil
+	r.comment("please retry")
+	r.h.Poll(context.Background())
+
+	prompts := r.agent.Prompts()
+	require.Len(t, prompts, 1)
+
+	for _, want := range []string{"Add a README", "Describe the build steps.", "please start", "please retry"} {
+		assert.Contains(t, prompts[0], want)
+	}
+
+	r.comment("and the license")
+	r.h.Poll(context.Background())
+
+	prompts = r.agent.Prompts()
+	require.Len(t, prompts, 2)
+	assert.Contains(t, prompts[1], "and the license")
+	assert.NotContains(t, prompts[1], "Add a README", "a resumed conversation gets only the new comments")
+}
+
+func TestPollTellsTheAgentAboutSetAsideCommits(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.ws.Prepared = harness.Prepared{SetAside: "agent/issue-7-unpushed-1"}
+	r.start().h.Poll(context.Background())
+
+	prompts := r.agent.Prompts()
+	require.Len(t, prompts, 1)
+	assert.Contains(t, prompts[0], "agent/issue-7-unpushed-1")
+}
+
+func TestPollTellsTheAgentAboutAbortedOperationsAndStashedChanges(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.ws.Prepared = harness.Prepared{Aborted: []string{"cherry-pick"}, Stashed: "0123abcd"}
+	r.start().h.Poll(context.Background())
+
+	prompts := r.agent.Prompts()
+	require.Len(t, prompts, 1)
+	assert.Contains(t, prompts[0], "The unfinished cherry-pick in the checkout was aborted.")
+	assert.Contains(t, prompts[0], "git stash apply 0123abcd")
+}
+
+func TestPollTellsTheAgentAboutUntrackedPaths(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.ws.Untracked = []string{"a", "b", "c", "d", "e", "f", "g"}
+	r.start().h.Poll(context.Background())
+
+	r.comment("publish failed, please push your work")
+	r.h.Poll(context.Background())
+
+	prompts := r.agent.Prompts()
+	require.Len(t, prompts, 2)
+	assert.NotContains(t, prompts[0], "Untracked paths", "a fresh clone names no untracked paths")
+	assert.Contains(t, prompts[1], "Untracked paths in the checkout: a, b, c, d, e and 2 more.")
+	assert.Contains(t, prompts[1], "Publish fails on untracked paths while the issue branch has unpushed commits")
+}
+
+func TestPollPromptWithoutPrepareNotes(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.start().h.Poll(context.Background())
+
+	prompts := r.agent.Prompts()
+	require.Len(t, prompts, 1)
+	assert.NotContains(t, prompts[0], "Harness:")
+}
+
+func TestPollBranchFailureNamesPublish(t *testing.T) {
+	r := newRig(t)
+	id := r.comment("do it")
+	r.ws.NewCommitsCheckErr = errors.New("new-commits check: tracked files changed")
+
+	reply := failedTurn(t, r, id)
+	assert.Equal(t, "agent run 1\n\nTurn failed at publish, exit 1.\n"+marker(1, 1, id), reply.Body)
+	assert.Equal(t, []string{"prepare fresh=true", "new-commits check"}, r.ws.Calls(), "no verify, no push")
+}
+
+func TestPollLogsTheErrorOfAFailedTurn(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.ws.VerifyErr = errors.New("verify: exit status 1: FAIL TestHandler")
+	r.start().h.Poll(context.Background())
+
+	assert.Contains(t, r.logs.String(), "Turn failed")
+	assert.Contains(t, r.logs.String(), "phase=verify")
+	assert.Contains(t, r.logs.String(), "verify: exit status 1: FAIL TestHandler")
+	assert.NotContains(t, r.replies()[0].Body, "FAIL TestHandler", "the error stays out of the reply")
+}
+
+// GitLab refuses a merge request title above 255 characters.
+func TestPollMergeRequestTitleFitsGitLab(t *testing.T) {
+	r := newRig(t)
+	r.gl.SetIssueText(key, strings.Repeat("é", 300), "")
+	r.comment("do it")
+	r.start().h.Poll(context.Background())
+
+	mrs := r.gl.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1)
+	assert.Equal(t, 255, utf8.RuneCountInString(mrs[0].Title))
+	assert.True(t, strings.HasPrefix(mrs[0].Title, `Draft: Resolve "éé`), mrs[0].Title)
+	assert.True(t, strings.HasSuffix(mrs[0].Title, `é…"`), mrs[0].Title)
+}
+
+func TestPollMergeRequestFailureNamesPublish(t *testing.T) {
+	r := newRig(t)
+	id := r.comment("do it")
+	r.spy.mrErr = errors.New("gitlab POST merge_requests: status 500")
+
+	reply := failedTurn(t, r, id)
+	assert.Equal(t, "agent run 1\n\nTurn failed at publish, exit 1.\n"+marker(1, 1, id), reply.Body)
 }
 
 func TestPollFirstPromptHasTheIssueTitleAndDescription(t *testing.T) {
@@ -258,16 +481,18 @@ func TestPollVerifyFailureIsExitOne(t *testing.T) {
 	reply := failedTurn(t, r, id)
 	assert.Equal(t, "agent run 1\n\nTurn failed at verify, exit 1.\n"+marker(1, 1, id), reply.Body,
 		"the agent text, the status line, the marker")
-	assert.NotContains(t, r.ws.Calls(), "publish main")
+	assert.NotContains(t, r.ws.Calls(), "push")
+	assert.Empty(t, r.gl.MergeRequests(key.ProjectID))
 }
 
 func TestPollPublishFailureKeepsTheAgentText(t *testing.T) {
 	r := newRig(t)
 	id := r.comment("do it")
-	r.ws.PublishErr = errors.New("push rejected")
+	r.ws.PushErr = errors.New("push rejected")
 
 	reply := failedTurn(t, r, id)
 	assert.Equal(t, "agent run 1\n\nTurn failed at publish, exit 1.\n"+marker(1, 1, id), reply.Body)
+	assert.Empty(t, r.gl.MergeRequests(key.ProjectID), "no merge request without the push")
 }
 
 func TestPollDefaultBranchFailureNamesPublish(t *testing.T) {
@@ -278,7 +503,8 @@ func TestPollDefaultBranchFailureNamesPublish(t *testing.T) {
 	reply := failedTurn(t, r, id)
 	assert.Equal(t, "agent run 1\n\nTurn failed at publish, exit 1.\n"+marker(1, 1, id), reply.Body,
 		"the agent text, the status line, the marker")
-	assert.Equal(t, []string{"prepare fresh=true"}, r.ws.Calls())
+	assert.Equal(t, []string{"prepare fresh=true", "new-commits check", "verify", "push"}, r.ws.Calls(),
+		"the default branch is read for the merge request, after the push")
 	assert.Len(t, r.agent.Prompts(), 1)
 }
 
@@ -337,8 +563,10 @@ func TestPollWatchdogCutsEveryPhase(t *testing.T) {
 	}{
 		{"prepare", "prepare", func(r *rig, at func()) { r.ws.BlockPrepare, r.ws.OnBlock = true, at }, 0},
 		{"default branch read", "publish", func(r *rig, at func()) { r.spy.onBlockDefaultBranch = at }, 1},
+		{"new-commits check", "publish", func(r *rig, at func()) { r.ws.BlockNewCommitsCheck, r.ws.OnBlock = true, at }, 1},
 		{"verify", "verify", func(r *rig, at func()) { r.ws.BlockVerify, r.ws.OnBlock = true, at }, 1},
-		{"publish", "publish", func(r *rig, at func()) { r.ws.BlockPublish, r.ws.OnBlock = true, at }, 1},
+		{"push", "publish", func(r *rig, at func()) { r.ws.BlockPush, r.ws.OnBlock = true, at }, 1},
+		{"merge request", "publish", func(r *rig, at func()) { r.spy.onBlockMR = at }, 1},
 	}
 
 	for _, c := range cases {
@@ -354,6 +582,7 @@ func TestPollWatchdogCutsEveryPhase(t *testing.T) {
 			assert.Contains(t, replies[0].Body, "Turn failed at "+c.phase+", exit 124.")
 			assert.Len(t, r.agent.Prompts(), c.prompts)
 			assert.False(t, r.spy.defaultBranchNotCut.Load(), "the watchdog cuts the default branch read")
+			assert.False(t, r.spy.mrNotCut.Load(), "the watchdog cuts the merge request call")
 			assert.False(t, r.ws.NotCut(), "the watchdog cuts the workspace call")
 
 			r.h.Poll(context.Background())
@@ -444,7 +673,7 @@ func TestPollRunsATurnOnlyForANewComment(t *testing.T) {
 	require.Len(t, prompts, 2)
 	assert.Contains(t, prompts[1], "two")
 	assert.NotContains(t, prompts[1], "one", "a covered comment is not in the next prompt")
-	assert.Equal(t, "prepare fresh=false", r.ws.Calls()[3], "the second turn fetches")
+	assert.Equal(t, "prepare fresh=false", r.ws.Calls()[4], "the second turn fetches")
 }
 
 func TestPollStartsNoTurnAboveTheTurnLimit(t *testing.T) {
@@ -691,7 +920,7 @@ func TestPollClonesAgainWhenTheSessionStartedFlagCannotBeSaved(t *testing.T) {
 	r.comment("two")
 	r.h.Poll(context.Background())
 
-	assert.Equal(t, "prepare fresh=true", r.ws.Calls()[3], "the second turn clones and sets up again")
+	assert.Equal(t, "prepare fresh=true", r.ws.Calls()[4], "the second turn clones and sets up again")
 }
 
 func TestPollRunsNoTurnWhileTheStateCannotBeRead(t *testing.T) {

@@ -140,6 +140,14 @@ type NewNote struct {
 	Marker string
 }
 
+// NewMergeRequest is a merge request to open from Source to Target in the same project.
+type NewMergeRequest struct {
+	Source      string
+	Target      string
+	Title       string
+	Description string
+}
+
 // Writes are the GitLab changes of one write effect, applied in order: record and status note, label, notes.
 // Label is the agent state whose state label to set (the others are removed); empty leaves the labels unchanged.
 type Writes struct {

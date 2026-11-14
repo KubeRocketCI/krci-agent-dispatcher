@@ -480,30 +480,9 @@ func (c *REST) accessLevel(ctx context.Context, projectID int64, username string
 // fork). A merge request that already has a bot user note with n.Marker is skipped. No such merge request is not
 // an error.
 func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBranch string, n models.NewNote) error {
-	var iids []int64
+	path := mergeRequestsPath(projectID)
 
-	path := fmt.Sprintf("/projects/%d/merge_requests", projectID)
-
-	err := pages(ctx, c.client, path, map[string]string{"state": "opened", "source_branch": sourceBranch},
-		func(resp *resty.Response) (bool, error) {
-			var page []struct {
-				IID             int64  `json:"iid"`
-				SourceProjectID int64  `json:"source_project_id"`
-				SourceBranch    string `json:"source_branch"`
-			}
-
-			if err := json.Unmarshal(resp.Body(), &page); err != nil {
-				return false, err
-			}
-
-			for _, mr := range page {
-				if mr.SourceProjectID == projectID && mr.SourceBranch == sourceBranch {
-					iids = append(iids, mr.IID)
-				}
-			}
-
-			return len(page) > 0, nil
-		})
+	iids, err := c.openMergeRequests(ctx, projectID, sourceBranch)
 	if err != nil {
 		return err
 	}
@@ -527,6 +506,60 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 	}
 
 	return nil
+}
+
+func mergeRequestsPath(projectID int64) string {
+	return fmt.Sprintf("/projects/%d/merge_requests", projectID)
+}
+
+// openMergeRequests returns the IIDs of the opened merge requests of the project from its own sourceBranch.
+func (c *REST) openMergeRequests(ctx context.Context, projectID int64, sourceBranch string) ([]int64, error) {
+	var iids []int64
+
+	err := pages(ctx, c.client, mergeRequestsPath(projectID),
+		map[string]string{"state": "opened", "source_branch": sourceBranch},
+		func(resp *resty.Response) (bool, error) {
+			var page []struct {
+				IID             int64  `json:"iid"`
+				SourceProjectID int64  `json:"source_project_id"`
+				SourceBranch    string `json:"source_branch"`
+			}
+
+			if err := json.Unmarshal(resp.Body(), &page); err != nil {
+				return false, err
+			}
+
+			for _, mr := range page {
+				if mr.SourceProjectID == projectID && mr.SourceBranch == sourceBranch {
+					iids = append(iids, mr.IID)
+				}
+			}
+
+			return len(page) > 0, nil
+		})
+
+	return iids, err
+}
+
+// EnsureMergeRequest opens the merge request of mr.Source into mr.Target, unless the project has an opened one from
+// its own mr.Source; that one is left as it is. A 409 on open (one opened since the read) is success. Errors:
+// models.ErrNotFound (404), models.ErrForbidden (403), any other failure as a failed call.
+func (c *REST) EnsureMergeRequest(ctx context.Context, projectID int64, mr models.NewMergeRequest) error {
+	open, err := c.openMergeRequests(ctx, projectID, mr.Source)
+	if err != nil || len(open) > 0 {
+		return err
+	}
+
+	path := mergeRequestsPath(projectID)
+	resp, err := c.client.R().SetContext(ctx).SetBody(map[string]string{
+		"source_branch": mr.Source, "target_branch": mr.Target, "title": mr.Title, "description": mr.Description,
+	}).Post(path)
+
+	if err == nil && resp.StatusCode() == http.StatusConflict {
+		return nil
+	}
+
+	return check(resp, err, http.MethodPost, path)
 }
 
 // DefaultBranch returns the default branch of the project. Errors: models.ErrNotFound (404),

@@ -284,8 +284,12 @@ func TestStartActorSpec(t *testing.T) {
 
 	spec, ok := e.sb.Spec(actor)
 	require.True(t, ok, "actor created")
-	assert.Equal(t, models.ActorSpec{ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1",
-		BotUsername: bot}, spec)
+	assert.Equal(
+		t,
+		models.ActorSpec{ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1",
+			BotUsername: bot},
+		spec,
+	)
 
 	note, ok := models.StatusNote(e.gl.Notes(key), bot)
 	require.True(t, ok)
@@ -471,7 +475,7 @@ func reEnableCutAfterCreate(t *testing.T) *env {
 func TestRecoveryContinuesReEnableCutAfterCreate(t *testing.T) {
 	e := reEnableCutAfterCreate(t)
 	require.NoError(t, e.sb.Create(context.Background(), actor, models.ActorSpec{
-		ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
+		ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
 	}))
 	e.run()
 	e.idle()
@@ -490,7 +494,7 @@ func TestRecoveryContinuesReEnableCutInsideCreate(t *testing.T) {
 	e := reEnableCutAfterCreate(t)
 	e.sb.Fail("create-policy", errRP)
 	require.Error(t, e.sb.Create(context.Background(), actor, models.ActorSpec{
-		ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-0b", BotUsername: bot,
+		ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-0b", BotUsername: bot,
 	}))
 	e.run()
 	e.idle()
@@ -635,7 +639,7 @@ func TestTriggerCheckReadsTheActorSession(t *testing.T) {
 	e.gl.AddNote(key, models.Note{Author: bot, Body: "done\n" + turnMarker("session-1", 1, 104)})            // 105
 	e.comment(reporter)                                                                                      // 106
 	require.NoError(t, e.sb.Create(t.Context(), actor, models.ActorSpec{
-		ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
+		ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
 	}))
 	e.run()
 	e.idle()

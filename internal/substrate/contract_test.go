@@ -29,7 +29,7 @@ func subjects() map[string]func(t *testing.T, f *substratetest.Fake) port {
 	}
 }
 
-var spec = models.ActorSpec{ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
+var spec = models.ActorSpec{ProjectID: 12, ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
 
 func TestContract(t *testing.T) {
 	cases := map[string]func(t *testing.T, f *substratetest.Fake, p port){
@@ -279,7 +279,7 @@ func InspectReportsSession(t *testing.T, f *substratetest.Fake, p port) {
 
 	f.Fail("create-actor", errors.New("create cut"))
 	require.Error(t, p.Create(ctx, "issue-12-8", models.ActorSpec{
-		ProjectPath: "krci/app", IID: 8, SessionID: "s2", BotUsername: "krci-agent",
+		ProjectID: 12, ProjectPath: "krci/app", IID: 8, SessionID: "s2", BotUsername: "krci-agent",
 	}))
 
 	v, err = p.Inspect(ctx, "issue-12-8")

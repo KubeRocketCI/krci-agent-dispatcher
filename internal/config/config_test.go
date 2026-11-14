@@ -13,6 +13,8 @@ import (
 const (
 	testDigest = "sha256:827f0a832eaa27cf150c20cc8c54976d33e597fb9de82332fc33ccb8699e4df3"
 	testImage  = "localhost:5001/krci-agent-go:dev@" + testDigest
+
+	testHarness = "docker.io/epamedp/krci-agent-harness:0.1.0@" + testDigest
 )
 
 func setRequired(t *testing.T) {
@@ -21,6 +23,7 @@ func setRequired(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "glpat-test")
 	t.Setenv("HOOK_TOKEN", "hook-test")
 	t.Setenv("AGENT_IMAGE", testImage)
+	t.Setenv("HARNESS_IMAGE", testHarness)
 	t.Setenv("ATESPACE", "krci-agents")
 }
 
@@ -48,13 +51,20 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "glpat-test", cfg.GitLabToken)
 	assert.Equal(t, "hook-test", cfg.HookToken)
 	assert.Equal(t, testImage, cfg.AgentImage)
+	assert.Equal(t, testHarness, cfg.HarnessImage)
+	assert.Equal(t, 40, cfg.AgentSteps)
+	assert.Equal(t, "claude-haiku-5-5", cfg.AgentModel)
+	assert.Equal(t, 15*time.Second, cfg.HarnessPollInterval)
 }
 
 func TestLoadOverrides(t *testing.T) {
 	setRequired(t)
 	t.Setenv("PORT", "9090")
-	t.Setenv("TURN_TIMEOUT", "2m")
+	t.Setenv("TURN_TIMEOUT", "3m")
 	t.Setenv("TURN_LIMIT", "3")
+	t.Setenv("AGENT_STEPS", "12")
+	t.Setenv("AGENT_MODEL", "claude-sonnet-5-5")
+	t.Setenv("HARNESS_POLL_INTERVAL", "30s")
 	t.Setenv("GITLAB_CA_FILE", "/etc/gitlab-ca/ca.crt")
 	t.Setenv("SWEEP_INTERVAL", "0")
 
@@ -62,14 +72,17 @@ func TestLoadOverrides(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "9090", cfg.Port)
-	assert.Equal(t, 2*time.Minute, cfg.TurnTimeout)
+	assert.Equal(t, 3*time.Minute, cfg.TurnTimeout)
 	assert.Equal(t, 3, cfg.TurnLimit)
+	assert.Equal(t, 12, cfg.AgentSteps)
+	assert.Equal(t, "claude-sonnet-5-5", cfg.AgentModel)
+	assert.Equal(t, 30*time.Second, cfg.HarnessPollInterval)
 	assert.Equal(t, "/etc/gitlab-ca/ca.crt", cfg.GitLabCAFile)
 	assert.Zero(t, cfg.SweepInterval, "0 turns the sweep off")
 }
 
 func TestLoadMissingRequired(t *testing.T) {
-	for _, name := range []string{"GITLAB_URL", "HOOK_TOKEN", "AGENT_IMAGE", "ATESPACE"} {
+	for _, name := range []string{"GITLAB_URL", "HOOK_TOKEN", "AGENT_IMAGE", "HARNESS_IMAGE", "ATESPACE"} {
 		t.Run(name, func(t *testing.T) {
 			setRequired(t)
 			t.Setenv(name, "")
@@ -82,7 +95,7 @@ func TestLoadMissingRequired(t *testing.T) {
 }
 
 func TestLoadBadDuration(t *testing.T) {
-	for _, name := range []string{"TURN_TIMEOUT", "POLL_INTERVAL", "SWEEP_INTERVAL"} {
+	for _, name := range []string{"TURN_TIMEOUT", "POLL_INTERVAL", "SWEEP_INTERVAL", "HARNESS_POLL_INTERVAL"} {
 		t.Run(name, func(t *testing.T) {
 			setRequired(t)
 			t.Setenv(name, "soon")
@@ -113,14 +126,55 @@ func TestLoadBadDuration(t *testing.T) {
 }
 
 func TestLoadBadInt(t *testing.T) {
-	for _, v := range []string{"many", "0", "-1"} {
+	for _, name := range []string{"TURN_LIMIT", "AGENT_STEPS"} {
+		for _, v := range []string{"many", "0", "-1"} {
+			t.Run(name+"="+v, func(t *testing.T) {
+				setRequired(t)
+				t.Setenv(name, v)
+
+				_, err := Load()
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), name)
+			})
+		}
+	}
+}
+
+func TestLoadRefusesAHarnessImageNotPinnedByDigest(t *testing.T) {
+	for _, v := range []string{"docker.io/epamedp/krci-agent-harness:0.1.0", "krci-agent-harness@sha256:abc"} {
 		t.Run(v, func(t *testing.T) {
 			setRequired(t)
-			t.Setenv("TURN_LIMIT", v)
+			t.Setenv("HARNESS_IMAGE", v)
 
 			_, err := Load()
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "TURN_LIMIT")
+			require.ErrorContains(t, err, "HARNESS_IMAGE must be pinned by digest")
+		})
+	}
+}
+
+// The harness watchdog limit is the turn timeout minus the harness poll interval minus 60 s, at least 60 s.
+func TestLoadRefusesATurnTimeoutBelowHarnessPollPlusTwoMinutes(t *testing.T) {
+	setRequired(t)
+	t.Setenv("HARNESS_POLL_INTERVAL", "20s")
+	t.Setenv("TURN_TIMEOUT", "2m19s")
+
+	_, err := Load()
+	require.ErrorContains(t, err, "TURN_TIMEOUT must be at least HARNESS_POLL_INTERVAL plus 2m")
+
+	t.Setenv("TURN_TIMEOUT", "2m20s")
+
+	_, err = Load()
+	require.NoError(t, err)
+}
+
+func TestLoadRefusesSecondsFractions(t *testing.T) {
+	for _, name := range []string{"TURN_TIMEOUT", "HARNESS_POLL_INTERVAL"} {
+		t.Run(name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv(name, "20500ms")
+
+			_, err := Load()
+			require.ErrorContains(t, err, name+" must be whole seconds")
 		})
 	}
 }

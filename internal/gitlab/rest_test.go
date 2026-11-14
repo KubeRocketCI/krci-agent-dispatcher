@@ -264,3 +264,27 @@ func TestRESTForbidden(t *testing.T) {
 	assert.Contains(t, logs.String(), "forbidden")
 	assert.NotContains(t, logs.String(), token)
 }
+
+// A merge request opened between the read and the open answers 409; the merge request exists, so that is success.
+func TestEnsureMergeRequestOpenedMeanwhile(t *testing.T) {
+	f := gitlabtest.NewFake(bot)
+	f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
+
+	inner := f.Handler(token)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/merge_requests") {
+			f.AddMergeRequest(key.ProjectID, 9, "agent/issue-7", "opened")
+		}
+
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
+	require.NoError(t, err)
+
+	require.NoError(t, c.EnsureMergeRequest(context.Background(), key.ProjectID, models.NewMergeRequest{
+		Source: "agent/issue-7", Target: "main", Title: "t",
+	}))
+	assert.Len(t, f.MergeRequests(key.ProjectID), 1)
+}

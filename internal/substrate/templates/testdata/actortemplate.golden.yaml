@@ -5,10 +5,12 @@ workerSelector:
 containers:
 - name: claude
   image: localhost:5001/krci-agent-go@sha256:0000000000000000000000000000000000000000000000000000000000000000
-  command: ["/usr/local/bin/agent-loop.sh"]
+  command: ["/opt/krci-agent/krci-agent-harness", "run"]
   env:
   - name: GITLAB_URL
     value: https://gitlab.127.0.0.1.nip.io
+  - name: PROJECT_ID
+    value: "12"
   - name: PROJECT_PATH
     value: krci/test-go-app
   - name: ISSUE_IID
@@ -17,8 +19,18 @@ containers:
     value: krci-agent
   - name: SESSION_ID
     value: "00000000-0000-0000-0000-00000000000a"
+  - name: AGENT_CONTRACT_VERSION
+    value: "1"
+  - name: TURN_TIMEOUT_SECONDS
+    value: "900"
   - name: POLL_SECONDS
     value: "15"
+  - name: TURN_LIMIT
+    value: "20"
+  - name: AGENT_STEPS
+    value: "40"
+  - name: HOME
+    value: /home/agent
   - name: GOPROXY
     value: https://proxy.golang.org
   - name: GOSUMDB
@@ -43,15 +55,11 @@ containers:
     value: KRCI Agent
   - name: GIT_COMMITTER_EMAIL
     value: krci-agent@example.invalid
-  - name: GIT_CONFIG_COUNT
-    value: "1"
-  - name: GIT_CONFIG_KEY_0
-    value: http.https://gitlab.127.0.0.1.nip.io/.extraHeader
-  - name: GIT_CONFIG_VALUE_0
-    value: "Authorization: Basic placeholder"
   volumeMounts:
   - name: system-info
     mountPath: /run/ate
+  - name: harness
+    mountPath: /opt/krci-agent
 volumes:
 - name: system-info
   systemInfo:
@@ -61,6 +69,9 @@ volumes:
         - egress-mitm.ate.dev
         - system-roots.ate.dev
         path: egress-trust-bundle/trust-bundle.pem
+- name: harness
+  image:
+    reference: docker.io/epamedp/krci-agent-harness@sha256:1111111111111111111111111111111111111111111111111111111111111111
 resources:
   limits:
     cpuMillicores: 1000

@@ -38,6 +38,7 @@ type replyPort interface {
 	port
 	PostReply(ctx context.Context, key models.IssueKey, body string) (models.Note, error)
 	DefaultBranch(ctx context.Context, projectID int64) (string, error)
+	EnsureMergeRequest(ctx context.Context, projectID int64, mr models.NewMergeRequest) error
 }
 
 var stopped = models.NewNote{Body: models.StoppedMRText + "\n" + models.StoppedMRMarker, Marker: models.StoppedMRMarker}
@@ -368,6 +369,10 @@ func TestContractReply(t *testing.T) {
 		"DefaultBranchNotFound":     DefaultBranchNotFound,
 		"DefaultBranchForbidden":    DefaultBranchForbidden,
 		"DefaultBranchEmpty":        DefaultBranchEmpty,
+		"EnsureMergeRequestOpens":   EnsureMergeRequestOpens,
+		"EnsureMergeRequestKeeps":   EnsureMergeRequestKeepsTheOpenOne,
+		"EnsureMergeRequestBeside":  EnsureMergeRequestOpensBesideClosedAndForkOnes,
+		"EnsureMergeRequestForbid":  EnsureMergeRequestForbidden,
 	}
 
 	for subject, build := range subjects(models.Developer) {
@@ -834,4 +839,59 @@ func DefaultBranchEmpty(t *testing.T, _ *gitlabtest.Fake, p replyPort) {
 	assert.Empty(t, got)
 	assert.NotErrorIs(t, err, models.ErrNotFound)
 	assert.NotErrorIs(t, err, models.ErrForbidden)
+}
+
+var agentMR = models.NewMergeRequest{
+	Source: "agent/issue-7", Target: "main", Title: `Draft: Resolve "Add a README"`, Description: "Closes #7",
+}
+
+func EnsureMergeRequestOpens(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	require.NoError(t, p.EnsureMergeRequest(context.Background(), key.ProjectID, agentMR))
+
+	mrs := f.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1)
+	assert.Equal(t, gitlabtest.MergeRequest{
+		IID: mrs[0].IID, SourceProjectID: key.ProjectID, Source: "agent/issue-7", Target: "main",
+		Title: `Draft: Resolve "Add a README"`, Description: "Closes #7", State: "opened",
+	}, mrs[0])
+}
+
+func EnsureMergeRequestKeepsTheOpenOne(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.AddMergeRequest(key.ProjectID, 6, "agent/issue-7", "opened")
+
+	require.NoError(t, p.EnsureMergeRequest(context.Background(), key.ProjectID, agentMR))
+	require.NoError(t, p.EnsureMergeRequest(context.Background(), key.ProjectID, agentMR))
+
+	mrs := f.MergeRequests(key.ProjectID)
+	require.Len(t, mrs, 1)
+	assert.Equal(t, int64(6), mrs[0].IID)
+	assert.Empty(t, mrs[0].Title, "the open merge request is left as it is")
+}
+
+func EnsureMergeRequestOpensBesideClosedAndForkOnes(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.AddMergeRequest(key.ProjectID, 4, "agent/issue-7", "closed")
+	f.AddMergeRequest(key.ProjectID, 5, "agent/issue-7", "merged")
+	f.AddForkMergeRequest(key.ProjectID, 6, 40, "agent/issue-7", "opened")
+
+	require.NoError(t, p.EnsureMergeRequest(context.Background(), key.ProjectID, agentMR))
+
+	var opened []gitlabtest.MergeRequest
+
+	for _, mr := range f.MergeRequests(key.ProjectID) {
+		if mr.State == "opened" && mr.SourceProjectID == key.ProjectID {
+			opened = append(opened, mr)
+		}
+	}
+
+	require.Len(t, opened, 1)
+	assert.Equal(t, "main", opened[0].Target)
+}
+
+func EnsureMergeRequestForbidden(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.SetForbidden(key.ProjectID)
+
+	err := p.EnsureMergeRequest(context.Background(), key.ProjectID, agentMR)
+	require.ErrorIs(t, err, models.ErrForbidden)
+	assert.NotContains(t, err.Error(), token)
+	assert.Empty(t, f.MergeRequests(key.ProjectID))
 }

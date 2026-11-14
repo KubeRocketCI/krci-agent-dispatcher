@@ -7,10 +7,12 @@ workerSelector:
 containers:
 - name: claude
   image: {{ json .Image }}
-  command: ["/usr/local/bin/agent-loop.sh"]
+  command: ["/opt/krci-agent/krci-agent-harness", "run"]
   env:
   - name: GITLAB_URL
     value: {{ json .GitLabURL.String }}
+  - name: PROJECT_ID
+    value: {{ json (print .ProjectID) }}
   - name: PROJECT_PATH
     value: {{ json .ProjectPath }}
   - name: ISSUE_IID
@@ -19,8 +21,18 @@ containers:
     value: {{ json .BotUsername }}
   - name: SESSION_ID
     value: {{ json .SessionID }}
+  - name: AGENT_CONTRACT_VERSION
+    value: {{ json (print contractVersion) }}
+  - name: TURN_TIMEOUT_SECONDS
+    value: {{ json (print (seconds .TurnTimeout)) }}
   - name: POLL_SECONDS
-    value: "15"
+    value: {{ json (print (seconds .HarnessPoll)) }}
+  - name: TURN_LIMIT
+    value: {{ json (print .TurnLimit) }}
+  - name: AGENT_STEPS
+    value: {{ json (print .AgentSteps) }}
+  - name: HOME
+    value: /home/agent
   - name: GOPROXY
     value: https://proxy.golang.org
   - name: GOSUMDB
@@ -28,7 +40,7 @@ containers:
   - name: ANTHROPIC_API_KEY
     value: placeholder
   - name: ANTHROPIC_MODEL
-    value: claude-haiku-5-5
+    value: {{ json .Model }}
   - name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
     value: "1"
   - name: SSL_CERT_FILE
@@ -45,15 +57,11 @@ containers:
     value: KRCI Agent
   - name: GIT_COMMITTER_EMAIL
     value: krci-agent@example.invalid
-  - name: GIT_CONFIG_COUNT
-    value: "1"
-  - name: GIT_CONFIG_KEY_0
-    value: {{ json (print "http." .GitLabURL.GitConfigScope ".extraHeader") }}
-  - name: GIT_CONFIG_VALUE_0
-    value: "Authorization: Basic placeholder"
   volumeMounts:
   - name: system-info
     mountPath: /run/ate
+  - name: harness
+    mountPath: /opt/krci-agent
 volumes:
 - name: system-info
   systemInfo:
@@ -63,6 +71,9 @@ volumes:
         - egress-mitm.ate.dev
         - system-roots.ate.dev
         path: egress-trust-bundle/trust-bundle.pem
+- name: harness
+  image:
+    reference: {{ json .HarnessImage }}
 resources:
   limits:
     cpuMillicores: 1000

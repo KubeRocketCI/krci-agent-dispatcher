@@ -425,3 +425,16 @@ func ids(notes []models.Note) []int64 {
 
 	return out
 }
+
+func TestHistoryCommentsUpToANoteID(t *testing.T) {
+	h := history([]models.Note{
+		personNote(100, "please start"),
+		botNote(110, "done\n<!-- krci-agent-turn s=s1 n=1 exit=1 last=100 -->"),
+		personNote(120, "please retry"),
+		personNote(130, "after the turn"),
+	})
+
+	got := h.Comments(120)
+	assert.Equal(t, []int64{100, 120}, []int64{got[0].ID, got[1].ID}, "covered and uncovered comments, bot notes left out")
+	assert.Len(t, got, 2)
+}

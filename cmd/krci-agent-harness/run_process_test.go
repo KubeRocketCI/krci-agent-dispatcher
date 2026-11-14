@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,10 +107,48 @@ func TestProcessRunRefusesAWatchdogLimitBelowOneMinute(t *testing.T) {
 	assert.Contains(t, logLine(t, stderr)["error"], "watchdog limit")
 }
 
-func TestProcessRunAfterTheHandshakeExitsUnavailable(t *testing.T) {
-	code, stderr := runProcess(t, validEnv())
-	assert.Equal(t, 69, code)
-	assert.Equal(t, "agent and workspace adapters not built", logLine(t, stderr)["msg"])
+// After the handshake the harness polls until SIGTERM, then exits 0. GITLAB_URL names a host that does not resolve:
+// every poll fails and is retried.
+func TestProcessRunPollsUntilTerminated(t *testing.T) {
+	env := validEnv()
+	env["GITLAB_URL"], env["HOME"] = "https://gitlab.invalid", t.TempDir()
+
+	cmd := harnessProcess(t, "main", "run")
+	cmd.Env = []string{processEnv + "=main", processArgs + "=run", "GOCOVERDIR=" + t.TempDir()}
+
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+
+	started := make(chan struct{})
+
+	go func() {
+		sc := bufio.NewScanner(stderr)
+		for sc.Scan() {
+			if strings.Contains(sc.Text(), `"msg":"Harness started"`) {
+				close(started)
+
+				break
+			}
+		}
+
+		_, _ = io.Copy(io.Discard, stderr)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+
+		t.Fatal("no start log line")
+	}
+
+	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
+	assert.Equal(t, 0, exitCode(t, cmd.Wait()))
 }
 
 func TestProcessRunWithoutHomeExitsConfig(t *testing.T) {

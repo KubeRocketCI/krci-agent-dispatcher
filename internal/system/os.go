@@ -19,6 +19,8 @@ func (OS) LookPath(name string) (string, error) { return exec.LookPath(name) }
 
 func (OS) ReadDir(dir string) ([]fs.DirEntry, error) { return os.ReadDir(dir) }
 
+func (OS) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
+
 // WriteProbe uses a unique name, so it never clashes with a file in dir; it removes the file even when Close fails.
 // Errors name dir, not the probe file.
 func (OS) WriteProbe(dir string) error {

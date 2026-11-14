@@ -28,7 +28,7 @@ func TestTurnEndsWithReplyAndSuspend(t *testing.T) {
 	require.Len(t, replies, 1)
 	assert.Contains(t, replies[0].Body, marker("session-1", 1, first))
 	assert.Contains(t, e.agent.Prompts()[0], "add a README")
-	assert.Equal(t, []string{"prepare fresh=true", "verify", "publish main"}, e.ws.Calls())
+	assert.Equal(t, []string{"prepare fresh=true", "new-commits check", "verify", "push"}, e.ws.Calls())
 	e.assertState(models.Waiting)
 }
 
@@ -106,9 +106,9 @@ func TestReEnableStartsNewSessionOverEveryComment(t *testing.T) {
 	assert.Contains(t, prompts[2], "add a README")
 	assert.Contains(t, prompts[2], "and a LICENSE")
 	assert.Equal(t, []string{
-		"prepare fresh=true", "verify", "publish main",
-		"prepare fresh=false", "verify", "publish main",
-		"prepare fresh=true", "verify", "publish main",
+		"prepare fresh=true", "new-commits check", "verify", "push",
+		"prepare fresh=false", "new-commits check", "verify", "push",
+		"prepare fresh=true", "new-commits check", "verify", "push",
 	}, e.ws.Calls(), "the new session clones again")
 
 	status, ok := models.StatusNote(e.gl.Notes(key), bot)
