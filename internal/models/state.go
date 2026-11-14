@@ -7,9 +7,10 @@ type PendingReply struct {
 	Body string
 }
 
-// HarnessState is what the harness keeps across restarts of one session: the pending reply, if any, and whether
-// the workspace is cloned and set up.
+// HarnessState is what the harness keeps across restarts of one session: the pending reply, if any, whether the
+// workspace is cloned and set up, and whether a push of the issue branch still waits for its merge request.
 type HarnessState struct {
-	Pending *PendingReply
-	Started bool
+	Pending             *PendingReply
+	Started             bool
+	MergeRequestPending bool
 }

@@ -78,7 +78,15 @@ spec:
             - name: SECRETS_NAMESPACE
               value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
             - name: AGENT_IMAGE
-              value: {{ include "krci-agent-dispatcher.agentImage" . | quote }}
+              value: {{ include "krci-agent-dispatcher.pinnedImage" (list . "agentImage") | quote }}
+            - name: HARNESS_IMAGE
+              value: {{ include "krci-agent-dispatcher.pinnedImage" (list . "harnessImage") | quote }}
+            - name: HARNESS_POLL_INTERVAL
+              value: {{ .Values.config.harnessPollInterval | quote }}
+            - name: AGENT_STEPS
+              value: {{ .Values.config.agentSteps | quote }}
+            - name: AGENT_MODEL
+              value: {{ .Values.config.agentModel | quote }}
             - name: TURN_TIMEOUT
               value: {{ .Values.config.turnTimeout | quote }}
             - name: POLL_INTERVAL

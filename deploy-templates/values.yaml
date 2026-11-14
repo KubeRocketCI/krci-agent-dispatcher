@@ -19,6 +19,10 @@ imagePullSecrets: []
 # -- Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required.
 agentImage: ""
 
+# -- Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>` of
+# `epamedp/krci-agent-harness` from the same release as the dispatcher. Required.
+harnessImage: ""
+
 gitlab:
   # -- GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required.
   url: ""
@@ -50,10 +54,17 @@ substrate:
   secretsNamespace: ""
 
 config:
-  # -- Dispatcher wait for one turn's marker.
+  # -- Dispatcher wait for one turn's marker, whole seconds. The harness cuts a turn at turnTimeout minus
+  # harnessPollInterval minus 60s.
   turnTimeout: 15m
   # -- Marker poll interval.
   pollInterval: 10s
+  # -- Note poll interval of the harness in each actor, whole seconds. turnTimeout must be at least this plus 2m.
+  harnessPollInterval: 15s
+  # -- Agent steps per turn: the Claude Code `--max-turns` of one agent run.
+  agentSteps: 40
+  # -- Claude model of the agent runs.
+  agentModel: claude-haiku-5-5
   # -- Time between sweeps over actors without an issue lane. 0 turns the sweep off.
   sweepInterval: 5m
   # -- Turn limit per issue.

@@ -15,11 +15,14 @@ import (
 
 // world is the state a contract case needs; each subject builds it its own way.
 type world struct {
-	env        map[string]string
-	onPath     []string
-	dirs       map[string][]string
-	readOnly   []string
+	env      map[string]string
+	onPath   []string
+	dirs     map[string][]string
+	readOnly []string
+	// unreadable are names in dirs or files.
 	unreadable []string
+	// files maps "<dir>/<name>" to its content; dir must be in dirs.
+	files map[string]string
 }
 
 // subject is an adapter over a built world; dir maps a world directory name to the adapter's path.
@@ -45,6 +48,11 @@ func subjects() map[string]func(t *testing.T, w world) subject {
 
 			for _, name := range w.unreadable {
 				f.Unreadable = append(f.Unreadable, dir(name))
+			}
+
+			f.Files = map[string]string{}
+			for name, content := range w.files {
+				f.Files[dir(name)] = content
 			}
 
 			return subject{sys: f, uid: 1000, dir: dir}
@@ -78,6 +86,12 @@ func subjects() map[string]func(t *testing.T, w world) subject {
 				}
 			}
 
+			for name, content := range w.files {
+				if err := os.WriteFile(dir(name), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
 			chmod(t, dir, w.readOnly, 0o555)
 			chmod(t, dir, w.unreadable, 0o000)
 
@@ -86,7 +100,7 @@ func subjects() map[string]func(t *testing.T, w world) subject {
 	}
 }
 
-// chmod restricts dirs and restores them at cleanup; root ignores modes, so the case is skipped.
+// chmod restricts dirs and files and restores them at cleanup; root ignores modes, so the case is skipped.
 func chmod(t *testing.T, dir func(string) string, names []string, mode os.FileMode) {
 	t.Helper()
 
@@ -116,6 +130,9 @@ func TestContract(t *testing.T) {
 		"WriteProbeLeavesNoFile":    writeProbeLeavesNoFile,
 		"WriteProbeRefusesReadOnly": writeProbeRefusesReadOnly,
 		"WriteProbeAbsentDir":       writeProbeAbsentDir,
+		"ReadFileReadsContent":      readFileReadsContent,
+		"ReadFileAbsentIsNotExist":  readFileAbsentIsNotExist,
+		"ReadFileUnreadable":        readFileUnreadable,
 	}
 	for name, newSubject := range subjects() {
 		for c, run := range cases {
@@ -217,5 +234,34 @@ func writeProbeErrorNamesDir(t *testing.T, build func(world) subject) {
 	pe, ok := errors.AsType[*fs.PathError](s.sys.WriteProbe(s.dir("ro")))
 	if !ok || pe.Path != s.dir("ro") || !errors.Is(pe, fs.ErrPermission) {
 		t.Fatalf("WriteProbe(ro) = %v, want a PathError on %s wrapping fs.ErrPermission", pe, s.dir("ro"))
+	}
+}
+
+func readFileReadsContent(t *testing.T, build func(world) subject) {
+	s := build(world{dirs: map[string][]string{"etc": nil}, files: map[string]string{"etc/profile.yaml": "setup: x\n"}})
+
+	b, err := s.sys.ReadFile(s.dir("etc/profile.yaml"))
+	if err != nil || string(b) != "setup: x\n" {
+		t.Fatalf("ReadFile = %q, %v", b, err)
+	}
+}
+
+func readFileAbsentIsNotExist(t *testing.T, build func(world) subject) {
+	s := build(world{dirs: map[string][]string{"etc": nil}})
+
+	if _, err := s.sys.ReadFile(s.dir("etc/profile.yaml")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("ReadFile absent: %v, want fs.ErrNotExist", err)
+	}
+}
+
+func readFileUnreadable(t *testing.T, build func(world) subject) {
+	s := build(world{
+		dirs:       map[string][]string{"etc": nil},
+		files:      map[string]string{"etc/profile.yaml": "setup: x\n"},
+		unreadable: []string{"etc/profile.yaml"},
+	})
+
+	if _, err := s.sys.ReadFile(s.dir("etc/profile.yaml")); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("ReadFile unreadable: %v, want fs.ErrPermission", err)
 	}
 }

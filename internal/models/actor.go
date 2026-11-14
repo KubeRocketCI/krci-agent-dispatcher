@@ -69,6 +69,7 @@ func (v ActorView) Exists() bool { return v.Template || v.Actor || v.EgressPolic
 
 // ActorSpec is what the actor of one issue is created with: the issue, the session and the bot user.
 type ActorSpec struct {
+	ProjectID   int64
 	ProjectPath string
 	IID         int64
 	SessionID   string
@@ -80,10 +81,12 @@ var sessionIDRe = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
 // ValidSessionID reports whether id matches [0-9A-Za-z-]+, the session of a turn marker.
 func ValidSessionID(id string) bool { return sessionIDRe.MatchString(id) }
 
-// Validate returns an error naming the first empty or malformed field of s; IID must be positive, SessionID a
-// valid session ID.
+// Validate returns an error naming the first empty or malformed field of s; ProjectID and IID must be positive,
+// SessionID a valid session ID.
 func (s ActorSpec) Validate() error {
 	switch {
+	case s.ProjectID <= 0:
+		return errors.New("project ID is not positive")
 	case s.ProjectPath == "":
 		return errors.New("project path is empty")
 	case s.IID <= 0:

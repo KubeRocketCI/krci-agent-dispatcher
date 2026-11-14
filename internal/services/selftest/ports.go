@@ -10,4 +10,6 @@ type System interface {
 	ReadDir(dir string) ([]fs.DirEntry, error)
 	// WriteProbe creates and removes a file in dir; an error means dir is not writable.
 	WriteProbe(dir string) error
+	// ReadFile reads a file; a missing file is an error that wraps fs.ErrNotExist.
+	ReadFile(path string) ([]byte, error)
 }

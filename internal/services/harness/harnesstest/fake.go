@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
 )
 
 // BlockLimit bounds a blocked fake call in real time.
@@ -28,14 +30,22 @@ func Await(ctx context.Context) error {
 }
 
 // Agent records its prompts. OnTurn runs inside each run with the number of the call, from 1. Result decides the
-// outcome of a run; the default is the text "agent run <call>", exit 0. Set the hooks before the first run. Safe
-// for concurrent use.
+// outcome of a run; the default is the text "agent run <call>", exit 0. Fresh is true until the first Run. Set the
+// hooks before the first run. Safe for concurrent use.
 type Agent struct {
 	OnTurn func(call int)
 	Result func(ctx context.Context, call int) (text string, exitCode int, err error)
 
 	mu  sync.Mutex
 	log []string
+}
+
+// Fresh implements the harness Agent port.
+func (a *Agent) Fresh() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return len(a.log) == 0
 }
 
 // Run implements the harness Agent port.
@@ -64,14 +74,20 @@ func (a *Agent) Prompts() []string {
 	return slices.Clone(a.log)
 }
 
-// Workspace records its calls as "prepare fresh=<bool>", "verify" and "publish <branch>". A non-nil error field
-// fails that call after it is recorded. A Block field makes that call run OnBlock, when set, then Await; the error
-// field is not reached. Set the fields before the first call. Safe for concurrent use.
+// Workspace records its calls as "prepare fresh=<bool>", "new-commits check", "verify" and "push".
+// NewCommitsCheck reports new commits unless NoNewCommits is set. A non-nil error field fails that call after it is
+// recorded. A Block field makes that call run OnBlock, when set, then Await; the error field is not reached. A
+// successful Prepare returns Prepared. Untracked are the untracked paths of the checkout: a successful Prepare that is
+// not fresh returns them in Prepared.Untracked, and NewCommitsCheck with new commits fails on them. Change the fields
+// only between calls. Safe for concurrent use.
 type Workspace struct {
-	PrepareErr, VerifyErr, PublishErr error
-	BlockPrepare, BlockVerify         bool
-	BlockPublish                      bool
-	OnBlock                           func()
+	PrepareErr, NewCommitsCheckErr, VerifyErr, PushErr error
+	BlockPrepare, BlockNewCommitsCheck, BlockVerify    bool
+	BlockPush                                          bool
+	NoNewCommits                                       bool
+	Prepared                                           harness.Prepared
+	Untracked                                          []string
+	OnBlock                                            func()
 
 	mu     sync.Mutex
 	log    []string
@@ -114,14 +130,42 @@ func (w *Workspace) NotCut() bool {
 }
 
 // Prepare implements the harness Workspace port.
-func (w *Workspace) Prepare(ctx context.Context, fresh bool) error {
+func (w *Workspace) Prepare(ctx context.Context, fresh bool) (harness.Prepared, error) {
 	w.record(fmt.Sprintf("prepare fresh=%t", fresh))
 
 	if err := w.block(ctx, w.BlockPrepare); err != nil {
-		return err
+		return harness.Prepared{}, err
 	}
 
-	return w.PrepareErr
+	if w.PrepareErr != nil {
+		return harness.Prepared{}, w.PrepareErr
+	}
+
+	prep := w.Prepared
+	if !fresh && len(w.Untracked) > 0 {
+		prep.Untracked = slices.Clone(w.Untracked)
+	}
+
+	return prep, nil
+}
+
+// NewCommitsCheck implements the harness Workspace port.
+func (w *Workspace) NewCommitsCheck(ctx context.Context) (harness.BranchState, error) {
+	w.record("new-commits check")
+
+	if err := w.block(ctx, w.BlockNewCommitsCheck); err != nil {
+		return harness.BranchState{}, err
+	}
+
+	if w.NewCommitsCheckErr != nil {
+		return harness.BranchState{}, w.NewCommitsCheckErr
+	}
+
+	if !w.NoNewCommits && len(w.Untracked) > 0 {
+		return harness.BranchState{}, fmt.Errorf("new-commits check: untracked files in %d paths", len(w.Untracked))
+	}
+
+	return harness.BranchState{NewCommits: !w.NoNewCommits}, nil
 }
 
 // Verify implements the harness Workspace port.
@@ -135,15 +179,15 @@ func (w *Workspace) Verify(ctx context.Context) error {
 	return w.VerifyErr
 }
 
-// Publish implements the harness Workspace port.
-func (w *Workspace) Publish(ctx context.Context, branch string) error {
-	w.record("publish " + branch)
+// Push implements the harness Workspace port.
+func (w *Workspace) Push(ctx context.Context) error {
+	w.record("push")
 
-	if err := w.block(ctx, w.BlockPublish); err != nil {
+	if err := w.block(ctx, w.BlockPush); err != nil {
 		return err
 	}
 
-	return w.PublishErr
+	return w.PushErr
 }
 
 // Calls returns the calls so far.

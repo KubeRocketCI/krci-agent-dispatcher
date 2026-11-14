@@ -22,15 +22,19 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity. |
 | agentImage | string | `""` | Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required. |
+| config.agentModel | string | `"claude-haiku-5-5"` | Claude model of the agent runs. |
+| config.agentSteps | int | `40` | Agent steps per turn: the Claude Code `--max-turns` of one agent run. |
 | config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
+| config.harnessPollInterval | string | `"15s"` | Note poll interval of the harness in each actor, whole seconds. turnTimeout must be at least this plus 2m. |
 | config.pollInterval | string | `"10s"` | Marker poll interval. |
 | config.sweepInterval | string | `"5m"` | Time between sweeps over actors without an issue lane. 0 turns the sweep off. |
 | config.triggerMinRole | string | `"developer"` | Trigger role: lowest GitLab project role that can start the agent and write trigger comments: developer, maintainer or owner. |
 | config.turnLimit | int | `20` | Turn limit per issue. |
-| config.turnTimeout | string | `"15m"` | Dispatcher wait for one turn's marker. |
+| config.turnTimeout | string | `"15m"` | Dispatcher wait for one turn's marker, whole seconds. The harness cuts a turn at turnTimeout minus harnessPollInterval minus 60s. |
 | fullnameOverride | string | `""` | Overrides the full name. |
 | gitlab.caConfigMap | string | `""` | ConfigMap with key ca.crt: extra CA bundle for GitLab TLS. Empty: system roots. |
 | gitlab.url | string | `""` | GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required. |
+| harnessImage | string | `""` | Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>` of `epamedp/krci-agent-harness` from the same release as the dispatcher. Required. |
 | image.digest | string | `""` | Image digest (sha256:...); takes precedence over image.tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"epamedp/krci-agent-dispatcher"` | Dispatcher image repository. |

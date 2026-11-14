@@ -29,6 +29,12 @@ func WatchdogLimit(turnTimeout, poll time.Duration) time.Duration {
 	return turnTimeout - poll - watchdogMargin
 }
 
+// MinWatchdog is the shortest watchdog limit the harness handshake accepts.
+const MinWatchdog = time.Minute
+
+// MinTurnTimeout is the shortest turn timeout whose watchdog limit is MinWatchdog for the harness poll interval poll.
+func MinTurnTimeout(poll time.Duration) time.Duration { return poll + watchdogMargin + MinWatchdog }
+
 // Marker is a parsed turn marker: <!-- krci-agent-turn s=<session> n=<n> exit=<rc> last=<note-id> -->.
 // NoteID is the note that carries it; Last is the highest comment note id the turn covered.
 type Marker struct {
@@ -160,6 +166,19 @@ func ofSession(markers []Marker, session string) []Marker {
 // HasTurn reports whether any marker of the session has turn number n, not only the last one.
 func (h History) HasTurn(n int) bool {
 	return slices.ContainsFunc(h.markers, func(m Marker) bool { return m.Turn == n })
+}
+
+// Comments returns the comments with a note id up to upto, in note id order.
+func (h History) Comments(upto int64) []models.Note {
+	var out []models.Note
+
+	for _, c := range h.comments {
+		if c.ID <= upto {
+			out = append(out, c)
+		}
+	}
+
+	return out
 }
 
 // Last returns the marker with the highest note id.

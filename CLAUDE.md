@@ -38,6 +38,9 @@ internal/services/selftest/  agent image contract checks; ports.go
 internal/services/harness/   harness: Handshake, New, Poll, Run; ports.go
 internal/services/dispatcher/ Handle, Run: issue lanes, observation (observe), plan runner (perform), activation loop, restart recovery, sweep; ports.go
 internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contract suite
+internal/claude/             Agent port adapter: Claude Code run, conversation file, watchdog; contract suite with the harnesstest fake
+internal/workspace/          Workspace port adapter: git checkout, new-commits check, verify, push; contract suite with the harnesstest fake
+internal/procgroup/          process groups of the adapters' child processes: TERM, KILL, leftovers, bounded pipe drain
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite
 internal/substrate/templates/ ActorTemplate + EgressPolicy render, pure
 internal/system/             System port adapters: OS, Clock, systemtest fake (Clock too), contract suite

@@ -2,32 +2,35 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"syscall"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/claude"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/selftest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/state"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/workspace"
 )
 
-// Exit codes; 64, 69, 70, 74 and 78 follow sysexits.h.
+// Exit codes; 64, 70, 74 and 78 follow sysexits.h.
 const (
-	exitOK          = 0
-	exitGap         = 1
-	exitUsage       = 64
-	exitUnavailable = 69
-	exitSoftware    = 70
-	exitIO          = 74
-	exitConfig      = 78
+	exitOK       = 0
+	exitGap      = 1
+	exitUsage    = 64
+	exitSoftware = 70
+	exitIO       = 74
+	exitConfig   = 78
 )
 
 const usage = `usage: krci-agent-harness <command>
@@ -75,6 +78,9 @@ const placeholderToken = "placeholder"
 // stateDirName is the harness state directory under $HOME.
 const stateDirName = ".krci-agent"
 
+// gitAuthPlaceholder is the auth header of the harness's git commands; the egress gateway replaces the placeholder.
+const gitAuthPlaceholder = "Authorization: Basic placeholder"
+
 func runTurnLoop(sys selftest.System, stderr io.Writer) int {
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
 
@@ -93,13 +99,52 @@ func runTurnLoop(sys selftest.System, stderr io.Writer) int {
 		return exitSoftware
 	}
 
-	_ = harness.New(cfg, harness.Ports{
-		GitLab: gl, Clock: system.Clock{}, State: state.NewFile(filepath.Join(cfg.Home, stateDirName)), Log: log,
+	profile, err := harness.ReadProfile(sys.ReadFile)
+	if err != nil {
+		log.Error("handshake failed", "error", err)
+
+		return exitConfig
+	}
+
+	stateDir := filepath.Join(cfg.Home, stateDirName)
+	dir := path.Join(selftest.WorkDir, path.Base(cfg.ProjectPath))
+
+	agentOut, wsOut := &lineLog{log: log, source: "claude"}, &lineLog{log: log, source: "workspace"}
+	defer agentOut.Flush()
+	defer wsOut.Flush()
+
+	agent, err := claude.New(claude.Options{
+		Dir: dir, Model: cfg.Model, Steps: cfg.AgentSteps, SystemPrompt: harness.SystemPrompt(cfg, dir, profile),
+		Session: cfg.Session, StateDir: stateDir, Clock: system.Clock{}, Stderr: agentOut,
+	})
+	if err != nil {
+		log.Error("cannot build the agent", "error", err)
+
+		return exitSoftware
+	}
+
+	ws := workspace.New(workspace.Options{
+		RepoURL: cfg.GitLabURL.String() + "/" + cfg.ProjectPath + ".git", Dir: dir, Branch: cfg.Key.IssueBranch(),
+		Setup: profile.Setup, Verify: profile.Verify, Stderr: wsOut,
+		AuthHeader: workspace.AuthHeader{
+			ConfigKey: "http." + cfg.GitLabURL.GitConfigScope() + ".extraHeader", ConfigValue: gitAuthPlaceholder,
+		},
 	})
 
-	log.Error("agent and workspace adapters not built")
+	h := harness.New(cfg, harness.Ports{
+		GitLab: gl, Agent: agent, Workspace: ws, Clock: system.Clock{}, State: state.NewFile(stateDir), Log: log,
+	})
 
-	return exitUnavailable
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	log.Info("Harness started", "issue", cfg.Key.IID, "project", cfg.Key.ProjectID, "session", cfg.Session)
+
+	_ = h.Run(ctx)
+
+	log.Info("Harness stopped")
+
+	return exitOK
 }
 
 func runSelftest(sys selftest.System, stdout, stderr io.Writer) int {

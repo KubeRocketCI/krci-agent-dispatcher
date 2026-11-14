@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
 
 // Substrate accepts only actor images pinned by digest.
@@ -32,10 +33,15 @@ type Config struct {
 	Pool             string
 	SecretsNamespace string
 	AgentImage       string
+	HarnessImage     string
+	AgentSteps       int
+	AgentModel       string
 	TurnLimit        int
 	TurnTimeout      time.Duration
 	PollInterval     time.Duration
-	SweepInterval    time.Duration
+	// HarnessPollInterval is the poll interval of the harness in the actor; PollInterval is the dispatcher's.
+	HarnessPollInterval time.Duration
+	SweepInterval       time.Duration
 }
 
 // Load reads the environment, applies defaults and validates the values.
@@ -114,21 +120,53 @@ func Load() (*Config, error) {
 		Pool:             orDefault("POOL", "workers"),
 		SecretsNamespace: orDefault("SECRETS_NAMESPACE", "krci-agents"),
 		AgentImage:       required("AGENT_IMAGE"),
+		HarnessImage:     required("HARNESS_IMAGE"),
+		AgentSteps:       positiveInt("AGENT_STEPS", 40),
+		AgentModel:       orDefault("AGENT_MODEL", "claude-haiku-5-5"),
 		TurnLimit:        positiveInt("TURN_LIMIT", 20),
 		TurnTimeout:      duration("TURN_TIMEOUT", 15*time.Minute, false),
 		PollInterval:     duration("POLL_INTERVAL", 10*time.Second, false),
-		SweepInterval:    duration("SWEEP_INTERVAL", 5*time.Minute, true),
+
+		HarnessPollInterval: duration("HARNESS_POLL_INTERVAL", 15*time.Second, false),
+		SweepInterval:       duration("SWEEP_INTERVAL", 5*time.Minute, true),
 	}
 
 	if cfg.GitLabToken == "" && cfg.GitLabTokenFile == "" {
 		errs = append(errs, errors.New("GITLAB_TOKEN or GITLAB_TOKEN_FILE is required"))
 	}
 
+	errs = append(errs, cfg.harnessErrors()...)
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("config: %w", errors.Join(errs...))
 	}
 
 	return cfg, nil
+}
+
+// harnessErrors checks the values the actor template passes to the harness: they must pass its handshake.
+func (c *Config) harnessErrors() []error {
+	var errs []error
+
+	if c.HarnessImage != "" && !digestPinned.MatchString(c.HarnessImage) {
+		errs = append(errs, errors.New("HARNESS_IMAGE must be pinned by digest: <repo>[:<tag>]@sha256:<digest>"))
+	}
+
+	for _, w := range []struct {
+		name string
+		d    time.Duration
+	}{{"TURN_TIMEOUT", c.TurnTimeout}, {"HARNESS_POLL_INTERVAL", c.HarnessPollInterval}} {
+		if w.d%time.Second != 0 {
+			errs = append(errs, fmt.Errorf("%s must be whole seconds", w.name))
+		}
+	}
+
+	if c.TurnTimeout > 0 && c.HarnessPollInterval > 0 && c.TurnTimeout < turn.MinTurnTimeout(c.HarnessPollInterval) {
+		errs = append(errs, fmt.Errorf("TURN_TIMEOUT must be at least HARNESS_POLL_INTERVAL plus %s",
+			turn.MinTurnTimeout(0)))
+	}
+
+	return errs
 }
 
 // AgentImagePinned reports whether AgentImage is <repo>[:<tag>]@sha256:<digest>.

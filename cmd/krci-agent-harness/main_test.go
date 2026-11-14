@@ -28,6 +28,7 @@ func TestRun(t *testing.T) {
 		name       string
 		args       []string
 		uid        int
+		files      map[string]string
 		want       int
 		wantStdout string
 		wantStderr string
@@ -46,12 +47,20 @@ func TestRun(t *testing.T) {
 			name: "selftest gap", args: []string{"selftest"}, uid: 0, want: exitGap,
 			wantStdout: `"name":"agent_uid","ok":false`,
 		},
+		{
+			name: "selftest profile rejected", args: []string{"selftest"}, uid: selftest.AgentUID,
+			files: map[string]string{"/etc/krci-agent/profile.yaml": "image: golang\n"}, want: exitGap,
+			wantStdout: `"name":"profile_valid","ok":false`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
-			got := run(tt.args, agentImage(tt.uid), &stdout, &stderr)
+			sys := agentImage(tt.uid)
+			sys.Files = tt.files
+
+			got := run(tt.args, sys, &stdout, &stderr)
 			if got != tt.want {
 				t.Fatalf("exit = %d, want %d; stderr %q", got, tt.want, stderr.String())
 			}

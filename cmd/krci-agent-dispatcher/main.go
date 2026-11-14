@@ -46,6 +46,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		"build-date", info.BuildDate, "go-version", info.Go, "platform", info.Platform,
 		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL.String(),
 		"trigger-role", cfg.TriggerMinRole.String(), "sweep-interval", cfg.SweepInterval.String(),
+		"harness-image", cfg.HarnessImage, "agent-model", cfg.AgentModel, "agent-steps", cfg.AgentSteps,
 	)
 
 	if !cfg.AgentImagePinned() {
@@ -68,7 +69,8 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 
 	sb, err := substrate.NewGRPC(cfg.ATEAPIAddr, cfg.ATETokenFile, cfg.ATECAFile, substrate.Deployment{
 		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace, Image: cfg.AgentImage,
-		GitLabURL: cfg.GitLabURL,
+		HarnessImage: cfg.HarnessImage, GitLabURL: cfg.GitLabURL, Model: cfg.AgentModel, AgentSteps: cfg.AgentSteps,
+		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, HarnessPoll: cfg.HarnessPollInterval,
 	})
 	if err != nil {
 		return err

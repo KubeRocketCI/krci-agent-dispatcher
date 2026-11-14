@@ -2,11 +2,14 @@ package selftest_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/selftest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 )
+
+const profilePath = "/etc/krci-agent/profile.yaml"
 
 // agentImage is an agent image that meets the contract, without the harness mounted.
 func agentImage() *systemtest.Fake {
@@ -43,6 +46,7 @@ func names(checks []selftest.Check) []string {
 func TestAgentImageChecksNames(t *testing.T) {
 	want := []string{
 		"path_claude", "path_git", "path_sh", "agent_uid", "home_writable", "work_writable", "mount_path_free",
+		"profile_valid",
 	}
 
 	checks := selftest.AgentImageChecks(agentImage())
@@ -61,9 +65,42 @@ func TestMountPathFreeNamesEntries(t *testing.T) {
 	f := agentImage()
 	f.Dirs[selftest.MountPath] = []string{"bin", "tool"}
 
-	checks := selftest.AgentImageChecks(f)
-	if got := checks[len(checks)-1].Detail; got != "/opt/krci-agent holds bin, tool" {
+	if got := check(t, selftest.AgentImageChecks(f), "mount_path_free").Detail; got != "/opt/krci-agent holds bin, tool" {
 		t.Fatalf("detail = %q", got)
+	}
+}
+
+func check(t *testing.T, checks []selftest.Check, name string) selftest.Check {
+	t.Helper()
+
+	i := slices.IndexFunc(checks, func(c selftest.Check) bool { return c.Name == name })
+	if i < 0 {
+		t.Fatalf("no check %s in %v", name, names(checks))
+	}
+
+	return checks[i]
+}
+
+func TestProfileValidDetailHoldsNoContent(t *testing.T) {
+	const secret = "s3cr3t-profile-content"
+
+	tests := map[string]func(*systemtest.Fake){
+		"unreadable": func(f *systemtest.Fake) {
+			f.Files = map[string]string{profilePath: "setup: " + secret + "\n"}
+			f.Unreadable = []string{profilePath}
+		},
+		"not YAML": func(f *systemtest.Fake) { f.Files = map[string]string{profilePath: secret + ": [\n"} },
+	}
+	for name, modify := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := agentImage()
+			modify(f)
+
+			c := check(t, selftest.AgentImageChecks(f), "profile_valid")
+			if c.OK || c.Detail == "" || strings.Contains(c.Detail, secret) {
+				t.Fatalf("check %+v: want failed, a detail without the file content", c)
+			}
+		})
 	}
 }
 
@@ -91,12 +128,38 @@ func TestAgentImageChecks(t *testing.T) {
 			f.OnPath = []string{"claude", "git"}
 		}},
 		{name: "root user", want: []string{"agent_uid"}, modify: func(f *systemtest.Fake) { f.User = 0 }},
-		{name: "HOME unset", want: []string{"home_writable"}, modify: func(f *systemtest.Fake) { f.Env = nil }},
-		{name: "HOME read-only", want: []string{"home_writable"}, modify: func(f *systemtest.Fake) {
+		{name: "HOME unset", modify: func(f *systemtest.Fake) { f.Env = nil }},
+		{name: "HOME is another directory", modify: func(f *systemtest.Fake) {
+			f.Env = map[string]string{"HOME": "/home/node"}
+			f.Dirs["/home/node"] = nil
+		}},
+		{name: "/home/agent absent", want: []string{"home_writable"}, modify: func(f *systemtest.Fake) {
+			delete(f.Dirs, "/home/agent")
+			f.Env = map[string]string{"HOME": "/home/node"}
+			f.Dirs["/home/node"] = nil
+		}},
+		{name: "/home/agent read-only", want: []string{"home_writable"}, modify: func(f *systemtest.Fake) {
 			f.ReadOnly = []string{"/home/agent"}
 		}},
 		{name: "work dir absent", want: []string{"work_writable"}, modify: func(f *systemtest.Fake) {
 			delete(f.Dirs, selftest.WorkDir)
+		}},
+		{name: "profile valid", modify: func(f *systemtest.Fake) {
+			f.Files = map[string]string{profilePath: "setup: make deps\nverify: make test\nprompt: Use Go.\n"}
+		}},
+		{name: "profile empty", modify: func(f *systemtest.Fake) { f.Files = map[string]string{profilePath: ""} }},
+		{name: "profile unreadable", want: []string{"profile_valid"}, modify: func(f *systemtest.Fake) {
+			f.Files = map[string]string{profilePath: "setup: make deps\n"}
+			f.Unreadable = []string{profilePath}
+		}},
+		{name: "profile not YAML", want: []string{"profile_valid"}, modify: func(f *systemtest.Fake) {
+			f.Files = map[string]string{profilePath: "setup: [\n"}
+		}},
+		{name: "profile unknown field", want: []string{"profile_valid"}, modify: func(f *systemtest.Fake) {
+			f.Files = map[string]string{profilePath: "setup: make deps\nimage: golang\n"}
+		}},
+		{name: "profile non-string value", want: []string{"profile_valid"}, modify: func(f *systemtest.Fake) {
+			f.Files = map[string]string{profilePath: "verify: [make, test]\n"}
 		}},
 	}
 	for _, tt := range tests {

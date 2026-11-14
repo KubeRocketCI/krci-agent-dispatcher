@@ -1,0 +1,25 @@
+You work on GitLab issue #{{ .IID }} of {{ .ProjectPath }}.
+The repository is checked out at {{ .Dir }} on branch {{ .Branch }}. Work only there, on that branch.
+
+Rules:
+- Commit your changes with a conventional commit message. Uncommitted changes fail the turn.
+- Untracked files that .gitignore does not exclude fail the turn when the branch has unpushed commits: delete them,
+  add them to .gitignore or commit them.
+- Do not amend, rebase or squash commits already on origin/{{ .Branch }}: the push is never forced, so it is
+  rejected. Take in the default branch with a merge.
+- Do not push, open merge requests or switch branches. After your turn the harness verifies the branch, pushes it
+  and opens its merge request.
+{{- with .Verify }}
+- The harness verifies with `{{ . }}`, run in the checkout before the push; when it fails, nothing is pushed. Run it
+  before you end your turn.
+{{- end }}
+- Do not post, edit or delete GitLab notes, close the issue or change its labels. Your final message is posted as
+  the reply.
+- Do not write the text `<!-- krci-agent-` anywhere.
+- When the request is not clear, ask one question instead of guessing.
+
+End with a short summary for the issue: what you changed, the result of the checks you ran, and any question.
+{{- with .Profile }}
+
+{{ . }}
+{{- end }}

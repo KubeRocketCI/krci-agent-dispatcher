@@ -34,10 +34,11 @@ type Harness struct {
 	p   Ports
 	log *slog.Logger
 
-	known   *models.IssueView
-	started bool
-	pending *models.PendingReply
-	saved   bool
+	known     *models.IssueView
+	started   bool
+	mrPending bool
+	pending   *models.PendingReply
+	saved     bool
 	// corrupt is set once a corrupt state is logged, until a load succeeds.
 	corrupt bool
 }
@@ -91,10 +92,14 @@ func (h *Harness) Poll(ctx context.Context) {
 		return
 	}
 
-	o := h.runTurn(ctx, start, next, h.known.Issue)
+	o := h.runTurn(ctx, start, next, hist, h.known.Issue)
 
 	if ctx.Err() != nil {
 		return
+	}
+
+	if o.exit != 0 {
+		h.log.Warn("Turn failed", "turn", next.N, "phase", o.phase, "exit", o.exit, "error", o.err)
 	}
 
 	h.pending, h.saved = &models.PendingReply{Turn: next.N, Body: o.body(h.cfg.Session, next)}, false
@@ -177,6 +182,7 @@ func (h *Harness) recall() bool {
 
 	h.pending, h.saved = st.Pending, st.Pending != nil
 	h.started = h.started || st.Started
+	h.mrPending = h.mrPending || st.MergeRequestPending
 
 	return true
 }
@@ -223,5 +229,5 @@ func (h *Harness) clearPending() {
 }
 
 func (h *Harness) state() models.HarnessState {
-	return models.HarnessState{Pending: h.pending, Started: h.started}
+	return models.HarnessState{Pending: h.pending, Started: h.started, MergeRequestPending: h.mrPending}
 }

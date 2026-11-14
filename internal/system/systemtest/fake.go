@@ -23,8 +23,10 @@ type Fake struct {
 	Dirs map[string][]string
 	// ReadOnly are directories WriteProbe refuses.
 	ReadOnly []string
-	// Unreadable are directories ReadDir refuses.
+	// Unreadable are directories ReadDir refuses and files ReadFile refuses.
 	Unreadable []string
+	// Files maps a file path to its content; a file absent from Files does not exist.
+	Files map[string]string
 }
 
 func (f *Fake) UID() int { return f.User }
@@ -55,6 +57,19 @@ func (f *Fake) ReadDir(dir string) ([]fs.DirEntry, error) {
 	}
 
 	return fs.ReadDir(m, ".")
+}
+
+func (f *Fake) ReadFile(path string) ([]byte, error) {
+	content, ok := f.Files[path]
+	if !ok {
+		return nil, &fs.PathError{Op: opOpen, Path: path, Err: fs.ErrNotExist}
+	}
+
+	if slices.Contains(f.Unreadable, path) {
+		return nil, &fs.PathError{Op: opOpen, Path: path, Err: fs.ErrPermission}
+	}
+
+	return []byte(content), nil
 }
 
 func (f *Fake) WriteProbe(dir string) error {
