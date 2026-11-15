@@ -22,6 +22,38 @@ import (
 
 const settleBy = 5 * time.Second
 
+// The test binary re-runs itself as a leader when holderEnv is set: it starts sleep in a process group of its own
+// on its stdout, writes the pid of sleep to the file named by holderEnv, prints done and exits.
+const holderEnv = "KRCI_PROCGROUP_TEST_HOLDER_PID"
+
+func TestMain(m *testing.M) {
+	if pidFile := os.Getenv(holderEnv); pidFile != "" {
+		os.Exit(holdStdout(pidFile))
+	}
+
+	os.Exit(m.Run())
+}
+
+func holdStdout(pidFile string) int {
+	holder := exec.Command("sleep", "30")
+	holder.Stdout = os.Stdout
+	holder.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := holder.Start(); err != nil {
+		return 1
+	}
+
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(holder.Process.Pid)), 0o600); err != nil {
+		_ = holder.Process.Kill()
+
+		return 1
+	}
+
+	_, _ = os.Stdout.WriteString("done\n")
+
+	return 0
+}
+
 // Scripts that a signal must end loop in the foreground instead of ending on wait: TERM to the group also ends the
 // child, and sh can leave wait and exit 0 before it handles its own TERM.
 
@@ -154,7 +186,8 @@ func TestWaitReturnsWhileAProcessOutsideTheGroupHoldsStdout(t *testing.T) {
 	var out bytes.Buffer
 
 	pidFile := filepath.Join(t.TempDir(), "pid")
-	cmd := sh(`set -m; sleep 30 & echo $! > ` + pidFile + `; echo done`)
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), holderEnv+"="+pidFile)
 	cmd.Stdout = &out
 
 	p, err := procgroup.Start(cmd, procgroup.Options{Drain: 200 * time.Millisecond})

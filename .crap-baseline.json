@@ -753,22 +753,6 @@
       "function": "StartRefusedText"
     },
     {
-      "coverage": 71.4,
-      "crap": 9.5,
-      "cyclomatic": 8,
-      "effective_crap": 9.5,
-      "file": "internal/procgroup/exit_darwin.go",
-      "function": "awaitExit"
-    },
-    {
-      "coverage": 0,
-      "crap": 20,
-      "cyclomatic": 4,
-      "effective_crap": 20,
-      "file": "internal/procgroup/exit_linux.go",
-      "function": "awaitExit"
-    },
-    {
       "coverage": 0,
       "crap": 2,
       "cyclomatic": 1,
