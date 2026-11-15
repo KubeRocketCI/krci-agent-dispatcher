@@ -8,7 +8,7 @@ Terms: `GLOSSARY.md`. Decisions: `docs/adr/`. Decision rules: `internal/services
 
 ```
 make build      # → dist/krci-agent-dispatcher-<arch>, dist/krci-agent-harness-<arch> (linux, input of Dockerfile.harness); CGO_ENABLED=0
-make test       # go test -race ./... -coverprofile=coverage.out, then the CRAP gate (CRAP_CHECK=false skips it)
+make test       # go test -race ./... -coverprofile=coverage.out, hack/crap-gate-test.sh, then the CRAP gate (CRAP_CHECK=false skips it)
 make crap       # worst CRAP scores from coverage.out
 make crap-baseline  # rewrite .crap-baseline.json after an intended change
 make lint       # golangci-lint v2 (.golangci.yaml)
@@ -49,6 +49,7 @@ deploy-templates/            Helm chart
 Dockerfile.harness           harness image: FROM scratch, binary at /krci-agent-harness
 hack/register-hook.sh        project hook add|remove|list
 hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseline
+hack/crap-gate-test.sh       tests of crap-gate.sh, run by make test
 ```
 
 ## Conventions
