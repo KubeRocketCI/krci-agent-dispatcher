@@ -48,7 +48,10 @@ func (h *Harness) work(ctx context.Context, next turn.Turn, hist turn.History, i
 		return failed(ctx, phasePrepare, err)
 	}
 
-	text, rc, err := h.p.Agent.Run(ctx, prompt(next, hist, issue, h.p.Agent.Fresh(), prep))
+	fresh := h.p.Agent.Fresh()
+	h.log.Info("Agent run started", "turn", next.N, "new_session", fresh)
+
+	text, rc, err := h.p.Agent.Run(ctx, prompt(next, hist, issue, fresh, prep))
 	if err != nil {
 		return failed(ctx, phaseAgent, err)
 	}
