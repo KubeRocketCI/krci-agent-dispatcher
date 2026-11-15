@@ -8,11 +8,46 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
+	"testing"
 )
 
 // HoldEnv names the pid file of Hold. A test binary whose TestMain sees it set runs Hold on its stdout and exits.
 const HoldEnv = "KRCI_PROCTEST_HOLD_PID"
+
+// RunHolder is the first call of TestMain in a package that starts its test binary as a holder: with HoldEnv set it
+// runs Hold on stdout and exits the process, 0 or 1 when Hold fails; else it returns.
+func RunHolder() {
+	pidFile := os.Getenv(HoldEnv)
+	if pidFile == "" {
+		return
+	}
+
+	if Hold(os.Stdout, pidFile) != nil {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
+// HolderCommand is the sh command that runs the test binary as a holder with pid file pidFile. The test binary's
+// TestMain must call RunHolder.
+func HolderCommand(t testing.TB, pidFile string) string {
+	t.Helper()
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test binary path: %v", err)
+	}
+
+	return HoldEnv + "=" + shellQuote(pidFile) + " " + shellQuote(exe)
+}
+
+// shellQuote quotes s as one sh word.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // Gone reports whether pid has exited: it no longer exists, or it is a zombie that its parent has not reaped.
 func Gone(pid int) bool {
