@@ -793,7 +793,7 @@
       "function": "*Process.copy"
     },
     {
-      "coverage": 90.9,
+      "coverage": 100,
       "crap": 7,
       "cyclomatic": 7,
       "effective_crap": 7,
@@ -879,6 +879,38 @@
       "effective_crap": 3,
       "file": "internal/proctest/proctest.go",
       "function": "Hold"
+    },
+    {
+      "coverage": 75,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/proctest/proctest.go",
+      "function": "HolderCommand"
+    },
+    {
+      "coverage": 80,
+      "crap": 3.1,
+      "cyclomatic": 3,
+      "effective_crap": 3.1,
+      "file": "internal/proctest/proctest.go",
+      "function": "RunHolder"
+    },
+    {
+      "coverage": 0,
+      "crap": 6,
+      "cyclomatic": 2,
+      "effective_crap": 6,
+      "file": "internal/proctest/proctest.go",
+      "function": "WriteExecutable"
+    },
+    {
+      "coverage": 100,
+      "crap": 1,
+      "cyclomatic": 1,
+      "effective_crap": 1,
+      "file": "internal/proctest/proctest.go",
+      "function": "shellQuote"
     },
     {
       "coverage": 100,
@@ -1449,7 +1481,7 @@
       "function": "*Dispatcher.loop"
     },
     {
-      "coverage": 100,
+      "coverage": 92.3,
       "crap": 8,
       "cyclomatic": 8,
       "effective_crap": 8,
@@ -1681,7 +1713,7 @@
       "function": "Handshake"
     },
     {
-      "coverage": 94.7,
+      "coverage": 95.2,
       "crap": 8,
       "cyclomatic": 8,
       "effective_crap": 8,
@@ -1866,11 +1898,27 @@
     },
     {
       "coverage": 100,
+      "crap": 6,
+      "cyclomatic": 6,
+      "effective_crap": 6,
+      "file": "internal/services/harness/work.go",
+      "function": "prepNote"
+    },
+    {
+      "coverage": 100,
       "crap": 4,
       "cyclomatic": 4,
       "effective_crap": 4,
       "file": "internal/services/harness/work.go",
       "function": "prompt"
+    },
+    {
+      "coverage": 66.7,
+      "crap": 2.1,
+      "cyclomatic": 2,
+      "effective_crap": 2.1,
+      "file": "internal/services/harness/work.go",
+      "function": "untrackedNames"
     },
     {
       "coverage": 100,
@@ -1946,9 +1994,9 @@
     },
     {
       "coverage": 100,
-      "crap": 3,
-      "cyclomatic": 3,
-      "effective_crap": 3,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
       "file": "internal/services/selftest/selftest.go",
       "function": "AgentImageChecks"
     },
@@ -2414,13 +2462,13 @@
       "cyclomatic": 2,
       "effective_crap": 2,
       "file": "internal/workspace/git.go",
-      "function": "*Git.Branch"
+      "function": "*Git.NewCommitsCheck"
     },
     {
-      "coverage": 72.7,
-      "crap": 8,
-      "cyclomatic": 7,
-      "effective_crap": 8,
+      "coverage": 83.3,
+      "crap": 4.1,
+      "cyclomatic": 4,
+      "effective_crap": 4.1,
       "file": "internal/workspace/git.go",
       "function": "*Git.Prepare"
     },
@@ -2441,12 +2489,12 @@
       "function": "*Git.Verify"
     },
     {
-      "coverage": 100,
-      "crap": 3,
-      "cyclomatic": 3,
-      "effective_crap": 3,
+      "coverage": 80,
+      "crap": 5.2,
+      "cyclomatic": 5,
+      "effective_crap": 5.2,
       "file": "internal/workspace/git.go",
-      "function": "*Git.abortRebase"
+      "function": "*Git.abortOperations"
     },
     {
       "coverage": 100,
@@ -2455,14 +2503,6 @@
       "effective_crap": 5,
       "file": "internal/workspace/git.go",
       "function": "*Git.ancestor"
-    },
-    {
-      "coverage": 75,
-      "crap": 10.3,
-      "cyclomatic": 9,
-      "effective_crap": 10.3,
-      "file": "internal/workspace/git.go",
-      "function": "*Git.branch"
     },
     {
       "coverage": 76.9,
@@ -2505,6 +2545,14 @@
       "function": "*Git.gitOutput"
     },
     {
+      "coverage": 77.8,
+      "crap": 5.3,
+      "cyclomatic": 5,
+      "effective_crap": 5.3,
+      "file": "internal/workspace/git.go",
+      "function": "*Git.gitPathExists"
+    },
+    {
       "coverage": 100,
       "crap": 1,
       "cyclomatic": 1,
@@ -2519,6 +2567,14 @@
       "effective_crap": 3.1,
       "file": "internal/workspace/git.go",
       "function": "*Git.hasCheckout"
+    },
+    {
+      "coverage": 75,
+      "crap": 10.3,
+      "cyclomatic": 9,
+      "effective_crap": 10.3,
+      "file": "internal/workspace/git.go",
+      "function": "*Git.newCommits"
     },
     {
       "coverage": 83.3,
@@ -2537,12 +2593,20 @@
       "function": "*Git.rebase"
     },
     {
-      "coverage": 80,
-      "crap": 6.3,
-      "cyclomatic": 6,
-      "effective_crap": 6.3,
+      "coverage": 100,
+      "crap": 4,
+      "cyclomatic": 4,
+      "effective_crap": 4,
       "file": "internal/workspace/git.go",
       "function": "*Git.rebasing"
+    },
+    {
+      "coverage": 72.7,
+      "crap": 5.5,
+      "cyclomatic": 5,
+      "effective_crap": 5.5,
+      "file": "internal/workspace/git.go",
+      "function": "*Git.refresh"
     },
     {
       "coverage": 85.7,
@@ -2577,10 +2641,18 @@
       "function": "*Git.shell"
     },
     {
+      "coverage": 80,
+      "crap": 4.1,
+      "cyclomatic": 4,
+      "effective_crap": 4.1,
+      "file": "internal/workspace/git.go",
+      "function": "*Git.stash"
+    },
+    {
       "coverage": 100,
-      "crap": 5,
-      "cyclomatic": 5,
-      "effective_crap": 5,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
       "file": "internal/workspace/git.go",
       "function": "*Git.switchBack"
     },
@@ -2591,6 +2663,14 @@
       "effective_crap": 2.1,
       "file": "internal/workspace/git.go",
       "function": "*Git.trackedChanged"
+    },
+    {
+      "coverage": 100,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/workspace/git.go",
+      "function": "*Git.untracked"
     },
     {
       "coverage": 75,
@@ -2631,6 +2711,14 @@
       "effective_crap": 1,
       "file": "internal/workspace/git.go",
       "function": "baseEnv"
+    },
+    {
+      "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/workspace/git.go",
+      "function": "firstPaths"
     },
     {
       "coverage": 100,
