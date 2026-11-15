@@ -44,6 +44,21 @@ func HolderCommand(t testing.TB, pidFile string) string {
 	return HoldEnv + "=" + shellQuote(pidFile) + " " + shellQuote(exe)
 }
 
+// WriteExecutable writes content to path with mode 0700. It holds syscall.ForkLock while the file is open, so no
+// process forked meanwhile inherits the write descriptor: on Linux an exec of path fails with ETXTBSY while any
+// process holds it open for writing.
+func WriteExecutable(t testing.TB, path, content string) {
+	t.Helper()
+
+	syscall.ForkLock.RLock()
+	err := os.WriteFile(path, []byte(content), 0o700)
+	syscall.ForkLock.RUnlock()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // shellQuote quotes s as one sh word.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

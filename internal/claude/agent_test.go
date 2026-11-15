@@ -69,11 +69,7 @@ func newStub(t *testing.T, body string) stub {
 	}
 
 	path := filepath.Join(dir, "claude")
-	script := strings.ReplaceAll(prelude, "%REC%", rec) + body + "\n"
-
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	proctest.WriteExecutable(t, path, strings.ReplaceAll(prelude, "%REC%", rec)+body+"\n")
 
 	return stub{path: path, rec: rec}
 }
@@ -822,10 +818,7 @@ func TestNewValidatesOptions(t *testing.T) {
 func (s stub) body(t *testing.T, body string) {
 	t.Helper()
 
-	script := strings.ReplaceAll(prelude, "%REC%", s.rec) + body + "\n"
-	if err := os.WriteFile(s.path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	proctest.WriteExecutable(t, s.path, strings.ReplaceAll(prelude, "%REC%", s.rec)+body+"\n")
 }
 
 func (s stub) pid(t *testing.T, name string) int {
