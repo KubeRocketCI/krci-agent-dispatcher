@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/claude"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/proctest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 )
@@ -819,7 +820,7 @@ func awaitGone(t *testing.T, pid int) {
 	t.Helper()
 
 	for end := time.Now().Add(settleBy); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) || zombie(pid) {
+		if proctest.Gone(pid) {
 			return
 		}
 	}
@@ -827,18 +828,6 @@ func awaitGone(t *testing.T, pid int) {
 	_ = syscall.Kill(pid, syscall.SIGKILL)
 
 	t.Fatalf("process %d still runs", pid)
-}
-
-// zombie reports whether /proc shows pid as exited and not yet reaped; false without /proc.
-func zombie(pid int) bool {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return false
-	}
-
-	i := bytes.LastIndexByte(b, ')')
-
-	return i >= 0 && len(b) > i+2 && b[i+2] == 'Z'
 }
 
 func awaitFile(t *testing.T, path string) {

@@ -874,6 +874,30 @@
     },
     {
       "coverage": 100,
+      "crap": 2,
+      "cyclomatic": 2,
+      "effective_crap": 2,
+      "file": "internal/proctest/proctest.go",
+      "function": "Gone"
+    },
+    {
+      "coverage": 87.5,
+      "crap": 3,
+      "cyclomatic": 3,
+      "effective_crap": 3,
+      "file": "internal/proctest/proctest.go",
+      "function": "Hold"
+    },
+    {
+      "coverage": 0,
+      "crap": 2,
+      "cyclomatic": 1,
+      "effective_crap": 2,
+      "file": "internal/proctest/zombie_other.go",
+      "function": "zombie"
+    },
+    {
+      "coverage": 100,
       "crap": 19,
       "cyclomatic": 19,
       "effective_crap": 19,
