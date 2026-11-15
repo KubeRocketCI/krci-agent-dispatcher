@@ -363,6 +363,91 @@ func TestPollLogsTheErrorOfAFailedTurn(t *testing.T) {
 	assert.Contains(t, r.logs.String(), "phase=verify")
 	assert.Contains(t, r.logs.String(), "verify: exit status 1: FAIL TestHandler")
 	assert.NotContains(t, r.replies()[0].Body, "FAIL TestHandler", "the error stays out of the reply")
+	assert.Empty(t, logLines(r.logs.String(), "Turn done"), "a failed turn is not done")
+}
+
+func TestPollLogsTheEndOfADoneTurn(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.start().h.Poll(context.Background())
+
+	done := logLines(r.logs.String(), "Turn done")
+	require.Len(t, done, 1)
+	assertAttrs(t, done[0], "level=INFO", "turn=1")
+	assert.Empty(t, logLines(r.logs.String(), "Turn failed"))
+}
+
+// logLines returns the log lines whose message is msg.
+func logLines(logs, msg string) []string {
+	var out []string
+
+	for line := range strings.SplitSeq(strings.TrimSpace(logs), "\n") {
+		if strings.Contains(line, ` msg="`+msg+`"`) {
+			out = append(out, line)
+		}
+	}
+
+	return out
+}
+
+// assertAttrs asserts that the log line holds each key=value attribute.
+func assertAttrs(t *testing.T, line string, attrs ...string) {
+	t.Helper()
+
+	fields := strings.Fields(line)
+	for _, a := range attrs {
+		assert.Contains(t, fields, a, "line %q", line)
+	}
+}
+
+func TestPollLogsTheStartOfEachTurnAndWhetherTheAgentRunStartsTheSession(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.start().h.Poll(context.Background())
+
+	r.comment("and the tests")
+	r.h.Poll(context.Background())
+
+	started := logLines(r.logs.String(), "Turn started")
+	require.Len(t, started, 2)
+	assertAttrs(t, started[0], "level=INFO", "turn=1")
+	assertAttrs(t, started[1], "level=INFO", "turn=2")
+
+	runs := logLines(r.logs.String(), "Agent run started")
+	require.Len(t, runs, 2)
+	assertAttrs(t, runs[0], "level=INFO", "turn=1", "new_session=true")
+	assertAttrs(t, runs[1], "level=INFO", "turn=2", "new_session=false")
+}
+
+func TestPollLogsNoAgentRunForATurnThatFailsInPrepare(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+	r.ws.PrepareErr = errors.New("clone: exit status 128")
+	r.start().h.Poll(context.Background())
+
+	logs := r.logs.String()
+	assert.Len(t, logLines(logs, "Turn started"), 1)
+	assert.Empty(t, logLines(logs, "Agent run started"))
+	assert.Len(t, logLines(logs, "Turn failed"), 1)
+}
+
+func TestPollLogsNoEndOfATurnCutByShutdown(t *testing.T) {
+	r := newRig(t)
+	r.comment("do it")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.agent.Result = func(ctx context.Context, _ int) (string, int, error) {
+		cancel()
+		<-ctx.Done()
+
+		return "", 0, ctx.Err()
+	}
+	r.start().h.Poll(ctx)
+
+	logs := r.logs.String()
+	assert.Len(t, logLines(logs, "Turn started"), 1)
+	assert.Empty(t, logLines(logs, "Turn done"))
+	assert.Empty(t, logLines(logs, "Turn failed"))
 }
 
 // GitLab refuses a merge request title above 255 characters.

@@ -92,6 +92,8 @@ func (h *Harness) Poll(ctx context.Context) {
 		return
 	}
 
+	h.log.Info("Turn started", "turn", next.N)
+
 	o := h.runTurn(ctx, start, next, hist, h.known.Issue)
 
 	if ctx.Err() != nil {
@@ -100,6 +102,8 @@ func (h *Harness) Poll(ctx context.Context) {
 
 	if o.exit != 0 {
 		h.log.Warn("Turn failed", "turn", next.N, "phase", o.phase, "exit", o.exit, "error", o.err)
+	} else {
+		h.log.Info("Turn done", "turn", next.N)
 	}
 
 	h.pending, h.saved = &models.PendingReply{Turn: next.N, Body: o.body(h.cfg.Session, next)}, false
