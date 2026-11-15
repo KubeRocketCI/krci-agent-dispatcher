@@ -3,7 +3,6 @@ package procgroup_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,41 +16,22 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/procgroup"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/proctest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 )
 
 const settleBy = 5 * time.Second
 
-// The test binary re-runs itself as a leader when holderEnv is set: it starts sleep in a process group of its own
-// on its stdout, writes the pid of sleep to the file named by holderEnv, prints done and exits.
-const holderEnv = "KRCI_PROCGROUP_TEST_HOLDER_PID"
-
 func TestMain(m *testing.M) {
-	if pidFile := os.Getenv(holderEnv); pidFile != "" {
-		os.Exit(holdStdout(pidFile))
+	if pidFile := os.Getenv(proctest.HoldEnv); pidFile != "" {
+		if proctest.Hold(os.Stdout, pidFile) != nil {
+			os.Exit(1)
+		}
+
+		os.Exit(0)
 	}
 
 	os.Exit(m.Run())
-}
-
-func holdStdout(pidFile string) int {
-	holder := exec.Command("sleep", "30")
-	holder.Stdout = os.Stdout
-	holder.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	if err := holder.Start(); err != nil {
-		return 1
-	}
-
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(holder.Process.Pid)), 0o600); err != nil {
-		_ = holder.Process.Kill()
-
-		return 1
-	}
-
-	_, _ = os.Stdout.WriteString("done\n")
-
-	return 0
 }
 
 // Scripts that a signal must end loop in the foreground instead of ending on wait: TERM to the group also ends the
@@ -93,7 +73,7 @@ func assertGone(t *testing.T, pid int) {
 	t.Helper()
 
 	if !assert.Eventually(t, func() bool {
-		return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+		return proctest.Gone(pid)
 	}, settleBy, 10*time.Millisecond, "process %d still runs", pid) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
@@ -187,7 +167,7 @@ func TestWaitReturnsWhileAProcessOutsideTheGroupHoldsStdout(t *testing.T) {
 
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), holderEnv+"="+pidFile)
+	cmd.Env = append(os.Environ(), proctest.HoldEnv+"="+pidFile)
 	cmd.Stdout = &out
 
 	p, err := procgroup.Start(cmd, procgroup.Options{Drain: 200 * time.Millisecond})

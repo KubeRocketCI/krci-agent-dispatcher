@@ -2,7 +2,6 @@ package workspace_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/proctest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/workspace"
@@ -30,6 +30,14 @@ const inheritedIgnored = ".inherited"
 // TestMain keeps git away from the user's and the system's config for the whole process, so tests run in parallel.
 // The process inherits one git config entry through GIT_CONFIG_COUNT.
 func TestMain(m *testing.M) {
+	if pidFile := os.Getenv(proctest.HoldEnv); pidFile != "" {
+		if proctest.Hold(os.Stdout, pidFile) != nil {
+			os.Exit(1)
+		}
+
+		os.Exit(0)
+	}
+
 	os.Exit(runIsolated(m))
 }
 
@@ -932,7 +940,7 @@ func assertGone(t *testing.T, pid int) {
 	t.Helper()
 
 	if !assert.Eventually(t, func() bool {
-		return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+		return proctest.Gone(pid)
 	}, 2*time.Second, 10*time.Millisecond, "process %d still runs", pid) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
@@ -941,7 +949,9 @@ func assertGone(t *testing.T, pid int) {
 func TestPrepareReturnsWhileAProcessOutsideTheGroupHoldsTheOutput(t *testing.T) {
 	r := newRemote(t)
 	pidFile := filepath.Join(t.TempDir(), "pid")
-	w, _ := newGit(t, r, workspace.Options{Setup: "set -m; sleep 30 & echo $! > " + pidFile, Grace: 30 * time.Second})
+	w, _ := newGit(t, r, workspace.Options{
+		Setup: proctest.HoldEnv + "='" + pidFile + "' '" + os.Args[0] + "'", Grace: 30 * time.Second,
+	})
 
 	t.Cleanup(func() { _ = syscall.Kill(readPID(t, pidFile), syscall.SIGKILL) })
 
