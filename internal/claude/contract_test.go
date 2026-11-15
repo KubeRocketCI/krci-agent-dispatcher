@@ -20,11 +20,12 @@ var (
 )
 
 // agentScenario is the run a contract case asks of a subject: its result text and exit code, or a run that does not
-// end until the watchdog cuts it.
+// end until the watchdog cuts it. noInit is a run that ends before the session starts (claude: no init event).
 type agentScenario struct {
-	text  string
-	exit  int
-	block bool
+	text   string
+	exit   int
+	block  bool
+	noInit bool
 }
 
 // buildAgent returns a subject on clk for a scenario.
@@ -39,19 +40,25 @@ type agentSubject struct {
 func agentSubjects() map[string]func(t *testing.T, clk *systemtest.Clock, sc agentScenario) agentSubject {
 	return map[string]func(t *testing.T, clk *systemtest.Clock, sc agentScenario) agentSubject{
 		"fake": func(_ *testing.T, _ *systemtest.Clock, sc agentScenario) agentSubject {
-			a := &harnesstest.Agent{Result: func(ctx context.Context, _ int) (string, int, error) {
-				if sc.block {
-					return "", 0, harnesstest.Await(ctx)
-				}
+			a := &harnesstest.Agent{
+				Result: func(ctx context.Context, _ int) (string, int, error) {
+					if sc.block {
+						return "", 0, harnesstest.Await(ctx)
+					}
 
-				return sc.text, sc.exit, nil
-			}}
+					return sc.text, sc.exit, nil
+				},
+				NoInit: func(int) bool { return sc.noInit },
+			}
 
 			return agentSubject{agent: a, running: func() {}}
 		},
 		"claude": func(t *testing.T, clk *systemtest.Clock, sc agentScenario) agentSubject {
 			body := fmt.Sprintf("init; result %s; exit %d", sc.text, sc.exit)
-			if sc.block {
+			switch {
+			case sc.noInit:
+				body = fmt.Sprintf("result %s; exit %d", sc.text, sc.exit)
+			case sc.block:
 				body = `trap 'exit 143' TERM
 init
 : > "$rec/ready"
@@ -75,6 +82,7 @@ func TestAgentContract(t *testing.T) {
 		"ReturnsANonZeroExitWithItsText":  ReturnsANonZeroExitWithItsText,
 		"WatchdogCutIsDeadlineExceeded":   WatchdogCutIsDeadlineExceeded,
 		"FreshUntilARunStartedIt":         FreshUntilARunStartedIt,
+		"FreshAfterARunThatEndedBeforeIt": FreshAfterARunThatEndedBeforeIt,
 	}
 
 	for name, build := range agentSubjects() {
@@ -114,7 +122,26 @@ func ReturnsANonZeroExitWithItsText(
 	}
 }
 
-// FreshUntilARunStartedIt: the scenario's run starts the conversation (claude: the init event; fake: any run).
+// FreshAfterARunThatEndedBeforeIt: a run that ends before the session starts leaves the agent fresh, also with an
+// exit code and a text.
+func FreshAfterARunThatEndedBeforeIt(
+	t *testing.T,
+	build buildAgent,
+) {
+	clk := newClock()
+	s := build(t, clk, agentScenario{text: "partial", exit: 1, noInit: true})
+
+	if _, _, err := s.agent.Run(t.Context(), "go"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !s.agent.Fresh() {
+		t.Fatal("Fresh after a run that ended before the session started = false, want true")
+	}
+}
+
+// FreshUntilARunStartedIt: the scenario's run starts the conversation (claude: the init event; fake: a run that
+// NoInit does not report).
 func FreshUntilARunStartedIt(
 	t *testing.T,
 	build buildAgent,

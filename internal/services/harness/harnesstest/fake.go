@@ -30,14 +30,17 @@ func Await(ctx context.Context) error {
 }
 
 // Agent records its prompts. OnTurn runs inside each run with the number of the call, from 1. Result decides the
-// outcome of a run; the default is the text "agent run <call>", exit 0. Fresh is true until the first Run. Set the
-// hooks before the first run. Safe for concurrent use.
+// outcome of a run; the default is the text "agent run <call>", exit 0. NoInit reports the calls that end before the
+// session starts, as a claude run without the init event; nil is none. Fresh is true until a run that NoInit does not
+// report. Set the hooks before the first run. Safe for concurrent use.
 type Agent struct {
 	OnTurn func(call int)
 	Result func(ctx context.Context, call int) (text string, exitCode int, err error)
+	NoInit func(call int) bool
 
-	mu  sync.Mutex
-	log []string
+	mu      sync.Mutex
+	log     []string
+	started bool
 }
 
 // Fresh implements the harness Agent port.
@@ -45,7 +48,7 @@ func (a *Agent) Fresh() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	return len(a.log) == 0
+	return !a.started
 }
 
 // Run implements the harness Agent port.
@@ -53,6 +56,10 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, int, error) {
 	a.mu.Lock()
 	a.log = append(a.log, prompt)
 	call := len(a.log)
+
+	if a.NoInit == nil || !a.NoInit(call) {
+		a.started = true
+	}
 	a.mu.Unlock()
 
 	if a.OnTurn != nil {
