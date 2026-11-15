@@ -419,6 +419,35 @@ func TestPollLogsTheStartOfEachTurnAndWhetherTheAgentRunStartsTheSession(t *test
 	assertAttrs(t, runs[1], "level=INFO", "turn=2", "new_session=false")
 }
 
+func TestPollStartsTheSessionAgainAfterARunThatEndedBeforeIt(t *testing.T) {
+	r := newRig(t)
+	r.gl.SetIssueText(key, "Add a README", "The README names the project.")
+	r.comment("please add a README")
+	r.agent.NoInit = func(call int) bool { return call == 1 }
+	r.agent.Result = func(_ context.Context, call int) (string, int, error) {
+		if call == 1 {
+			return "", 1, nil
+		}
+
+		return "done", 0, nil
+	}
+	r.start().h.Poll(context.Background())
+
+	r.comment("try again")
+	r.h.Poll(context.Background())
+
+	prompts := r.agent.Prompts()
+	require.Len(t, prompts, 2)
+	assert.Contains(t, prompts[1], "Issue: Add a README")
+	assert.Contains(t, prompts[1], "The README names the project.")
+	assert.Contains(t, prompts[1], "please add a README", "a new session gets every comment")
+	assert.Contains(t, prompts[1], "try again")
+
+	runs := logLines(r.logs.String(), "Agent run started")
+	require.Len(t, runs, 2)
+	assertAttrs(t, runs[1], "turn=2", "new_session=true")
+}
+
 func TestPollLogsNoAgentRunForATurnThatFailsInPrepare(t *testing.T) {
 	r := newRig(t)
 	r.comment("do it")
