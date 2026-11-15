@@ -23,14 +23,7 @@ import (
 const settleBy = 5 * time.Second
 
 func TestMain(m *testing.M) {
-	if pidFile := os.Getenv(proctest.HoldEnv); pidFile != "" {
-		if proctest.Hold(os.Stdout, pidFile) != nil {
-			os.Exit(1)
-		}
-
-		os.Exit(0)
-	}
-
+	proctest.RunHolder()
 	os.Exit(m.Run())
 }
 

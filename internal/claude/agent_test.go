@@ -28,6 +28,11 @@ const (
 	steps        = 7
 )
 
+func TestMain(m *testing.M) {
+	proctest.RunHolder()
+	os.Exit(m.Run())
+}
+
 // prelude records each call of the stub in <rec>/<n>.{argv,stdin,pwd,env}, sets $c to the conversation id of the
 // argv and defines init and result.
 const prelude = `#!/bin/sh
@@ -741,22 +746,42 @@ result done`)
 func TestRunReturnsWhileAProcessOutsideTheGroupHoldsStdout(t *testing.T) {
 	t.Parallel()
 
-	s := newStub(t, `set -m
-sleep 30 &
-echo $! > "$rec/escaped"
+	pidFile := filepath.Join(t.TempDir(), "escaped")
+	s := newStub(t, proctest.HolderCommand(t, pidFile)+`
 result done`)
 
-	t.Cleanup(func() { _ = syscall.Kill(s.pid(t, "escaped"), syscall.SIGKILL) })
-
-	begin := time.Now()
+	t.Cleanup(func() { _ = syscall.Kill(readPID(t, pidFile), syscall.SIGKILL) })
 
 	if text, _ := run(t, newAgent(t, s, agentOptions{}), "go"); text != "done" {
 		t.Fatalf("text = %q, want done", text)
 	}
 
-	if got := time.Since(begin); got > 10*time.Second {
-		t.Fatalf("Run took %v while a process outside the group held stdout", got)
+	// The holder keeps stdout open until it exits: a holder that still runs means Run did not wait for EOF.
+	pid := readPID(t, pidFile)
+
+	if proctest.Gone(pid) {
+		t.Fatalf("holder %d ended before Run returned: Run waited for EOF on stdout", pid)
 	}
+
+	if pgid, err := syscall.Getpgid(pid); err != nil || pgid != pid {
+		t.Fatalf("holder %d: process group %d, %v; want a group of its own", pid, pgid, err)
+	}
+}
+
+func readPID(t *testing.T, path string) int {
+	t.Helper()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return pid
 }
 
 func TestNewValidatesOptions(t *testing.T) {

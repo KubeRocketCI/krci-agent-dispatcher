@@ -30,14 +30,7 @@ const inheritedIgnored = ".inherited"
 // TestMain keeps git away from the user's and the system's config for the whole process, so tests run in parallel.
 // The process inherits one git config entry through GIT_CONFIG_COUNT.
 func TestMain(m *testing.M) {
-	if pidFile := os.Getenv(proctest.HoldEnv); pidFile != "" {
-		if proctest.Hold(os.Stdout, pidFile) != nil {
-			os.Exit(1)
-		}
-
-		os.Exit(0)
-	}
-
+	proctest.RunHolder()
 	os.Exit(runIsolated(m))
 }
 
@@ -950,15 +943,25 @@ func TestPrepareReturnsWhileAProcessOutsideTheGroupHoldsTheOutput(t *testing.T) 
 	r := newRemote(t)
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	w, _ := newGit(t, r, workspace.Options{
-		Setup: proctest.HoldEnv + "='" + pidFile + "' '" + os.Args[0] + "'", Grace: 30 * time.Second,
+		Setup: proctest.HolderCommand(t, pidFile), Grace: 30 * time.Second,
 	})
 
 	t.Cleanup(func() { _ = syscall.Kill(readPID(t, pidFile), syscall.SIGKILL) })
 
-	start := time.Now()
-
 	prepare(t, w, true)
-	assert.Less(t, time.Since(start), 10*time.Second)
+	assertHolding(t, readPID(t, pidFile))
+}
+
+// assertHolding asserts that the holder pid leads a process group of its own and still runs. The holder keeps the
+// output open until it exits: a holder that still runs means the caller did not wait for EOF.
+func assertHolding(t *testing.T, pid int) {
+	t.Helper()
+
+	require.False(t, proctest.Gone(pid), "holder ended before the caller returned: it waited for EOF")
+
+	pgid, err := syscall.Getpgid(pid)
+	require.NoError(t, err)
+	assert.Equal(t, pid, pgid, "holder outside the group")
 }
 
 func TestCancelledContextFailsBeforeCommand(t *testing.T) {

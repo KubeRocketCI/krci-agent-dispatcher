@@ -15,6 +15,11 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/proctest"
 )
 
+func TestMain(m *testing.M) {
+	proctest.RunHolder()
+	os.Exit(m.Run())
+}
+
 func TestGoneIsFalseWhileTheProcessRuns(t *testing.T) {
 	cmd := exec.Command("sleep", "30")
 	require.NoError(t, cmd.Start())
@@ -71,6 +76,37 @@ func TestHoldLeavesSleepInItsOwnGroupOnOut(t *testing.T) {
 	got, err := os.ReadFile(out.Name())
 	require.NoError(t, err)
 	assert.Equal(t, "done\n", string(got))
+}
+
+func TestHolderCommandStartsTheTestBinaryAsAHolder(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "it's a pid")
+
+	out, err := os.Create(filepath.Join(dir, "out"))
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = out.Close() })
+
+	cmd := exec.Command("sh", "-c", proctest.HolderCommand(t, pidFile))
+	cmd.Stdout = out
+	require.NoError(t, cmd.Run())
+
+	got, err := os.ReadFile(out.Name())
+	require.NoError(t, err)
+	assert.Equal(t, "done\n", string(got))
+
+	raw, err := os.ReadFile(pidFile)
+	require.NoError(t, err)
+
+	pid, err := strconv.Atoi(string(raw))
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+
+	pgid, err := syscall.Getpgid(pid)
+	require.NoError(t, err)
+	assert.Equal(t, pid, pgid)
+	assert.False(t, proctest.Gone(pid))
 }
 
 func TestHoldFailsWhenThePidFileCannotBeWritten(t *testing.T) {
