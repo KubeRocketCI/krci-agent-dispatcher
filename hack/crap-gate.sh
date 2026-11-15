@@ -14,6 +14,8 @@
 #   CRAP_EXCLUDES            space-separated regexes of files to skip [_gen\.go$]
 # A "$" in a value passed as a make argument is written "$$".
 #
+# A file whose //go:build line names an OS (GOOS value or unix) is always skipped.
+#
 # The coverage profile must be newer than every .go file.
 #
 # Exit codes: 0 pass, 1 usage or tool error, 2 gate failure.
@@ -52,7 +54,52 @@ scan() {
   for re in ${excludes[@]+"${excludes[@]}"}; do
     args+=(--exclude "$re")
   done
+  local f
+  while IFS= read -r -d '' f; do
+    if [[ $f != *_test.go ]] && names_os "$f"; then
+      # go-crap matches the regex against the absolute path.
+      args+=(--exclude "^$(quote_regex "$PWD/${f#./}")\$")
+    fi
+  done < <(go_files)
   "$GO_CRAP" "${args[@]}" "$@"
+}
+
+# go_files prints the .go files under . outside bin/ and dist/, NUL-terminated.
+go_files() {
+  find . -name '*.go' -not -path './bin/*' -not -path './dist/*' -print0
+}
+
+# GOOS values and unix: the build tags that name an OS.
+readonly OS_TAGS=' aix android darwin dragonfly freebsd hurd illumos ios js linux netbsd openbsd plan9 solaris wasip1 windows zos unix '
+
+# names_os reports whether the //go:build line of file $1, before its package clause, names an OS tag.
+names_os() {
+  local line word
+  while IFS= read -r line; do
+    case $line in
+    '//go:build '* | $'//go:build\t'*)
+      for word in ${line//[^A-Za-z0-9_.]/ }; do
+        [[ $OS_TAGS == *" $word "* ]] && return 0
+      done
+      return 1
+      ;;
+    package*) return 1 ;;
+    esac
+  done <"$1"
+  return 1
+}
+
+# quote_regex prints $1 with each RE2 metacharacter escaped.
+quote_regex() {
+  local s=$1 out= c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case $c in
+    [\\.+*?\(\)\|\[\]\{\}^\$]) c="\\$c" ;;
+    esac
+    out+=$c
+  done
+  printf '%s' "$out"
 }
 
 report() {
@@ -102,16 +149,17 @@ baseline() {
 
 # require_profile fails when the coverage profile is missing or older than a .go file.
 require_profile() {
-  local newer
+  local f
   if [[ ! -f $CRAP_PROFILE ]]; then
     echo "$CRAP_PROFILE not found: run make test first" >&2
     return 1
   fi
-  newer=$(find . -name '*.go' -newer "$CRAP_PROFILE" -not -path './bin/*' -not -path './dist/*' -print -quit)
-  if [[ -n $newer ]]; then
-    echo "$CRAP_PROFILE is older than $newer: run make test first" >&2
-    return 1
-  fi
+  while IFS= read -r -d '' f; do
+    if [[ $f -nt $CRAP_PROFILE ]]; then
+      echo "$CRAP_PROFILE is older than $f: run make test first" >&2
+      return 1
+    fi
+  done < <(go_files)
 }
 
 main() {

@@ -41,13 +41,15 @@ build: ## Build the binaries → dist/krci-agent-dispatcher-<arch>, dist/krci-ag
 # CRAP = CC^2 * (1 - coverage)^3 + CC per function, scored from the coverage profile of make test.
 # Gate logic and its other settings live in hack/crap-gate.sh. CRAP_CHECK=false skips the gate in make test.
 CRAP_CHECK ?= true
-# A file built on only one of linux and darwin has the _linux.go or _darwin.go suffix; the gate skips both.
+# The gate skips files built for one OS: the _linux.go and _darwin.go suffixes here, a //go:build line that names an
+# OS in the script.
 CRAP_EXCLUDES ?= _gen\.go$$ _(linux|darwin)\.go$$ /cmd/ /gitlabtest/ /substratetest/ /systemtest/ /statetest/ /harnesstest/
 CRAP_GATE = GO_CRAP=$(GO_CRAP) GOJQ=$(GOJQ) CRAP_EXCLUDES='$(CRAP_EXCLUDES)' ./hack/crap-gate.sh
 
 .PHONY: test
-test: ## Run the tests with the race detector, then the CRAP gate
+test: go-crap gojq ## Run the tests with the race detector and the CRAP gate tests, then the CRAP gate
 	CGO_ENABLED=1 go test -race ./... -coverprofile=coverage.out
+	GO_CRAP=$(GO_CRAP) GOJQ=$(GOJQ) ./hack/crap-gate-test.sh
 ifneq ($(CRAP_CHECK),false)
 	@$(MAKE) --no-print-directory crap-check
 endif
