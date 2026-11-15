@@ -27,8 +27,6 @@ ifneq (${GIT_TAG},)
 LDFLAGS += -X ${PACKAGE}.gitTag=${GIT_TAG}
 endif
 
-override GCFLAGS +=all=-trimpath=${CURRENT_DIR}
-
 ## Location to install dependencies to
 LOCALBIN ?= ${CURRENT_DIR}/bin
 $(LOCALBIN):
@@ -37,8 +35,8 @@ $(LOCALBIN):
 .PHONY: build
 # The harness runs only in actors: GOOS is linux whatever HOST_OS is; HOST_ARCH=amd64 builds for amd64 pools.
 build: ## Build the binaries → dist/krci-agent-dispatcher-<arch>, dist/krci-agent-harness-<arch> (linux)
-	CGO_ENABLED=0 GOOS=${HOST_OS} GOARCH=${HOST_ARCH} go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-dispatcher-${HOST_ARCH} -gcflags '${GCFLAGS}' ./cmd/krci-agent-dispatcher
-	CGO_ENABLED=0 GOOS=linux GOARCH=${HOST_ARCH} go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-harness-${HOST_ARCH} -gcflags '${GCFLAGS}' ./cmd/krci-agent-harness
+	CGO_ENABLED=0 GOOS=${HOST_OS} GOARCH=${HOST_ARCH} go build -v -trimpath -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-dispatcher-${HOST_ARCH} ./cmd/krci-agent-dispatcher
+	CGO_ENABLED=0 GOOS=linux GOARCH=${HOST_ARCH} go build -v -trimpath -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-harness-${HOST_ARCH} ./cmd/krci-agent-harness
 
 # CRAP = CC^2 * (1 - coverage)^3 + CC per function, scored from the coverage profile of make test.
 # Gate logic and its other settings live in hack/crap-gate.sh. CRAP_CHECK=false skips the gate in make test.
