@@ -184,6 +184,25 @@ func TestChartPythonProfileResolvesWhenAProjectIsMapped(t *testing.T) {
 	assert.Equal(t, []string{"pypi.org", "files.pythonhosted.org"}, p.Egress)
 }
 
+func TestChartNodeProfileResolvesWhenAProjectIsMapped(t *testing.T) {
+	b, err := os.ReadFile(chartProfilesFile)
+	require.NoError(t, err)
+
+	mapped := strings.Replace(string(b), "\nprojects: {}\n", "\nprojects:\n  team/node-app: node\n", 1)
+	require.NotEqual(t, string(b), mapped, "the chart file has projects: {}")
+
+	c, err := profiles.Parse([]byte(mapped))
+	require.NoError(t, err)
+	assert.Empty(t, c.Check(deployment(t)))
+
+	p, err := c.Resolve(deployment(t), "team/node-app")
+	require.NoError(t, err)
+	assert.Equal(t, "node", p.Name)
+	assert.Regexp(t, `^epamedp/krci-agent-node:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$`, p.Image)
+	assert.Equal(t, []string{"registry.npmjs.org"}, p.Egress)
+	assert.Equal(t, []models.EnvVar{{Name: "NPM_CONFIG_REGISTRY", Value: "https://registry.npmjs.org/"}}, p.Env)
+}
+
 func TestReadNamesWhyTheFileCannotBeRead(t *testing.T) {
 	_, err := profiles.Read(t.TempDir())
 

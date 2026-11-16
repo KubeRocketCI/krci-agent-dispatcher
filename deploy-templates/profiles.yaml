@@ -21,10 +21,20 @@ profiles:
     egress:
       - pypi.org
       - files.pythonhosted.org
+  node:
+    # Image side (setup, verify, prompt): /etc/krci-agent/profile.yaml in the image.
+    image: epamedp/krci-agent-node:0.1.0@sha256:be9dbdeeeb5decc0292332c9cef22898a614f6ff8c3cd849ac886afb6c4f5fa5
+    # TLS passthrough on 443. registry.npmjs.org serves the metadata and the tarballs.
+    egress:
+      - registry.npmjs.org
+    # Overrides a registry set in the project .npmrc: egress allows only registry.npmjs.org.
+    env:
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
 # GitLab project path (<group>/<project>, subgroups included) → profile name; matched case-insensitively.
 # To map projects, replace {} with entries such as:
 projects: {}
 #   krci/python-app: python
+#   krci/node-app: node
 #   krci/backend/payments-api: python
 
 # Profile of every project not listed in projects.
