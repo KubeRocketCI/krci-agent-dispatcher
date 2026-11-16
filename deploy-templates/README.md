@@ -33,7 +33,7 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | fullnameOverride | string | `""` | Overrides the full name. |
 | gitlab.caConfigMap | string | `""` | ConfigMap with key ca.crt: extra CA bundle for GitLab TLS. Empty: system roots. |
 | gitlab.url | string | `""` | GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required. |
-| harnessImage | string | `"epamedp/krci-agent-harness:0.1.0-SNAPSHOT.33@sha256:984dd2faac64222626a7ea65828fc6c9ae861967c17d2eca50f2bda331f17519"` | Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>`. Default: the last harness verified with this chart; bump it with each verified release. Override for a local build. |
+| harnessImage | string | `"epamedp/krci-agent-harness:0.1.0-SNAPSHOT.37@sha256:42be0e0f7dd47cf60efceb5d847666dc2f388e58b968be65bd6006eb03c7cca8"` | Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>`. Default: the last harness verified with this chart; bump it with each verified release. Override for a local build. |
 | image.digest | string | `""` | Image digest (sha256:...); takes precedence over image.tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"epamedp/krci-agent-dispatcher"` | Dispatcher image repository. |
