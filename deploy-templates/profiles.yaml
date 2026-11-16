@@ -5,7 +5,7 @@
 profiles:
   go:
     # Image side (setup, verify, prompt): /etc/krci-agent/profile.yaml in the image.
-    image: epamedp/krci-agent-go:0.1.1@sha256:c7b5f305bb3eb3d1628d97df031b0a83b44a42f1ec243cf0d2ac1fe715923e2a
+    image: epamedp/krci-agent-go:0.2.0@sha256:6b1f9a1edca599ea02e1620e2ae2d924782758140e9d48810c083dfa74431176
     # TLS passthrough on 443. proxy.golang.org redirects module zips to storage.googleapis.com.
     egress:
       - proxy.golang.org
@@ -16,14 +16,14 @@ profiles:
       GOSUMDB: sum.golang.org
   python:
     # Image side (setup, verify, prompt): /etc/krci-agent/profile.yaml in the image.
-    image: epamedp/krci-agent-python:0.1.0@sha256:451a739820cfc9e41e6112238dd683feed05daaf2cbdfb8dd3f855c5ba844152
+    image: epamedp/krci-agent-python:0.2.0@sha256:7cfe9b539727337a7752e62c8d4ef045d133e3043ed54d56dd21c0502f8ad30a
     # TLS passthrough on 443. pypi.org serves the index, files.pythonhosted.org the packages.
     egress:
       - pypi.org
       - files.pythonhosted.org
   node:
     # Image side (setup, verify, prompt): /etc/krci-agent/profile.yaml in the image.
-    image: epamedp/krci-agent-node:0.1.0@sha256:be9dbdeeeb5decc0292332c9cef22898a614f6ff8c3cd849ac886afb6c4f5fa5
+    image: epamedp/krci-agent-node:0.2.0@sha256:e9ebe9a56bc9809b7d207aeb82c2062423ee52dc0bb30c01788e3b258df62299
     # TLS passthrough on 443. registry.npmjs.org serves the metadata and the tarballs.
     egress:
       - registry.npmjs.org
