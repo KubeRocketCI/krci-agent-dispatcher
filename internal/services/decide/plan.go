@@ -56,7 +56,8 @@ func EffectKinds() []EffectKind { return slices.Clone(kinds) }
 // loop, advance and recheck do not fail.
 //
 // FailLog: log, then the next effect. FailAbort: log, end the plan. FailError: record substrate error with the
-// current view and actor, end the plan. FailErrorFresh: FailError with status rows from a reload. FailNoRoom: on
+// current view and actor, end the plan; a create that failed profile resolution records agent profile with its
+// Detail row instead. FailErrorFresh: FailError with status rows from a reload. FailNoRoom: on
 // ErrNoRoom, note no room with status rows from a reload and end the plan, also when ctx ended; on any other error,
 // FailErrorFresh. Any other failure when ctx ended ends the plan and records nothing, whatever its Fail: the actor
 // is left for the next restart recovery.

@@ -16,8 +16,11 @@ image:
 # -- Image pull secrets.
 imagePullSecrets: []
 
-# -- Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required.
-agentImage: ""
+profiles:
+  # -- ConfigMap with key profiles.yaml: the agent profiles (agent image, egress, env per profile, project mapping,
+  # default profile). Empty: the chart's deploy-templates/profiles.yaml, embedded verbatim. Read at each actor create;
+  # a change needs no restart and applies to new sessions.
+  existingConfigMap: ""
 
 # -- Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>` of
 # `epamedp/krci-agent-harness` from the same release as the dispatcher. Required.

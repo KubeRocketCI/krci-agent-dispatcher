@@ -1,0 +1,19 @@
+# Agent profiles of krci-agent-dispatcher: the dispatcher side of each profile, the project mapping and the default
+# profile. Embedded verbatim into the ConfigMap <release>-profiles unless profiles.existingConfigMap is set.
+# Read at each actor create; a change applies to new sessions. Check: krci-agent-dispatcher check-profiles <file>.
+# Rules: docs/agent-harness.md, section Agent profile.
+profiles:
+  go:
+    # Image side (setup, verify, prompt): /etc/krci-agent/profile.yaml in the image.
+    image: epamedp/krci-agent-go:0.1.1@sha256:c7b5f305bb3eb3d1628d97df031b0a83b44a42f1ec243cf0d2ac1fe715923e2a
+    # TLS passthrough on 443. proxy.golang.org redirects module zips to storage.googleapis.com.
+    egress:
+      - proxy.golang.org
+      - sum.golang.org
+      - storage.googleapis.com
+    env:
+      GOPROXY: https://proxy.golang.org
+      GOSUMDB: sum.golang.org
+# Project path → profile name, matched case-insensitively.
+projects: {}
+defaultProfile: go

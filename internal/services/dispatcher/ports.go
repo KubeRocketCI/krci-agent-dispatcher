@@ -52,6 +52,15 @@ type Substrate interface {
 	Delete(ctx context.Context, name string) error
 }
 
+// Profiles is profile resolution: the checked profile entry of a project, read from the profiles file at each call.
+// Project paths match the project mapping case-insensitively; a project without one gets the default profile.
+//
+// Errors: a *models.ProfileError (models.ErrAgentProfile) when the file is missing or does not parse, the project
+// has no profile, its profile is not defined or breaks a rule; the dispatcher does not retry it.
+type Profiles interface {
+	Resolve(projectPath string) (models.ProfileEntry, error)
+}
+
 // Clock is time for the dispatcher: polls, retries and turn timeouts.
 type Clock interface {
 	Now() time.Time

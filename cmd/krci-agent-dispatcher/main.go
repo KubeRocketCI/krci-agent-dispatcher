@@ -17,6 +17,7 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/config"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/profiles"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system"
@@ -25,6 +26,14 @@ import (
 const shutdownTimeout = 30 * time.Second
 
 func main() {
+	switch args := os.Args[1:]; {
+	case len(args) == 2 && args[0] == "check-profiles":
+		os.Exit(checkProfiles(args[1], os.Getenv("GITLAB_URL"), os.Stdout, os.Stderr))
+	case len(args) != 0:
+		_, _ = os.Stderr.WriteString(usage)
+		os.Exit(exitUsage)
+	}
+
 	logger := api.NewLogger(os.Stdout)
 	slog.SetDefault(logger.Logger)
 
@@ -47,12 +56,8 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		"atespace", cfg.Atespace, "pool", cfg.Pool, "gitlab", cfg.GitLabURL.String(),
 		"trigger-role", cfg.TriggerMinRole.String(), "sweep-interval", cfg.SweepInterval.String(),
 		"harness-image", cfg.HarnessImage, "agent-model", cfg.AgentModel, "agent-steps", cfg.AgentSteps,
+		"profiles-file", cfg.ProfilesFile,
 	)
-
-	if !cfg.AgentImagePinned() {
-		log.Error("Agent image is not pinned by digest; Substrate refuses actor creates",
-			"agent-image", cfg.AgentImage, "want", "<repo>[:<tag>]@sha256:<digest>")
-	}
 
 	var labels models.AgentLabels
 
@@ -67,18 +72,22 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 		return err
 	}
 
-	sb, err := substrate.NewGRPC(cfg.ATEAPIAddr, cfg.ATETokenFile, cfg.ATECAFile, substrate.Deployment{
-		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace, Image: cfg.AgentImage,
+	deploy := substrate.Deployment{
+		Atespace: cfg.Atespace, Pool: cfg.Pool, SecretsNamespace: cfg.SecretsNamespace,
 		HarnessImage: cfg.HarnessImage, GitLabURL: cfg.GitLabURL, Model: cfg.AgentModel, AgentSteps: cfg.AgentSteps,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, HarnessPoll: cfg.HarnessPollInterval,
-	})
+	}
+
+	sb, err := substrate.NewGRPC(cfg.ATEAPIAddr, cfg.ATETokenFile, cfg.ATECAFile, deploy)
 	if err != nil {
 		return err
 	}
 
 	defer func() { _ = sb.Close() }()
 
-	d := dispatcher.New(gl, sb, system.Clock{}, dispatcher.Config{
+	pr := profiles.NewFile(cfg.ProfilesFile, deploy)
+
+	d := dispatcher.New(gl, sb, pr, system.Clock{}, dispatcher.Config{
 		Bot: cfg.BotUsername, Labels: labels, TriggerRole: cfg.TriggerMinRole,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		SweepInterval: cfg.SweepInterval,

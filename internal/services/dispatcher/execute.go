@@ -166,15 +166,23 @@ func substrateError() models.Writes { return stateWrites(models.Error, models.Re
 func (d *Dispatcher) write(ctx context.Context, log *slog.Logger, key models.IssueKey, view models.IssueView,
 	actor models.ActorView, w models.Writes,
 ) {
-	if w.Record != nil && w.Status == nil && actor.State != models.Unknown {
-		v := models.StatusView{
-			Actor: key.ActorName(), ActorUID: actor.UID, Pod: actor.Pod, Session: turn.Session(actor, view.Status),
-			Updated: d.clk.Now().UTC().Format(statusTimeUTC),
-		}
-		w.Status = &v
+	if w.Record != nil && w.Status == nil {
+		w.Status = d.statusRows(key, view, actor)
 	}
 
 	d.put(ctx, log, key, &view, w)
+}
+
+// statusRows returns the status rows of the view and the actor; nil for an unknown actor.
+func (d *Dispatcher) statusRows(key models.IssueKey, view models.IssueView, actor models.ActorView) *models.StatusView {
+	if actor.State == models.Unknown {
+		return nil
+	}
+
+	return &models.StatusView{
+		Actor: key.ActorName(), ActorUID: actor.UID, Pod: actor.Pod, Session: turn.Session(actor, view.Status),
+		Profile: actor.Profile, Image: actor.Image, Updated: d.clk.Now().UTC().Format(statusTimeUTC),
+	}
 }
 
 // put applies w as given; a record without status rows keeps the rows of the status note. known is the last

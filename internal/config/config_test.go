@@ -11,9 +11,7 @@ import (
 )
 
 const (
-	testDigest = "sha256:827f0a832eaa27cf150c20cc8c54976d33e597fb9de82332fc33ccb8699e4df3"
-	testImage  = "localhost:5001/krci-agent-go:dev@" + testDigest
-
+	testDigest  = "sha256:827f0a832eaa27cf150c20cc8c54976d33e597fb9de82332fc33ccb8699e4df3"
 	testHarness = "docker.io/epamedp/krci-agent-harness:0.1.0@" + testDigest
 )
 
@@ -22,7 +20,6 @@ func setRequired(t *testing.T) {
 	t.Setenv("GITLAB_URL", "https://gitlab.example")
 	t.Setenv("GITLAB_TOKEN", "glpat-test")
 	t.Setenv("HOOK_TOKEN", "hook-test")
-	t.Setenv("AGENT_IMAGE", testImage)
 	t.Setenv("HARNESS_IMAGE", testHarness)
 	t.Setenv("ATESPACE", "krci-agents")
 }
@@ -50,7 +47,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "https://gitlab.example", cfg.GitLabURL.String())
 	assert.Equal(t, "glpat-test", cfg.GitLabToken)
 	assert.Equal(t, "hook-test", cfg.HookToken)
-	assert.Equal(t, testImage, cfg.AgentImage)
+	assert.Equal(t, "/etc/krci-agent-dispatcher/profiles.yaml", cfg.ProfilesFile)
 	assert.Equal(t, testHarness, cfg.HarnessImage)
 	assert.Equal(t, 40, cfg.AgentSteps)
 	assert.Equal(t, "claude-haiku-5-5", cfg.AgentModel)
@@ -67,6 +64,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("HARNESS_POLL_INTERVAL", "30s")
 	t.Setenv("GITLAB_CA_FILE", "/etc/gitlab-ca/ca.crt")
 	t.Setenv("SWEEP_INTERVAL", "0")
+	t.Setenv("PROFILES_FILE", "/etc/profiles/profiles.yaml")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -79,10 +77,11 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, 30*time.Second, cfg.HarnessPollInterval)
 	assert.Equal(t, "/etc/gitlab-ca/ca.crt", cfg.GitLabCAFile)
 	assert.Zero(t, cfg.SweepInterval, "0 turns the sweep off")
+	assert.Equal(t, "/etc/profiles/profiles.yaml", cfg.ProfilesFile)
 }
 
 func TestLoadMissingRequired(t *testing.T) {
-	for _, name := range []string{"GITLAB_URL", "HOOK_TOKEN", "AGENT_IMAGE", "HARNESS_IMAGE", "ATESPACE"} {
+	for _, name := range []string{"GITLAB_URL", "HOOK_TOKEN", "HARNESS_IMAGE", "ATESPACE"} {
 		t.Run(name, func(t *testing.T) {
 			setRequired(t)
 			t.Setenv(name, "")
@@ -181,7 +180,7 @@ func TestLoadRefusesSecondsFractions(t *testing.T) {
 
 func TestLoadErrorHasNoSecret(t *testing.T) {
 	setRequired(t)
-	t.Setenv("AGENT_IMAGE", "")
+	t.Setenv("ATESPACE", "")
 
 	_, err := Load()
 	require.Error(t, err)
@@ -278,29 +277,6 @@ func TestLoadRejectsTriggerMinRole(t *testing.T) {
 			_, err := Load()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "TRIGGER_MIN_ROLE must be one of developer, maintainer, owner")
-		})
-	}
-}
-
-func TestAgentImagePinned(t *testing.T) {
-	for v, want := range map[string]bool{
-		"epamedp/krci-agent-go@" + testDigest:     true,
-		"epamedp/krci-agent-go:dev@" + testDigest: true,
-		"localhost:5001/a/b:1.0@" + testDigest:    true,
-		"epamedp/krci-agent-go:dev":               false,
-		"epamedp/krci-agent-go@sha256:827f0a83":   false,
-		"epamedp/krci-agent-go@sha256:827F0A832EAA27CF150C20CC8C54976D33E597FB9DE82332FC33CCB8699E4DF3": false,
-		"epamedp/krci-agent-go@sha512:" + testDigest[len("sha256:"):]:                                   false,
-		"epamedp/krci-agent-go @" + testDigest:                                                          false,
-		"epamedp/krci-agent-go@" + testDigest + "\n":                                                    false,
-	} {
-		t.Run(v, func(t *testing.T) {
-			setRequired(t)
-			t.Setenv("AGENT_IMAGE", v)
-
-			cfg, err := Load()
-			require.NoError(t, err)
-			assert.Equal(t, want, cfg.AgentImagePinned())
 		})
 	}
 }

@@ -35,7 +35,9 @@ func TestActorViewExists(t *testing.T) {
 }
 
 func TestActorSpecValidate(t *testing.T) {
-	ok := ActorSpec{ProjectID: 12, ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
+	ok := ActorSpec{
+		ProjectID: 12, ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent", Profile: goProfile(),
+	}
 	assert.NoError(t, ok.Validate())
 
 	for name, mod := range map[string]func(*ActorSpec){
@@ -44,6 +46,7 @@ func TestActorSpecValidate(t *testing.T) {
 		"issue IID":    func(s *ActorSpec) { s.IID = 0 },
 		"session ID":   func(s *ActorSpec) { s.SessionID = "" },
 		"bot username": func(s *ActorSpec) { s.BotUsername = "" },
+		"profile":      func(s *ActorSpec) { s.Profile.Image = "" },
 	} {
 		s := ok
 		mod(&s)

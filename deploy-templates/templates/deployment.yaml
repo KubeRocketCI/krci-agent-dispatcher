@@ -77,8 +77,8 @@ spec:
               value: {{ .Values.substrate.pool | quote }}
             - name: SECRETS_NAMESPACE
               value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
-            - name: AGENT_IMAGE
-              value: {{ include "krci-agent-dispatcher.pinnedImage" (list . "agentImage") | quote }}
+            - name: PROFILES_FILE
+              value: /etc/krci-agent-dispatcher/profiles.yaml
             - name: HARNESS_IMAGE
               value: {{ include "krci-agent-dispatcher.pinnedImage" (list . "harnessImage") | quote }}
             - name: HARNESS_POLL_INTERVAL
@@ -119,6 +119,10 @@ spec:
             - name: gitlab-token
               mountPath: /var/run/gitlab
               readOnly: true
+            # No subPath: the kubelet updates a directory mount in place.
+            - name: profiles
+              mountPath: /etc/krci-agent-dispatcher
+              readOnly: true
             {{- if .Values.gitlab.caConfigMap }}
             - name: gitlab-ca
               mountPath: /etc/gitlab-ca
@@ -144,6 +148,12 @@ spec:
             items:
               - key: token
                 path: token
+        - name: profiles
+          configMap:
+            name: {{ .Values.profiles.existingConfigMap | default (printf "%s-profiles" (include "krci-agent-dispatcher.fullname" .)) }}
+            items:
+              - key: profiles.yaml
+                path: profiles.yaml
         {{- if .Values.gitlab.caConfigMap }}
         - name: gitlab-ca
           configMap:

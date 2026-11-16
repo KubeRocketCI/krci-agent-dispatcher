@@ -169,6 +169,7 @@ func (g *GRPC) Inspect(ctx context.Context, name string) (models.ActorView, erro
 	switch {
 	case err == nil:
 		v.Template, v.Session = true, templates.SessionOf(tmpl)
+		v.Profile, v.Image = templates.ProfileOf(tmpl), templates.ImageOf(tmpl)
 	case !isNotFound(err):
 		return v, mapErr("get actor template", name, err)
 	}

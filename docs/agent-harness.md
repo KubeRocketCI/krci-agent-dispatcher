@@ -121,8 +121,8 @@ sequenceDiagram
 ## Dispatcher → harness
 
 - The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and `/opt/krci-agent/krci-agent-harness` as the command. The harness image holds the binary at `/krci-agent-harness`.
-- The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, the harness poll interval, the turn limit, agent steps, the model, `HOME=/home/agent` and the profile's env.
-- Dispatcher config: `HARNESS_IMAGE` (required, pinned by digest), `AGENT_STEPS` (default 40), `AGENT_MODEL` (default `claude-haiku-5-5`), `HARNESS_POLL_INTERVAL` (default 15 s). `TURN_TIMEOUT` and `HARNESS_POLL_INTERVAL` are whole seconds; the dispatcher refuses to start when `TURN_TIMEOUT` is below `HARNESS_POLL_INTERVAL + 120 s`, so every rendered template passes the handshake.
+- The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, the harness poll interval, the turn limit, agent steps, the model, `HOME=/home/agent`, `AGENT_PROFILE` and the profile's env.
+- Dispatcher config: `HARNESS_IMAGE` (required, pinned by digest), `PROFILES_FILE` (default `/etc/krci-agent-dispatcher/profiles.yaml`), `AGENT_STEPS` (default 40), `AGENT_MODEL` (default `claude-haiku-5-5`), `HARNESS_POLL_INTERVAL` (default 15 s). `TURN_TIMEOUT` and `HARNESS_POLL_INTERVAL` are whole seconds; the dispatcher refuses to start when `TURN_TIMEOUT` is below `HARNESS_POLL_INTERVAL + 120 s`, so every rendered template passes the handshake.
 - A start on a done issue whose actor is transitional, by an author who can trigger, is rechecked, then recorded as error `actor busy`; a suspended, crashed or partial actor is deleted and recreated with a new session.
 - Secrets never enter the actor. The egress gateway adds the GitLab and Anthropic credentials on the way out.
 - Egress: Anthropic, the GitLab host and the profile's hosts. Nothing else.
@@ -251,15 +251,37 @@ docker run --rm -v ./krci-agent-harness:/tmp/krci-agent-harness:ro <agent-image>
 
 ## Agent profile
 
-Dispatcher config, one entry per kind of agent:
+Dispatcher config: the profiles file, raw YAML, `PROFILES_FILE` (default `/etc/krci-agent-dispatcher/profiles.yaml`). The chart embeds `deploy-templates/profiles.yaml` verbatim into a ConfigMap mounted as a directory; `profiles.existingConfigMap` mounts the operator's ConfigMap (key `profiles.yaml`) instead.
 
-| Value | Meaning |
+```yaml
+profiles:
+  go:
+    image: epamedp/krci-agent-go:0.1.1@sha256:<digest>
+    egress: [proxy.golang.org, sum.golang.org, storage.googleapis.com]
+    env:
+      GOPROXY: https://proxy.golang.org
+projects:
+  krci/test-go-app: go
+defaultProfile: go
+```
+
+| Key | Meaning |
 |---|---|
-| `agents.<name>.image` | agent image, pinned by digest |
-| `agents.<name>.egress` | extra hosts the agent may reach |
-| `agents.<name>.env` | extra plain env, no secrets |
-| `projects` | project path → profile |
-| `defaultAgent` | profile of any other project |
+| `profiles.<name>.image` | agent image, pinned by digest; required |
+| `profiles.<name>.egress` | extra hosts the agent may reach: TLS passthrough on port 443 |
+| `profiles.<name>.env` | extra plain env, no secrets; a name the actor template sets is refused |
+| `projects` | project path → profile name; matched case-insensitively |
+| `defaultProfile` | profile of any other project |
+
+A profile name is `[a-z0-9]([a-z0-9-]*[a-z0-9])?`. An egress host is a DNS name, not the Anthropic or the GitLab host. Env values are taken as written (`3.10` stays `3.10`). A file of another shape, an unknown top-level key, a profile or a project listed twice refuses the file; an entry of another shape or with an unknown key fails only the projects of that profile. A project mapped to an empty profile does not fall back to the default profile.
+
+Profile resolution runs at each actor create: the dispatcher reads the file, takes the project's profile, checks it and renders the actor with it. No cache and no dispatcher restart: a change reaches the next create once the kubelet has synced the ConfigMap. A change applies to new sessions only; an open actor keeps what it was created with (ADR 0008).
+
+A failed profile resolution (no file, a file that does not parse, an unknown profile, a profile that breaks a rule) creates no actor and records error `agent profile`; the status note row Detail names the profile, when known, and the rule, never an env value; the dispatcher log adds the cause, such as the parser error. A re-enable after the fix creates the actor.
+
+The actor template sets `AGENT_PROFILE` to the profile name. The status note rows Profile and Image are read from the actor template.
+
+`krci-agent-dispatcher check-profiles <file>` checks a file with the same rules and prints every problem with its cause; the GitLab host is `GITLAB_URL` when set, else none: exit 0 when valid, 1 with one line per problem, 64 on usage.
 
 A new stack is a new agent image plus a profile entry.
 

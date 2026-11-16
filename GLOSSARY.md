@@ -187,8 +187,28 @@ What an agent image provides for the harness: `claude`, `git` and `sh` on `PATH`
 _Avoid_: image contract, harness contract
 
 **Agent profile**:
-The description of one kind of agent: image, egress and env in the dispatcher config; setup, verify and prompt in the agent image.
+The description of one kind of agent: image, egress and env in its profile entry; setup, verify and prompt in the profile file of the agent image.
 _Avoid_: flavour, template (for this)
+
+**Profiles file**:
+The dispatcher's `profiles.yaml`: profile entries, the project mapping and the default profile; read at each actor create.
+_Avoid_: profile file (that is the agent image's `/etc/krci-agent/profile.yaml`)
+
+**Profile entry**:
+The dispatcher side of one agent profile in the profiles file: agent image pinned by digest, egress hosts, plain env.
+_Avoid_: agent (for this), template
+
+**Project mapping**:
+The `projects` part of the profiles file: project path to profile name, matched case-insensitively.
+_Avoid_: routing, binding
+
+**Default profile**:
+The profile of a project without a project mapping (`defaultProfile`).
+_Avoid_: fallback agent
+
+**Profile resolution**:
+The dispatcher's read of the profiles file at each actor create, from the project to a checked profile entry. When it fails, the issue goes to error with reason `agent profile`.
+_Avoid_: lookup, profile load
 
 **Contract version**:
 The integer version of the turn protocol, set by the dispatcher in the actor template and checked by the harness at start.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/templates"
 )
 
 type actor struct {
@@ -256,6 +257,7 @@ func (f *Fake) Inspect(_ context.Context, name string) (models.ActorView, error)
 	v := models.ActorView{Template: f.templates[name], EgressPolicy: f.policies[name], State: models.None}
 	if v.Template {
 		v.Session = f.specs[name].SessionID
+		v.Profile, v.Image = f.specs[name].Profile.Name, f.specs[name].Profile.Image
 	}
 
 	a, st := f.observeLocked(name)
@@ -325,8 +327,8 @@ func (f *Fake) list(prefix string) ([]listedActor, error) {
 	return out, nil
 }
 
-// Create implements the Substrate port. A spec that fails models.ActorSpec.Validate returns models.ErrInvalidSpec
-// before any change.
+// Create implements the Substrate port. A spec that fails models.ActorSpec.Validate or whose profile entry
+// templates.CheckProfile refuses returns models.ErrInvalidSpec before any change, as the render of GRPC.Create does.
 func (f *Fake) Create(_ context.Context, name string, spec models.ActorSpec) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -337,6 +339,10 @@ func (f *Fake) Create(_ context.Context, name string, spec models.ActorSpec) err
 
 	if err := spec.Validate(); err != nil {
 		return fmt.Errorf("create %s: %w: %w", name, models.ErrInvalidSpec, err)
+	}
+
+	if rules := templates.CheckProfile(templates.Deployment{}, spec.Profile); len(rules) > 0 {
+		return fmt.Errorf("create %s: %w: profile %s", name, models.ErrInvalidSpec, rules[0])
 	}
 
 	switch err := f.createTemplateLocked(name); {

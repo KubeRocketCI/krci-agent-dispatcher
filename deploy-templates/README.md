@@ -21,7 +21,6 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity. |
-| agentImage | string | `""` | Agent image of the issue actors: `<repo>[:<tag>]@sha256:<digest>`. Required. |
 | config.agentModel | string | `"claude-haiku-5-5"` | Claude model of the agent runs. |
 | config.agentSteps | int | `40` | Agent steps per turn: the Claude Code `--max-turns` of one agent run. |
 | config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
@@ -50,6 +49,7 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | nameOverride | string | `""` | Overrides the chart name. |
 | nodeSelector | object | `{}` | Node selector. |
 | podAnnotations | object | `{}` | Pod annotations. |
+| profiles.existingConfigMap | string | `""` | ConfigMap with key profiles.yaml: the agent profiles (agent image, egress, env per profile, project mapping, default profile). Empty: the chart's deploy-templates/profiles.yaml, embedded verbatim. Read at each actor create; a change needs no restart and applies to new sessions. |
 | resources | object | `{"limits":{"memory":"256Mi"},"requests":{"cpu":"50m","memory":"64Mi"}}` | Container resources. |
 | secrets.gitlab | string | `"gitlab"` | Secret with key token: GitLab token of the bot user, mounted as a file and read on each request. |
 | secrets.hook | string | `"hook"` | Secret with key token: GitLab hook secret token. |

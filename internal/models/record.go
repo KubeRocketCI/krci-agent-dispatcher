@@ -21,6 +21,7 @@ const (
 	ReasonActorMissing   = "actor missing"
 	ReasonSubstrateError = "substrate error"
 	ReasonActorBusy      = "actor busy"
+	ReasonAgentProfile   = "agent profile"
 )
 
 var recordRe = regexp.MustCompile(`^<!-- krci-agent-status state=(working|waiting|done|error) reason=(.*?) -->$`)
@@ -51,9 +52,14 @@ type StatusView struct {
 	Session  string
 	Updated  string
 	Reason   string
+	Profile  string
+	Image    string
+	// Detail is the rule of a failed profile resolution; written only with that record.
+	Detail string
 }
 
-// StatusBody returns the status note body: the record line, then the status table; a Reason row in error.
+// StatusBody returns the status note body: the record line, then the status table; a Reason row in error, a Detail
+// row when set. Detail is written as one table cell: | becomes /, ` becomes ', CR and LF become spaces.
 func StatusBody(r Record, v StatusView) string {
 	var b strings.Builder
 
@@ -64,16 +70,37 @@ func StatusBody(r Record, v StatusView) string {
 	fmt.Fprintf(&b, "| Actor UID | `%s` |\n", v.ActorUID)
 	fmt.Fprintf(&b, "| Worker pod | `%s` |\n", v.Pod)
 	fmt.Fprintf(&b, "| Session | `%s` |\n", v.Session)
+	fmt.Fprintf(&b, "| Profile | `%s` |\n", v.Profile)
+	fmt.Fprintf(&b, "| Image | `%s` |\n", v.Image)
 	fmt.Fprintf(&b, "| Updated (UTC) | %s |\n", v.Updated)
 
 	if r.Reason != "" {
 		fmt.Fprintf(&b, "| Reason | %s |\n", r.Reason)
 	}
 
+	if v.Detail != "" {
+		fmt.Fprintf(&b, "| Detail | %s |\n", cellText.Replace(v.Detail))
+	}
+
 	return b.String()
 }
 
+var cellText = strings.NewReplacer("|", "/", "`", "'", "\r", " ", "\n", " ")
+
 var statusRowRe = regexp.MustCompile("(?m)^\\| ([A-Za-z ()]+) \\| `?(.*?)`? \\|$")
+
+// statusRows maps each row name of the status table to its StatusView field.
+var statusRows = map[string]func(v *StatusView) *string{
+	"Actor":         func(v *StatusView) *string { return &v.Actor },
+	"Actor UID":     func(v *StatusView) *string { return &v.ActorUID },
+	"Worker pod":    func(v *StatusView) *string { return &v.Pod },
+	"Session":       func(v *StatusView) *string { return &v.Session },
+	"Profile":       func(v *StatusView) *string { return &v.Profile },
+	"Image":         func(v *StatusView) *string { return &v.Image },
+	"Updated (UTC)": func(v *StatusView) *string { return &v.Updated },
+	"Reason":        func(v *StatusView) *string { return &v.Reason },
+	"Detail":        func(v *StatusView) *string { return &v.Detail },
+}
 
 // ParseStatusView reads the rows of a status note body written by StatusBody.
 func ParseStatusView(body string) (StatusView, bool) {
@@ -84,31 +111,22 @@ func ParseStatusView(body string) (StatusView, bool) {
 	var v StatusView
 
 	for _, sub := range statusRowRe.FindAllStringSubmatch(body, -1) {
-		switch sub[1] {
-		case "State":
+		if sub[1] == "State" {
 			v.State = AgentState(sub[2])
-		case "Actor":
-			v.Actor = sub[2]
-		case "Actor UID":
-			v.ActorUID = sub[2]
-		case "Worker pod":
-			v.Pod = sub[2]
-		case "Session":
-			v.Session = sub[2]
-		case "Updated (UTC)":
-			v.Updated = sub[2]
-		case "Reason":
-			v.Reason = sub[2]
+		} else if field, ok := statusRows[sub[1]]; ok {
+			*field(&v) = sub[2]
 		}
 	}
 
 	return v, true
 }
 
-// MergeStatus returns the status rows to write with record r: next when set, else prev.
+// MergeStatus returns the status rows to write with record r: next when set, else prev without its Detail.
 // State and Reason always come from r.
 func MergeStatus(prev StatusView, r Record, next *StatusView) StatusView {
 	v := prev
+	v.Detail = ""
+
 	if next != nil {
 		v = *next
 	}

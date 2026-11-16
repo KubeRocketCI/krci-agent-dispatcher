@@ -32,7 +32,6 @@ var deployment = substrate.Deployment{
 	Atespace:         atespace,
 	Pool:             "workers",
 	SecretsNamespace: "agent-secrets",
-	Image:            "localhost:5001/krci-agent-go:dev",
 	GitLabURL:        mustGitLabURL("https://GitLab.Example/"),
 }
 
@@ -242,7 +241,9 @@ func TestCreateRendersWithDeployment(t *testing.T) {
 	f := substratetest.NewFake(atespace)
 	env := newGRPC(t, f)
 
-	s := models.ActorSpec{ProjectID: 40, ProjectPath: "team/app", IID: 3, SessionID: "session-9", BotUsername: "agent-bot"}
+	s := models.ActorSpec{
+		ProjectID: 40, ProjectPath: "team/app", IID: 3, SessionID: "session-9", BotUsername: "agent-bot", Profile: profile,
+	}
 	require.NoError(t, env.client.Create(context.Background(), "issue-40-3", s))
 
 	tmpl := f.SentTemplate("issue-40-3")
@@ -250,7 +251,7 @@ func TestCreateRendersWithDeployment(t *testing.T) {
 	assert.Equal(t, atespace, tmpl.GetMetadata().GetAtespace())
 	assert.Equal(t, "issue-40-3", tmpl.GetMetadata().GetName())
 	assert.Equal(t, "workers", tmpl.GetWorkerSelector().GetMatchLabels()["workload"])
-	assert.Equal(t, deployment.Image, tmpl.GetContainers()[0].GetImage())
+	assert.Equal(t, profile.Image, tmpl.GetContainers()[0].GetImage())
 	assert.Equal(t, "https://gitlab.example", envValue(tmpl, "GITLAB_URL"))
 	assert.Equal(t, "40", envValue(tmpl, "PROJECT_ID"))
 	assert.Equal(t, "team/app", envValue(tmpl, "PROJECT_PATH"))

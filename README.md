@@ -10,7 +10,7 @@ Today the task is a GitLab issue. The orchestrator is built for more triggers an
 
 - **Isolated:** one sandbox per task, separate from your cluster and from other tasks.
 - **No secrets inside:** the agent holds placeholders only. The egress proxy adds the real credentials on the way out.
-- **Closed network:** only the model API, your GitLab and the Go module proxy are reachable. All other hosts are denied.
+- **Closed network:** only the model API, your GitLab and the hosts of the project's agent profile are reachable. All other hosts are denied.
 - **Human in the loop:** the agent opens a merge request. A person reviews and merges it.
 
 ## How it works
@@ -27,7 +27,7 @@ flowchart LR
   a --> eg{{"Egress proxy<br/>adds credentials"}}
   eg --> llm[(Model API)]
   eg -- "reply, merge request" --> gl
-  eg --> mod[(Go module proxy)]
+  eg --> mod[(Profile hosts<br/>e.g. Go module proxy)]
 ```
 
 One turn:
@@ -98,7 +98,7 @@ helm upgrade --install krci-agent-dispatcher deploy-templates -n <namespace> -f 
 hack/register-hook.sh add <project-path> https://<ingress-host>/hook
 ```
 
-Chart values: `deploy-templates/README.md`. Configuration (env): `internal/config/config.go`.
+Chart values: `deploy-templates/README.md`. Agent profiles (agent image, egress, env per project): `deploy-templates/profiles.yaml`, checked with `krci-agent-dispatcher check-profiles <file>`. Configuration (env): `internal/config/config.go`.
 
 ## Documentation
 

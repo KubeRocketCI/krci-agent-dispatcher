@@ -1,12 +1,12 @@
 # Per-issue ActorTemplate (protojson ateapi.ActorTemplate), Go text/template.
-# Values are JSON-quoted (`json`): project path and bot name come from event payloads and config.
+# Values are JSON-quoted (`json`): project path, bot name and profile entry come from event payloads and config.
 # Dispatcher, harness and agent images: docs/agent-harness.md.
 workerSelector:
   matchLabels:
     workload: {{ json .Pool }}
 containers:
 - name: claude
-  image: {{ json .Image }}
+  image: {{ json .Profile.Image }}
   command: ["/opt/krci-agent/krci-agent-harness", "run"]
   env:
   - name: GITLAB_URL
@@ -33,10 +33,8 @@ containers:
     value: {{ json (print .AgentSteps) }}
   - name: HOME
     value: /home/agent
-  - name: GOPROXY
-    value: https://proxy.golang.org
-  - name: GOSUMDB
-    value: sum.golang.org
+  - name: AGENT_PROFILE
+    value: {{ json .Profile.Name }}
   - name: ANTHROPIC_API_KEY
     value: placeholder
   - name: ANTHROPIC_MODEL
@@ -57,6 +55,11 @@ containers:
     value: KRCI Agent
   - name: GIT_COMMITTER_EMAIL
     value: krci-agent@example.invalid
+  # Profile env; a name set above is refused by Render.
+  {{- range .Profile.Env }}
+  - name: {{ json .Name }}
+    value: {{ json .Value }}
+  {{- end }}
   volumeMounts:
   - name: system-info
     mountPath: /run/ate

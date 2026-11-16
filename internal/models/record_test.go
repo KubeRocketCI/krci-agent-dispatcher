@@ -59,7 +59,10 @@ func TestStatusBodyRecordFirst(t *testing.T) {
 	assert.Contains(t, rest, "| Worker pod | `pod-a` |")
 	assert.Contains(t, rest, "| Session | `s1` |")
 	assert.Contains(t, rest, "| Updated (UTC) | 2026-11-09T10:00:00Z |")
+	assert.Contains(t, rest, "| Profile | `` |")
+	assert.Contains(t, rest, "| Image | `` |")
 	assert.NotContains(t, rest, "Reason")
+	assert.NotContains(t, rest, "Detail")
 
 	r, ok := ParseRecord(body)
 	assert.True(t, ok)
@@ -73,11 +76,37 @@ func TestStatusBodyReasonRow(t *testing.T) {
 	assert.Contains(t, body, "| Reason | actor crashed |")
 }
 
+func TestStatusBodyProfileRows(t *testing.T) {
+	body := StatusBody(Record{State: Waiting}, StatusView{State: Waiting, Profile: "go", Image: "r@sha256:abc"})
+
+	assert.Contains(t, body, "| Profile | `go` |")
+	assert.Contains(t, body, "| Image | `r@sha256:abc` |")
+}
+
+func TestStatusBodyDetailRow(t *testing.T) {
+	r := Record{State: Error, Reason: ReasonAgentProfile}
+	body := StatusBody(r, StatusView{State: Error, Detail: "go: image is required"})
+
+	assert.Contains(t, body, "| Reason | agent profile |")
+	assert.Contains(t, body, "| Detail | go: image is required |")
+}
+
+func TestStatusBodyDetailKeepsTheTable(t *testing.T) {
+	r := Record{State: Error, Reason: ReasonAgentProfile}
+	v := StatusView{State: Error, Detail: "a|b `c`\nd\re"}
+
+	got, ok := ParseStatusView(StatusBody(r, v))
+	assert.True(t, ok)
+	assert.Equal(t, "a/b 'c' d e", got.Detail)
+	assert.Equal(t, Error, got.State)
+}
+
 func TestStatusViewRoundTrip(t *testing.T) {
 	v := StatusView{State: Error, Actor: "issue-12-7", ActorUID: "u1", Pod: "pod-a", Session: "s1",
-		Updated: "2026-11-09T10:00:00Z", Reason: ReasonTurnLimit}
+		Updated: "2026-11-09T10:00:00Z", Reason: ReasonAgentProfile, Profile: "go", Image: "r@sha256:abc",
+		Detail: "go: image is required"}
 
-	got, ok := ParseStatusView(StatusBody(Record{State: Error, Reason: ReasonTurnLimit}, v))
+	got, ok := ParseStatusView(StatusBody(Record{State: Error, Reason: ReasonAgentProfile}, v))
 	assert.True(t, ok)
 	assert.Equal(t, v, got)
 
@@ -95,4 +124,16 @@ func TestMergeStatus(t *testing.T) {
 	next := &StatusView{State: Working, Actor: "issue-12-7", Session: "s2", Updated: "t2", Reason: "stale"}
 	got = MergeStatus(prev, Record{State: Waiting}, next)
 	assert.Equal(t, StatusView{State: Waiting, Actor: "issue-12-7", Session: "s2", Updated: "t2"}, got)
+}
+
+func TestMergeStatusDetail(t *testing.T) {
+	prev := StatusView{State: Error, Profile: "go", Detail: "go: image is required"}
+
+	got := MergeStatus(prev, Record{State: Error, Reason: ReasonTurnTimeout}, nil)
+	assert.Equal(t, StatusView{State: Error, Profile: "go", Reason: ReasonTurnTimeout}, got,
+		"kept rows drop the detail of an earlier record")
+
+	next := &StatusView{Detail: "go: image is required"}
+	got = MergeStatus(StatusView{}, Record{State: Error, Reason: ReasonAgentProfile}, next)
+	assert.Equal(t, "go: image is required", got.Detail, "new rows carry their detail")
 }
