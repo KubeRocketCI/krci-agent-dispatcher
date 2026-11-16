@@ -14,6 +14,18 @@ profiles:
     env:
       GOPROXY: https://proxy.golang.org
       GOSUMDB: sum.golang.org
-# Project path → profile name, matched case-insensitively.
+  python:
+    # Image side (setup, verify, prompt): /etc/krci-agent/profile.yaml in the image.
+    image: epamedp/krci-agent-python:0.1.0@sha256:451a739820cfc9e41e6112238dd683feed05daaf2cbdfb8dd3f855c5ba844152
+    # TLS passthrough on 443. pypi.org serves the index, files.pythonhosted.org the packages.
+    egress:
+      - pypi.org
+      - files.pythonhosted.org
+# GitLab project path (<group>/<project>, subgroups included) → profile name; matched case-insensitively.
+# To map projects, replace {} with entries such as:
 projects: {}
+#   krci/python-app: python
+#   krci/backend/payments-api: python
+
+# Profile of every project not listed in projects.
 defaultProfile: go

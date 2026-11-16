@@ -1,6 +1,7 @@
 package profiles_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -152,8 +153,11 @@ func TestEmptyProjectMapping(t *testing.T) {
 	assert.Equal(t, []*models.ProfileError{want}, c.Check(deployment(t)))
 }
 
+// chartProfilesFile is the chart's profiles file, embedded verbatim into the profiles ConfigMap.
+var chartProfilesFile = filepath.Join("..", "..", "deploy-templates", "profiles.yaml")
+
 func TestChartProfilesFileIsValid(t *testing.T) {
-	c, err := profiles.Read(filepath.Join("..", "..", "deploy-templates", "profiles.yaml"))
+	c, err := profiles.Read(chartProfilesFile)
 	require.NoError(t, err)
 
 	assert.Empty(t, c.Check(deployment(t)))
@@ -161,6 +165,23 @@ func TestChartProfilesFileIsValid(t *testing.T) {
 	p, err := c.Resolve(deployment(t), "krci/test-go-app")
 	require.NoError(t, err)
 	assert.Equal(t, "go", p.Name)
+}
+
+func TestChartPythonProfileResolvesWhenAProjectIsMapped(t *testing.T) {
+	b, err := os.ReadFile(chartProfilesFile)
+	require.NoError(t, err)
+
+	mapped := strings.Replace(string(b), "\nprojects: {}\n", "\nprojects:\n  team/py-app: python\n", 1)
+	require.NotEqual(t, string(b), mapped, "the chart file has projects: {}")
+
+	c, err := profiles.Parse([]byte(mapped))
+	require.NoError(t, err)
+	assert.Empty(t, c.Check(deployment(t)))
+
+	p, err := c.Resolve(deployment(t), "team/py-app")
+	require.NoError(t, err)
+	assert.Equal(t, "python", p.Name)
+	assert.Equal(t, []string{"pypi.org", "files.pythonhosted.org"}, p.Egress)
 }
 
 func TestReadNamesWhyTheFileCannotBeRead(t *testing.T) {
