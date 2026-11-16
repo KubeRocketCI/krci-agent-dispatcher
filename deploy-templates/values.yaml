@@ -22,9 +22,9 @@ profiles:
   # a change needs no restart and applies to new sessions.
   existingConfigMap: ""
 
-# -- Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>` of
-# `epamedp/krci-agent-harness` from the same release as the dispatcher. Required.
-harnessImage: ""
+# -- Harness image mounted into every issue actor at /opt/krci-agent: `<repo>[:<tag>]@sha256:<digest>`. Default: the
+# last harness verified with this chart; bump it with each verified release. Override for a local build.
+harnessImage: "epamedp/krci-agent-harness:0.1.0-SNAPSHOT.33@sha256:984dd2faac64222626a7ea65828fc6c9ae861967c17d2eca50f2bda331f17519"
 
 gitlab:
   # -- GitLab base URL: `https://HOST[:PORT][/PATH]`, for example https://gitlab.example.com. No user info, query or fragment. Trailing slash allowed. Required.
