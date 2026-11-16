@@ -46,8 +46,8 @@ type ActorSummary struct {
 	State ActorState
 }
 
-// ActorView is the Substrate side of one issue: which parts exist and the actor state. Session is the SESSION_ID of
-// the actor template; empty without a template.
+// ActorView is the Substrate side of one issue: which parts exist and the actor state. Session, Profile and Image are
+// the SESSION_ID, the AGENT_PROFILE and the image of the actor template; empty without a template.
 type ActorView struct {
 	Template     bool
 	Actor        bool
@@ -56,6 +56,8 @@ type ActorView struct {
 	UID          string
 	Pod          string
 	Session      string
+	Profile      string
+	Image        string
 }
 
 // Complete reports whether the actor and its egress policy exist; the policy is created last.
@@ -67,13 +69,15 @@ func (v ActorView) Partial() bool { return (v.Template || v.Actor) && !v.EgressP
 // Exists reports whether any part exists.
 func (v ActorView) Exists() bool { return v.Template || v.Actor || v.EgressPolicy }
 
-// ActorSpec is what the actor of one issue is created with: the issue, the session and the bot user.
+// ActorSpec is what the actor of one issue is created with: the issue, the session, the bot user and the profile
+// entry of the project.
 type ActorSpec struct {
 	ProjectID   int64
 	ProjectPath string
 	IID         int64
 	SessionID   string
 	BotUsername string
+	Profile     ProfileEntry
 }
 
 var sessionIDRe = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
@@ -82,8 +86,12 @@ var sessionIDRe = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
 func ValidSessionID(id string) bool { return sessionIDRe.MatchString(id) }
 
 // Validate returns an error naming the first empty or malformed field of s; ProjectID and IID must be positive,
-// SessionID a valid session ID.
+// SessionID a valid session ID, Profile a valid profile entry.
 func (s ActorSpec) Validate() error {
+	if rules := s.Profile.Check(); len(rules) > 0 {
+		return errors.New("profile " + rules[0])
+	}
+
 	switch {
 	case s.ProjectID <= 0:
 		return errors.New("project ID is not positive")

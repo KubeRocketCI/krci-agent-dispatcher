@@ -43,7 +43,7 @@ build: ## Build the binaries → dist/krci-agent-dispatcher-<arch>, dist/krci-ag
 CRAP_CHECK ?= true
 # The gate skips files built for one OS: the _linux.go and _darwin.go suffixes here, a //go:build line that names an
 # OS in the script.
-CRAP_EXCLUDES ?= _gen\.go$$ _(linux|darwin)\.go$$ /cmd/ /gitlabtest/ /substratetest/ /systemtest/ /statetest/ /harnesstest/
+CRAP_EXCLUDES ?= _gen\.go$$ _(linux|darwin)\.go$$ /cmd/ /gitlabtest/ /substratetest/ /systemtest/ /statetest/ /harnesstest/ /profilestest/
 CRAP_GATE = GO_CRAP=$(GO_CRAP) GOJQ=$(GOJQ) CRAP_EXCLUDES='$(CRAP_EXCLUDES)' ./hack/crap-gate.sh
 
 .PHONY: test
@@ -81,7 +81,6 @@ lint-fix: golangci-lint ## Run go lint fix
 .PHONY: helm-lint
 helm-lint: ## Lint the chart with testbed-shaped required values
 	helm lint ${CHART_DIR} --set ingress.host=example.invalid --set ingress.tls.issuerRef.name=example \
-	  --set agentImage=example.invalid/krci-agent-go:dev@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
 	  --set harnessImage=example.invalid/krci-agent-harness:dev@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
 	  --set gitlab.url=https://gitlab.example.invalid
 

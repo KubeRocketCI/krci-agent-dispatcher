@@ -3,6 +3,7 @@ package substrate_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +30,11 @@ func subjects() map[string]func(t *testing.T, f *substratetest.Fake) port {
 	}
 }
 
-var spec = models.ActorSpec{ProjectID: 12, ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent"}
+var profile = models.ProfileEntry{Name: "go", Image: "localhost:5001/krci-agent-go@sha256:" + strings.Repeat("0", 64)}
+
+var spec = models.ActorSpec{
+	ProjectID: 12, ProjectPath: "krci/app", IID: 7, SessionID: "s1", BotUsername: "krci-agent", Profile: profile,
+}
 
 func TestContract(t *testing.T) {
 	cases := map[string]func(t *testing.T, f *substratetest.Fake, p port){
@@ -47,6 +52,8 @@ func TestContract(t *testing.T) {
 		"CreateInvalidSpec":      CreateInvalidSpec,
 		"DeleteClearsRecorded":   DeleteClearsRecorded,
 		"InspectReportsSession":  InspectReportsSession,
+		"InspectReportsProfile":  InspectReportsProfile,
+		"CreateRefusesClash":     CreateRefusesClash,
 	}
 
 	for subject, build := range subjects() {
@@ -279,7 +286,7 @@ func InspectReportsSession(t *testing.T, f *substratetest.Fake, p port) {
 
 	f.Fail("create-actor", errors.New("create cut"))
 	require.Error(t, p.Create(ctx, "issue-12-8", models.ActorSpec{
-		ProjectID: 12, ProjectPath: "krci/app", IID: 8, SessionID: "s2", BotUsername: "krci-agent",
+		ProjectID: 12, ProjectPath: "krci/app", IID: 8, SessionID: "s2", BotUsername: "krci-agent", Profile: profile,
 	}))
 
 	v, err = p.Inspect(ctx, "issue-12-8")
@@ -287,4 +294,37 @@ func InspectReportsSession(t *testing.T, f *substratetest.Fake, p port) {
 	assert.True(t, v.Partial())
 	assert.False(t, v.Actor)
 	assert.Equal(t, "s2", v.Session, "a partial create with only the template")
+}
+
+func InspectReportsProfile(t *testing.T, _ *substratetest.Fake, p port) {
+	ctx := context.Background()
+
+	v, err := p.Inspect(ctx, actor)
+	require.NoError(t, err)
+	assert.Empty(t, v.Profile, "no template, no profile")
+	assert.Empty(t, v.Image, "no template, no image")
+
+	node := spec
+	node.Profile = models.ProfileEntry{Name: "node", Image: "epamedp/krci-agent-node@sha256:" + strings.Repeat("2", 64)}
+	require.NoError(t, p.Create(ctx, actor, node))
+
+	v, err = p.Inspect(ctx, actor)
+	require.NoError(t, err)
+	assert.Equal(t, "node", v.Profile)
+	assert.Equal(t, "epamedp/krci-agent-node@sha256:"+strings.Repeat("2", 64), v.Image)
+}
+
+func CreateRefusesClash(t *testing.T, f *substratetest.Fake, p port) {
+	ctx := context.Background()
+
+	clash := spec
+	clash.Profile.Env = []models.EnvVar{{Name: "HOME", Value: "/root"}}
+
+	err := p.Create(ctx, actor, clash)
+	require.ErrorIs(t, err, models.ErrInvalidSpec)
+
+	v, err := p.Inspect(ctx, actor)
+	require.NoError(t, err)
+	assert.False(t, v.Exists(), "a refused spec creates nothing")
+	assert.Zero(t, f.Count("create-actor", actor))
 }

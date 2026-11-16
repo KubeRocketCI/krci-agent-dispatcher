@@ -123,7 +123,7 @@ func (d *Dispatcher) failed(ctx context.Context, log *slog.Logger, c *current, e
 
 	switch e.Fail {
 	case decide.FailError:
-		d.writeCurrent(ctx, log, c, substrateError())
+		d.writeCurrent(ctx, log, c, d.errorWrites(c, err))
 	case decide.FailErrorFresh, decide.FailNoRoom:
 		d.reload(ctx, log, c)
 		d.writeCurrent(ctx, log, c, substrateError())
@@ -171,21 +171,45 @@ func (d *Dispatcher) reload(ctx context.Context, log *slog.Logger, c *current) {
 	c.actor = actor
 }
 
-// createActor creates the actor with a new session.
+// errorWrites returns the writes of a FailError: error agent profile with its Detail row when err is a failed
+// profile resolution and the issue view is known, else error substrate error.
+func (d *Dispatcher) errorWrites(c *current, err error) models.Writes {
+	var pe *models.ProfileError
+	if !errors.As(err, &pe) || c.view == nil {
+		return substrateError()
+	}
+
+	w := stateWrites(models.Error, models.ReasonAgentProfile)
+
+	if v := d.statusRows(c.key, *c.view, c.actor); v != nil {
+		v.Detail = pe.Detail()
+		w.Status = v
+	}
+
+	return w
+}
+
+// createActor resolves the project's profile, then creates the actor with it and a new session.
 func (d *Dispatcher) createActor(ctx context.Context, log *slog.Logger, c *current) error {
 	name := c.key.ActorName()
+
+	profile, err := d.pr.Resolve(c.view.Issue.ProjectPath)
+	if err != nil {
+		return err
+	}
+
 	session := d.cfg.NewSessionID()
 
 	spec := models.ActorSpec{
 		ProjectID: c.key.ProjectID, ProjectPath: c.view.Issue.ProjectPath, IID: c.key.IID, SessionID: session,
-		BotUsername: d.cfg.Bot,
+		BotUsername: d.cfg.Bot, Profile: profile,
 	}
 
 	if err := d.retry(ctx, func() error { return d.sb.Create(ctx, name, spec) }); err != nil {
 		return err
 	}
 
-	log.Info("Actor created", "actor", name, "session", session)
+	log.Info("Actor created", "actor", name, "session", session, "profile", profile.Name)
 
 	return nil
 }

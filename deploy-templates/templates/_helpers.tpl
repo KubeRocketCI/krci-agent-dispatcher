@@ -63,7 +63,7 @@ Image reference: repository@digest, else repository:tag, else repository:appVers
 {{- end }}
 
 {{/*
-Image pinned by digest, <repo>[:<tag>]@sha256:<digest>, from the value named by the argument: agentImage or harnessImage.
+Image pinned by digest, <repo>[:<tag>]@sha256:<digest>, from the value named by the argument, for example harnessImage.
 */}}
 {{- define "krci-agent-dispatcher.pinnedImage" -}}
 {{- $name := index . 1 }}

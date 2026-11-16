@@ -31,10 +31,8 @@ containers:
     value: "40"
   - name: HOME
     value: /home/agent
-  - name: GOPROXY
-    value: https://proxy.golang.org
-  - name: GOSUMDB
-    value: sum.golang.org
+  - name: AGENT_PROFILE
+    value: go
   - name: ANTHROPIC_API_KEY
     value: placeholder
   - name: ANTHROPIC_MODEL
@@ -55,6 +53,11 @@ containers:
     value: KRCI Agent
   - name: GIT_COMMITTER_EMAIL
     value: krci-agent@example.invalid
+  # Profile env, after the env the template sets.
+  - name: GOPROXY
+    value: https://proxy.golang.org
+  - name: GOSUMDB
+    value: sum.golang.org
   volumeMounts:
   - name: system-info
     mountPath: /run/ate

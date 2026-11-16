@@ -18,9 +18,11 @@ import (
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/profiles/profilestest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/templates"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 )
 
@@ -32,6 +34,24 @@ const (
 	reporter = "rep1"
 )
 
+const goImage = "epamedp/krci-agent-go:0.1.1@sha256:c7b5f305bb3eb3d1628d97df031b0a83b44a42f1ec243cf0d2ac1fe715923e2a"
+
+// goProfiles is a profiles file with the go profile as the default profile.
+const goProfiles = `
+profiles:
+  go:
+    image: ` + goImage + `
+    egress: [proxy.golang.org]
+    env:
+      GOPROXY: https://proxy.golang.org
+defaultProfile: go
+`
+
+var goEntry = models.ProfileEntry{
+	Name: "go", Image: goImage, Egress: []string{"proxy.golang.org"},
+	Env: []models.EnvVar{{Name: "GOPROXY", Value: "https://proxy.golang.org"}},
+}
+
 var (
 	key   = models.IssueKey{ProjectID: 12, IID: 7}
 	actor = key.ActorName()
@@ -42,6 +62,7 @@ type env struct {
 	t   *testing.T
 	gl  *gitlabtest.Fake
 	sb  *substratetest.Fake
+	pr  *profilestest.Fake
 	clk *systemtest.Clock
 	d   *dispatcher.Dispatcher
 
@@ -93,10 +114,12 @@ func newEnvOver(t *testing.T, mod func(*dispatcher.Config), gl func(*gitlabtest.
 		logs: &syncBuffer{},
 		gl:   gitlabtest.NewFake(bot),
 		sb:   substratetest.NewFake("krci-agents"),
+		pr:   profilestest.NewFake(templates.Deployment{}),
 		clk:  systemtest.NewClock(time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)),
 	}
 	e.gl.SetMember(key.ProjectID, dev, 30)
 	e.gl.SetMember(key.ProjectID, reporter, 20)
+	e.pr.Set(goProfiles)
 
 	cfg := dispatcher.Config{
 		Bot: bot, TurnLimit: 5,
@@ -105,7 +128,7 @@ func newEnvOver(t *testing.T, mod func(*dispatcher.Config), gl func(*gitlabtest.
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
 	}
 	mod(&cfg)
-	e.d = dispatcher.New(gl(e.gl), e.sb, e.clk, cfg)
+	e.d = dispatcher.New(gl(e.gl), e.sb, e.pr, e.clk, cfg)
 
 	return e
 }
@@ -287,15 +310,78 @@ func TestStartActorSpec(t *testing.T) {
 	assert.Equal(
 		t,
 		models.ActorSpec{ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1",
-			BotUsername: bot},
+			BotUsername: bot, Profile: goEntry},
 		spec,
 	)
+	assert.Equal(t, []string{"krci/test-go-app"}, e.pr.Resolved(), "one profile resolution per create")
 
 	note, ok := models.StatusNote(e.gl.Notes(key), bot)
 	require.True(t, ok)
 
 	v, _ := models.ParseStatusView(note.Body)
 	assert.Equal(t, spec.SessionID, v.Session, "the status note names the session the actor was created with")
+	assert.Equal(t, "go", v.Profile, "the status note names the profile the actor was created with")
+	assert.Equal(t, goImage, v.Image, "the status note names the image the actor was created with")
+}
+
+func TestStartWithAnUnresolvedProfileRecordsAgentProfile(t *testing.T) {
+	e := newEnv(t)
+	e.pr.Set(strings.Replace(goProfiles, goImage, "epamedp/krci-agent-go:0.1.1", 1))
+	e.issue(nil, agentLabels.Trigger())
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	assert.Equal(t, 0, e.sb.Count("create-actor", actor), "no actor without a profile")
+
+	v, err := e.sb.Inspect(t.Context(), actor)
+	require.NoError(t, err)
+	assert.False(t, v.Exists(), "no actor without a profile")
+
+	for _, d := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
+		assert.Equal(t, 0, e.clk.Count(d), "no retry backoff")
+	}
+
+	e.assertState(models.Error, models.ReasonAgentProfile)
+	assert.Equal(t, "go: image must be pinned by digest: <repo>[:<tag>]@sha256:<digest>", statusRows(e).Detail)
+	assert.Contains(t, e.logs.String(), "msg=\"Effect failed\" issue=12/7 request=start effect=create")
+}
+
+func TestStartWithoutAProfileFileRecordsAgentProfile(t *testing.T) {
+	e := newEnv(t)
+	e.pr.Remove()
+	e.issue(nil, agentLabels.Trigger())
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	e.assertState(models.Error, models.ReasonAgentProfile)
+	assert.Equal(t, "profiles file does not exist", statusRows(e).Detail)
+}
+
+func TestClearErrorAfterAProfileFixCreatesTheActor(t *testing.T) {
+	e := newEnv(t)
+	e.pr.Set("defaultProfile: missing\n")
+	e.issue(nil, agentLabels.Trigger())
+	e.agentRepliesOnResume()
+	e.run()
+	e.handle(intake.Start, dev)
+	e.idle()
+
+	e.assertState(models.Error, models.ReasonAgentProfile)
+	assert.Equal(t, "missing: profile is not defined", statusRows(e).Detail)
+
+	e.pr.Set(goProfiles)
+	e.handle(intake.ClearError, dev)
+	e.idle()
+
+	spec, ok := e.sb.Spec(actor)
+	require.True(t, ok, "actor created after the fix, without a dispatcher restart")
+	assert.Equal(t, goEntry, spec.Profile)
+
+	e.assertState(models.Waiting, "")
+	assert.Empty(t, statusRows(e).Detail, "the detail goes with the error")
+	assert.Equal(t, "go", statusRows(e).Profile)
 }
 
 func TestStartCleansPartial(t *testing.T) {
@@ -476,6 +562,7 @@ func TestRecoveryContinuesReEnableCutAfterCreate(t *testing.T) {
 	e := reEnableCutAfterCreate(t)
 	require.NoError(t, e.sb.Create(context.Background(), actor, models.ActorSpec{
 		ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
+		Profile: goEntry,
 	}))
 	e.run()
 	e.idle()
@@ -495,6 +582,7 @@ func TestRecoveryContinuesReEnableCutInsideCreate(t *testing.T) {
 	e.sb.Fail("create-policy", errRP)
 	require.Error(t, e.sb.Create(context.Background(), actor, models.ActorSpec{
 		ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-0b", BotUsername: bot,
+		Profile: goEntry,
 	}))
 	e.run()
 	e.idle()
@@ -538,7 +626,7 @@ func TestRecoveryContinuesReEnableCutAfterResume(t *testing.T) {
 	require.Equal(t, session0, e.session(key), "the cut leaves the old session in the status note")
 	require.Equal(t, 1, e.sb.Count("resume", actor))
 
-	e.d = dispatcher.New(e.gl, e.sb, e.clk, dispatcher.Config{
+	e.d = dispatcher.New(e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
 		Bot: bot, TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-2" },
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
@@ -613,7 +701,7 @@ func TestRestartAfterReEnableStalledByWriteOutageResumesNoIdleActor(t *testing.T
 	resumes := e.sb.Count("resume", actor)
 
 	e.cancel()
-	e.d = dispatcher.New(e.gl, e.sb, e.clk, dispatcher.Config{
+	e.d = dispatcher.New(e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
 		Bot: bot, TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-2" },
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
@@ -640,6 +728,7 @@ func TestTriggerCheckReadsTheActorSession(t *testing.T) {
 	e.comment(reporter)                                                                                      // 106
 	require.NoError(t, e.sb.Create(t.Context(), actor, models.ActorSpec{
 		ProjectID: key.ProjectID, ProjectPath: "krci/test-go-app", IID: key.IID, SessionID: "session-1", BotUsername: bot,
+		Profile: goEntry,
 	}))
 	e.run()
 	e.idle()

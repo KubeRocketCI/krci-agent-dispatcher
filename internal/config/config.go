@@ -5,16 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
-
-// Substrate accepts only actor images pinned by digest.
-var digestPinned = regexp.MustCompile(`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`)
 
 // Config holds the resolved dispatcher settings.
 type Config struct {
@@ -32,7 +28,7 @@ type Config struct {
 	Atespace         string
 	Pool             string
 	SecretsNamespace string
-	AgentImage       string
+	ProfilesFile     string
 	HarnessImage     string
 	AgentSteps       int
 	AgentModel       string
@@ -119,7 +115,7 @@ func Load() (*Config, error) {
 		Atespace:         required("ATESPACE"),
 		Pool:             orDefault("POOL", "workers"),
 		SecretsNamespace: orDefault("SECRETS_NAMESPACE", "krci-agents"),
-		AgentImage:       required("AGENT_IMAGE"),
+		ProfilesFile:     orDefault("PROFILES_FILE", "/etc/krci-agent-dispatcher/profiles.yaml"),
 		HarnessImage:     required("HARNESS_IMAGE"),
 		AgentSteps:       positiveInt("AGENT_STEPS", 40),
 		AgentModel:       orDefault("AGENT_MODEL", "claude-haiku-5-5"),
@@ -148,7 +144,7 @@ func Load() (*Config, error) {
 func (c *Config) harnessErrors() []error {
 	var errs []error
 
-	if c.HarnessImage != "" && !digestPinned.MatchString(c.HarnessImage) {
+	if c.HarnessImage != "" && !models.DigestPinned(c.HarnessImage) {
 		errs = append(errs, errors.New("HARNESS_IMAGE must be pinned by digest: <repo>[:<tag>]@sha256:<digest>"))
 	}
 
@@ -167,11 +163,6 @@ func (c *Config) harnessErrors() []error {
 	}
 
 	return errs
-}
-
-// AgentImagePinned reports whether AgentImage is <repo>[:<tag>]@sha256:<digest>.
-func (c *Config) AgentImagePinned() bool {
-	return digestPinned.MatchString(c.AgentImage)
 }
 
 // envDuration reads the duration in name; empty is def. A duration is positive, or 0 or more with allowZero.

@@ -17,12 +17,14 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/profiles/profilestest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/dispatcher"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/harness/harnesstest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/services/intake"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/state/statetest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/substratetest"
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/substrate/templates"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/system/systemtest"
 )
 
@@ -48,6 +50,7 @@ type env struct {
 	t     *testing.T
 	gl    *gitlabtest.Fake
 	sb    *substratetest.Fake
+	pr    *profilestest.Fake
 	clk   *systemtest.Clock
 	d     *dispatcher.Dispatcher
 	rest  *gitlab.REST
@@ -67,11 +70,13 @@ func newEnv(t *testing.T) *env {
 		t:     t,
 		gl:    gitlabtest.NewFake(bot),
 		sb:    substratetest.NewFake("krci-agents"),
+		pr:    profilestest.NewFake(templates.Deployment{}),
 		clk:   systemtest.NewClock(time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)),
 		agent: &harnesstest.Agent{},
 		ws:    &harnesstest.Workspace{},
 	}
 	e.gl.SetMember(key.ProjectID, dev, 30)
+	e.pr.Set("profiles:\n  go:\n    image: r@sha256:" + strings.Repeat("0", 64) + "\ndefaultProfile: go\n")
 	e.gl.SetDefaultBranch(key.ProjectID, "main")
 	e.gl.AddIssue(key, projectPath, models.IssueOpened, agentLabels.Trigger())
 
@@ -86,7 +91,7 @@ func newEnv(t *testing.T) *env {
 
 	var sessions int
 
-	e.d = dispatcher.New(e.gl, e.sb, e.clk, dispatcher.Config{
+	e.d = dispatcher.New(e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
 		Bot: bot, TurnLimit: 5, TurnTimeout: turnTimeout, PollInterval: poll,
 		NewSessionID: func() string { sessions++; return fmt.Sprintf("session-%d", sessions) },
 		Logger:       slog.New(slog.DiscardHandler),

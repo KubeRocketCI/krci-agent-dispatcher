@@ -1,0 +1,11 @@
+{{- if not .Values.profiles.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "krci-agent-dispatcher.fullname" . }}-profiles
+  labels:
+    {{- include "krci-agent-dispatcher.labels" . | nindent 4 }}
+data:
+  profiles.yaml: |
+    {{- .Files.Get "profiles.yaml" | nindent 4 }}
+{{- end }}

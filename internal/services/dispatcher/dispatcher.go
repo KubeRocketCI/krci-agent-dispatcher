@@ -49,6 +49,7 @@ type Config struct {
 type Dispatcher struct {
 	gl     GitLab
 	sb     Substrate
+	pr     Profiles
 	clk    Clock
 	cfg    Config
 	limits decide.Limits
@@ -66,7 +67,7 @@ type Dispatcher struct {
 }
 
 // New returns a dispatcher. Requests wait until Run starts.
-func New(gl GitLab, sb Substrate, clk Clock, cfg Config) *Dispatcher {
+func New(gl GitLab, sb Substrate, pr Profiles, clk Clock, cfg Config) *Dispatcher {
 	if cfg.NewSessionID == nil {
 		cfg.NewSessionID = uuid.NewString
 	}
@@ -80,7 +81,7 @@ func New(gl GitLab, sb Substrate, clk Clock, cfg Config) *Dispatcher {
 	}
 
 	return &Dispatcher{
-		gl: gl, sb: sb, clk: clk, cfg: cfg, log: cfg.Logger,
+		gl: gl, sb: sb, pr: pr, clk: clk, cfg: cfg, log: cfg.Logger,
 		limits: decide.Limits{
 			TurnLimit:   cfg.TurnLimit,
 			Bot:         cfg.Bot,

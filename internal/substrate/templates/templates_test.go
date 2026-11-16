@@ -35,7 +35,6 @@ func goldenParams(t *testing.T) Params {
 			Atespace:         "krci-agents",
 			Pool:             "workers",
 			SecretsNamespace: "krci-agents",
-			Image:            "localhost:5001/krci-agent-go@sha256:" + strings.Repeat("0", 64),
 			HarnessImage:     "docker.io/epamedp/krci-agent-harness@sha256:" + strings.Repeat("1", 64),
 			GitLabURL:        gitLabURL(t, "https://gitlab.127.0.0.1.nip.io"),
 			Model:            "claude-haiku-5-5",
@@ -50,7 +49,29 @@ func goldenParams(t *testing.T) Params {
 			IID:         7,
 			SessionID:   "00000000-0000-0000-0000-00000000000a",
 			BotUsername: "krci-agent",
+			Profile:     goProfile(),
 		},
+	}
+}
+
+func goProfile() models.ProfileEntry {
+	return models.ProfileEntry{
+		Name:   "go",
+		Image:  "localhost:5001/krci-agent-go@sha256:" + strings.Repeat("0", 64),
+		Egress: []string{"proxy.golang.org", "sum.golang.org", "storage.googleapis.com"},
+		Env: []models.EnvVar{
+			{Name: "GOPROXY", Value: "https://proxy.golang.org"},
+			{Name: "GOSUMDB", Value: "sum.golang.org"},
+		},
+	}
+}
+
+func nodeProfile() models.ProfileEntry {
+	return models.ProfileEntry{
+		Name:   "node",
+		Image:  "epamedp/krci-agent-node@sha256:" + strings.Repeat("2", 64),
+		Egress: []string{"registry.npmjs.org"},
+		Env:    []models.EnvVar{{Name: "NPM_CONFIG_REGISTRY", Value: "https://registry.npmjs.org"}},
 	}
 }
 
@@ -259,4 +280,128 @@ func TestRenderRejectsInvalidSpec(t *testing.T) {
 
 	_, _, err := Render(p)
 	require.ErrorContains(t, err, "session ID")
+}
+
+func TestRenderTakesImageEnvAndEgressFromTheProfile(t *testing.T) {
+	p := goldenParams(t)
+	p.Profile = nodeProfile()
+
+	tmpl, pol, err := Render(p)
+	require.NoError(t, err)
+
+	assert.Equal(t, "epamedp/krci-agent-node@sha256:"+strings.Repeat("2", 64), tmpl.GetContainers()[0].GetImage())
+	assert.Equal(t, "node", env(tmpl, "AGENT_PROFILE"))
+	assert.Equal(t, "https://registry.npmjs.org", env(tmpl, "NPM_CONFIG_REGISTRY"))
+	assert.Empty(t, env(tmpl, "GOPROXY"), "no Go env outside the go profile")
+
+	require.Len(t, pol.GetRules(), 3)
+	assert.Equal(t, []string{"api.anthropic.com"}, pol.GetRules()[0].GetHttps().GetHostnames())
+	assert.Equal(t, []string{"gitlab.127.0.0.1.nip.io"}, pol.GetRules()[1].GetHttps().GetHostnames())
+	assert.Equal(t, []string{"registry.npmjs.org"}, pol.GetRules()[2].GetTlsPassthrough().GetHostnames())
+	assert.Equal(t, []int32{443}, pol.GetRules()[2].GetTlsPassthrough().GetPorts().GetNumbers())
+}
+
+func TestRenderWithoutProfileEgressHasOnlyTheFixedRules(t *testing.T) {
+	p := goldenParams(t)
+	p.Profile.Egress, p.Profile.Env = nil, nil
+
+	tmpl, pol, err := Render(p)
+	require.NoError(t, err)
+
+	assert.Len(t, pol.GetRules(), 2)
+	assert.Equal(t, "go", env(tmpl, "AGENT_PROFILE"))
+}
+
+func TestRenderQuotesProfileEnvValues(t *testing.T) {
+	p := goldenParams(t)
+	p.Profile.Env = []models.EnvVar{{Name: "X", Value: "a\"\n  - name: HOME\n    value: /root"}}
+
+	tmpl, _, err := Render(p)
+	require.NoError(t, err)
+
+	assert.Equal(t, p.Profile.Env[0].Value, env(tmpl, "X"))
+	assert.Equal(t, "/home/agent", env(tmpl, "HOME"))
+}
+
+func TestRenderRefusesAProfileThatClashesWithTheTemplate(t *testing.T) {
+	p := goldenParams(t)
+	p.Profile.Env = []models.EnvVar{{Name: "HOME", Value: "/root"}}
+
+	_, _, err := Render(p)
+	require.ErrorContains(t, err, `profile env name "HOME" is set by the actor template`)
+}
+
+func TestRenderRefusesAnInvalidProfile(t *testing.T) {
+	p := goldenParams(t)
+	p.Profile.Image = "epamedp/krci-agent-go:0.1.1"
+
+	_, _, err := Render(p)
+	require.ErrorContains(t, err, "image must be pinned by digest")
+}
+
+func TestCheckProfile(t *testing.T) {
+	d := goldenParams(t).Deployment
+
+	cases := map[string]struct {
+		mod  func(*models.ProfileEntry)
+		want []string
+	}{
+		"valid": {func(*models.ProfileEntry) {}, nil},
+		"every rule": {
+			func(p *models.ProfileEntry) { p.Image, p.Env = "", []models.EnvVar{{Name: "HOME"}} },
+			[]string{"image is required", `env name "HOME" is set by the actor template`},
+		},
+		"contract env": {
+			func(p *models.ProfileEntry) {
+				p.Env = []models.EnvVar{{Name: "SESSION_ID"}, {Name: "AGENT_PROFILE"}, {Name: "GOPROXY"}}
+			},
+			[]string{
+				`env name "SESSION_ID" is set by the actor template`,
+				`env name "AGENT_PROFILE" is set by the actor template`,
+			},
+		},
+		"env twice": {
+			func(p *models.ProfileEntry) { p.Env = []models.EnvVar{{Name: "A"}, {Name: "A"}} },
+			[]string{`env name "A" is listed twice`},
+		},
+		"fixed hosts": {
+			func(p *models.ProfileEntry) { p.Egress = []string{"api.anthropic.com", "gitlab.127.0.0.1.nip.io"} },
+			[]string{
+				`egress host "api.anthropic.com" has a fixed egress rule`,
+				`egress host "gitlab.127.0.0.1.nip.io" has a fixed egress rule`,
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := goProfile()
+			c.mod(&p)
+			assert.Equal(t, c.want, CheckProfile(d, p))
+		})
+	}
+}
+
+func TestCheckProfileWithoutGitLabURL(t *testing.T) {
+	d := goldenParams(t).Deployment
+	d.GitLabURL = models.GitLabURL{}
+
+	p := goProfile()
+	p.Egress = []string{"api.anthropic.com", "gitlab.127.0.0.1.nip.io"}
+
+	assert.Equal(t, []string{`egress host "api.anthropic.com" has a fixed egress rule`}, CheckProfile(d, p))
+}
+
+func TestProfileAndImageOf(t *testing.T) {
+	tmpl, _, err := Render(goldenParams(t))
+	require.NoError(t, err)
+
+	assert.Equal(t, "go", ProfileOf(tmpl))
+	assert.Equal(t, goProfile().Image, ImageOf(tmpl))
+	assert.Equal(t, "00000000-0000-0000-0000-00000000000a", SessionOf(tmpl))
+
+	empty := &ateapi.ActorTemplate{}
+	assert.Empty(t, ProfileOf(empty))
+	assert.Empty(t, ImageOf(empty))
+	assert.Empty(t, SessionOf(empty))
 }

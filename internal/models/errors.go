@@ -14,6 +14,8 @@ var (
 	ErrNoRoom = errors.New("no worker has room for the actor")
 	// ErrInvalidSpec: the actor spec does not render into an actor.
 	ErrInvalidSpec = errors.New("invalid actor spec")
+	// ErrAgentProfile: profile resolution failed; the error is a *ProfileError.
+	ErrAgentProfile = errors.New("agent profile")
 	// ErrStateCorrupt: the harness state store holds a state it cannot read.
 	ErrStateCorrupt = errors.New("state corrupt")
 )

@@ -26,11 +26,11 @@ Rewrite the golden maps after an intended change to `Decide` or `Poll`: `go test
 ## Architecture
 
 ```
-cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP
+cmd/krci-agent-dispatcher/   builds adapters, wires them, starts Run and HTTP; check-profiles
 cmd/krci-agent-harness/      harness command: selftest, run
 internal/config/             env → Config
 internal/api/                oapi.yaml, generated server, hook handler (port: Handle)
-internal/models/             IssueKey, Issue, Note, Record, Writes, ActorView, ActorSummary, ActorSpec, Role, port errors
+internal/models/             IssueKey, Issue, Note, Record, Writes, ActorView, ActorSummary, ActorSpec, ProfileEntry, Role, port errors
 internal/turn/               turn protocol: Marker, History, Turn; pure
 internal/services/intake/    payload → Request, pure
 internal/services/decide/    decision function and activation-loop rules: facts in, rule and plan out; pure
@@ -41,11 +41,12 @@ internal/gitlab/             GitLab port adapters: REST, gitlabtest fake, contra
 internal/claude/             Agent port adapter: Claude Code run, conversation file, watchdog; contract suite with the harnesstest fake
 internal/workspace/          Workspace port adapter: git checkout, new-commits check, verify, push; contract suite with the harnesstest fake
 internal/procgroup/          process groups of the adapters' child processes: TERM, KILL, leftovers, bounded pipe drain
+internal/profiles/           Profiles port adapter: profile file read at each create, Parse, Resolve, Check; profilestest fake, contract suite
 internal/substrate/          Substrate port adapters: gRPC, substratetest fake, contract suite
-internal/substrate/templates/ ActorTemplate + EgressPolicy render, pure
+internal/substrate/templates/ ActorTemplate + EgressPolicy render, CheckProfile, pure
 internal/system/             System port adapters: OS, Clock, systemtest fake (Clock too), contract suite
 internal/state/              StateStore port adapters: file, statetest fake, contract suite
-deploy-templates/            Helm chart
+deploy-templates/            Helm chart; profiles.yaml: default agent profiles, embedded verbatim
 Dockerfile.harness           harness image: FROM scratch, binary at /krci-agent-harness
 hack/register-hook.sh        project hook add|remove|list
 hack/crap-gate.sh            CRAP gate behind make crap, crap-check, crap-baseline
