@@ -62,6 +62,7 @@ hack/crap-gate-test.sh       tests of crap-gate.sh, run by make test
 - Ports are declared by their consumer (`dispatcher/ports.go`). Only `main` builds adapters.
 - Port errors are declared in `models`; adapters wrap them.
 - Each port has a production adapter and an in-memory fake; one contract suite runs against both.
+- Before changing the actor name or the actor template env, read "Fields the portal reads" in `docs/agent-harness.md`: a change to a field listed there also needs a change in krci-portal.
 - `decide` and `substrate/templates` are pure. A new rule is a new rule constant, a new table-test case and a reviewed golden map diff.
 - A rule's plan holds every effect it causes, in order, with its failure handling. The dispatcher performs plans and adds only the failure handling named by `decide.Fail`, the cancelled-ctx rule and retries; behaviour changes go into `decide`.
 - A new request kind, agent state or actor state goes into its enumerator (`intake.Kinds`, `models.AgentStates`, `models.ActorStates`); tests fail until it is listed and the golden maps classify it.
