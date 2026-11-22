@@ -3,7 +3,7 @@
 # Dispatcher, harness and agent images: docs/agent-harness.md.
 workerSelector:
   matchLabels:
-    workload: {{ json .Pool }}
+    workload: {{ json .WorkerPool }}
 containers:
 - name: claude
   image: {{ json .Profile.Image }}

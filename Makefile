@@ -33,7 +33,7 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 .PHONY: build
-# The harness runs only in actors: GOOS is linux whatever HOST_OS is; HOST_ARCH=amd64 builds for amd64 pools.
+# The harness runs only in actors: GOOS is linux whatever HOST_OS is; HOST_ARCH=amd64 builds for amd64 worker pools.
 build: ## Build the binaries → dist/krci-agent-dispatcher-<arch>, dist/krci-agent-harness-<arch> (linux)
 	CGO_ENABLED=0 GOOS=${HOST_OS} GOARCH=${HOST_ARCH} go build -v -trimpath -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-dispatcher-${HOST_ARCH} ./cmd/krci-agent-dispatcher
 	CGO_ENABLED=0 GOOS=linux GOARCH=${HOST_ARCH} go build -v -trimpath -ldflags '${LDFLAGS}' -o ${DIST_DIR}/krci-agent-harness-${HOST_ARCH} ./cmd/krci-agent-harness

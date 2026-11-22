@@ -33,7 +33,7 @@ func goldenParams(t *testing.T) Params {
 	return Params{
 		Deployment: Deployment{
 			Atespace:         "krci-agents",
-			Pool:             "workers",
+			WorkerPool:       "workers",
 			SecretsNamespace: "krci-agents",
 			HarnessImage:     "docker.io/epamedp/krci-agent-harness@sha256:" + strings.Repeat("1", 64),
 			GitLabURL:        gitLabURL(t, "https://gitlab.127.0.0.1.nip.io"),

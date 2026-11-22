@@ -73,8 +73,8 @@ spec:
               value: /var/run/ate/ca.crt
             - name: ATESPACE
               value: {{ default .Release.Namespace .Values.substrate.atespace | quote }}
-            - name: POOL
-              value: {{ .Values.substrate.pool | quote }}
+            - name: WORKER_POOL
+              value: {{ .Values.substrate.workerPool | quote }}
             - name: SECRETS_NAMESPACE
               value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
             - name: PROFILES_FILE

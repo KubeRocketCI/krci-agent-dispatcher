@@ -51,8 +51,8 @@ substrate:
   # -- Atespace of the issue actors. Empty: the release namespace. One dispatcher per atespace: the dispatcher owns
   # every actor named `issue-<project-id>-<iid>` in it.
   atespace: ""
-  # -- Worker pool of the actor template.
-  pool: workers
+  # -- Worker pool of the actor template: matched against the `workload` label of the workers, not the WorkerPool name.
+  workerPool: workers
   # -- Namespace in the ate-secret:// URIs of the egress policy. Empty: the release namespace.
   secretsNamespace: ""
 
