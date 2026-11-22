@@ -29,6 +29,7 @@ flowchart TB
   sub["<b>Agent Substrate</b><br/>actors, snapshots, egress gateway"]
   ant["<b>Anthropic API</b>"]
   reg["<b>Package registries</b>"]
+  portal["<b>krci-portal</b>"]
 
   dev -->|"trigger label, comments"| gl
   op -->|"chart, agent profiles"| sys
@@ -37,6 +38,7 @@ flowchart TB
   sys -->|"actor lifecycle"| sub
   sys -->|"model calls"| ant
   sys -->|"dependencies"| reg
+  portal -->|"reads actors, actor templates"| sub
 ```
 
 ## Containers
@@ -126,6 +128,31 @@ sequenceDiagram
 - A start on a done issue whose actor is transitional, by an author who can trigger, is rechecked, then recorded as error `actor busy`; a suspended, crashed or partial actor is deleted and recreated with a new session.
 - Secrets never enter the actor. The egress gateway adds the GitLab and Anthropic credentials on the way out.
 - Egress: Anthropic, the GitLab host and the profile's hosts. Nothing else.
+
+## Dispatcher → portal
+
+krci-portal reads actors from the Substrate API. It never calls the dispatcher.
+
+### Fields the portal reads
+
+krci-portal reads the actor name and five env values of the actor template (krci-portal ADR 0001):
+
+| Field | Form |
+|---|---|
+| actor name | `issue-<project-id>-<iid>` |
+| `PROJECT_PATH` | the project's full path, `<group>[/<subgroup>…]/<project>`: the issue's `references.full` without `#<iid>`; no leading or trailing `/`; case as GitLab reports it |
+| `PROJECT_ID` | GitLab project id, decimal |
+| `ISSUE_IID` | issue iid in the project, decimal |
+| `AGENT_PROFILE` | profile name |
+| `ANTHROPIC_MODEL` | model id, from `AGENT_MODEL` |
+
+The portal matches the Codebase whose `spec.gitUrlPath` is `/` + `PROJECT_PATH`.
+
+Rules:
+
+- A rename, removal or change of form of any of them needs a change in krci-portal.
+- An actor without the five env values shows no issue in the portal.
+- A field the portal starts to read is added here and to krci-portal ADR 0001.
 
 ## Harness
 

@@ -245,14 +245,15 @@ Restoring a suspended actor on a free worker.
 _Avoid_: start, wake
 
 **Worker**:
-A pre-started Substrate pod in the pool that can host a restored actor.
+A pre-started Substrate pod in the worker pool that can host a restored actor.
 _Avoid_: runner, slot
 
-**Pool**:
+**Worker pool**:
 The set of workers that actors run on.
+_Avoid_: pool (alone), node pool
 
 **No room**:
-The condition where no worker in the pool can host the actor, so an activation does not start.
+The condition where no worker in the worker pool can host the actor, so an activation does not start.
 _Avoid_: capacity error, busy pool
 
 ## Dispatcher
