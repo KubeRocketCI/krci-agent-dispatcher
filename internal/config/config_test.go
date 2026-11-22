@@ -36,7 +36,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, cfg.SweepInterval)
 	assert.Equal(t, 20, cfg.TurnLimit)
 	assert.Equal(t, "krci-agents", cfg.Atespace)
-	assert.Equal(t, "workers", cfg.Pool)
+	assert.Equal(t, "workers", cfg.WorkerPool)
 	assert.Equal(t, "krci-agents", cfg.SecretsNamespace)
 	assert.Equal(t, "krci-agent", cfg.BotUsername)
 	assert.Equal(t, models.Developer, cfg.TriggerMinRole)
@@ -65,6 +65,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("GITLAB_CA_FILE", "/etc/gitlab-ca/ca.crt")
 	t.Setenv("SWEEP_INTERVAL", "0")
 	t.Setenv("PROFILES_FILE", "/etc/profiles/profiles.yaml")
+	t.Setenv("WORKER_POOL", "large")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -78,6 +79,7 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, "/etc/gitlab-ca/ca.crt", cfg.GitLabCAFile)
 	assert.Zero(t, cfg.SweepInterval, "0 turns the sweep off")
 	assert.Equal(t, "/etc/profiles/profiles.yaml", cfg.ProfilesFile)
+	assert.Equal(t, "large", cfg.WorkerPool)
 }
 
 func TestLoadMissingRequired(t *testing.T) {

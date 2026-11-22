@@ -27,7 +27,7 @@ var files embed.FS
 // seconds.
 type Deployment struct {
 	Atespace         string
-	Pool             string
+	WorkerPool       string
 	SecretsNamespace string
 	HarnessImage     string
 	GitLabURL        models.GitLabURL

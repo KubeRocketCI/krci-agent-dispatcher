@@ -57,9 +57,9 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | serviceAccount.annotations | object | `{}` | Annotations of the ServiceAccount. Its name is the full name: the Substrate access policy member. |
 | substrate.addr | string | `"api.ate-system.svc:443"` | Substrate API address. |
 | substrate.atespace | string | `""` | Atespace of the issue actors. Empty: the release namespace. One dispatcher per atespace: the dispatcher owns every actor named `issue-<project-id>-<iid>` in it. |
-| substrate.pool | string | `"workers"` | Worker pool of the actor template. |
 | substrate.secretsNamespace | string | `""` | Namespace in the ate-secret:// URIs of the egress policy. Empty: the release namespace. |
 | substrate.tokenAudience | string | `"api.ate-system.svc"` | ServiceAccount token audience of the Substrate API. |
 | substrate.trustBundleLabels | object | `{"podcert.ate.dev/canarying":"live"}` | ClusterTrustBundle label selector. |
 | substrate.trustBundleSigner | string | `"servicedns.podcert.ate.dev/identity"` | ClusterTrustBundle signer of the Substrate API serving certificate. |
+| substrate.workerPool | string | `"workers"` | Worker pool of the actor template: matched against the `workload` label of the workers, not the WorkerPool name. |
 | tolerations | list | `[]` | Tolerations. |

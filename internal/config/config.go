@@ -26,7 +26,7 @@ type Config struct {
 	ATETokenFile     string
 	ATECAFile        string
 	Atespace         string
-	Pool             string
+	WorkerPool       string
 	SecretsNamespace string
 	ProfilesFile     string
 	HarnessImage     string
@@ -113,7 +113,7 @@ func Load() (*Config, error) {
 		ATETokenFile:     orDefault("ATE_TOKEN_FILE", "/var/run/ate/token"),
 		ATECAFile:        orDefault("ATE_CA_FILE", "/var/run/ate/ca.crt"),
 		Atespace:         required("ATESPACE"),
-		Pool:             orDefault("POOL", "workers"),
+		WorkerPool:       orDefault("WORKER_POOL", "workers"),
 		SecretsNamespace: orDefault("SECRETS_NAMESPACE", "krci-agents"),
 		ProfilesFile:     orDefault("PROFILES_FILE", "/etc/krci-agent-dispatcher/profiles.yaml"),
 		HarnessImage:     required("HARNESS_IMAGE"),
