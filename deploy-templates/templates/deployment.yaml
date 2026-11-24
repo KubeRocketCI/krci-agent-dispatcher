@@ -73,8 +73,17 @@ spec:
               value: /var/run/ate/ca.crt
             - name: ATESPACE
               value: {{ default .Release.Namespace .Values.substrate.atespace | quote }}
-            - name: WORKER_POOL
-              value: {{ .Values.substrate.workerPool | quote }}
+            {{- with .Values.substrate.workerSelector }}
+            {{- $pairs := list }}
+            {{- range $k, $v := . }}
+            {{- if or (not (kindIs "string" $v)) (eq $v "") }}
+            {{- fail (printf "substrate.workerSelector.%s must be a non-empty string: quote numbers and booleans" $k) }}
+            {{- end }}
+            {{- $pairs = append $pairs (printf "%s=%s" $k $v) }}
+            {{- end }}
+            - name: WORKER_SELECTOR
+              value: {{ join "," $pairs | quote }}
+            {{- end }}
             - name: SECRETS_NAMESPACE
               value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
             - name: PROFILES_FILE

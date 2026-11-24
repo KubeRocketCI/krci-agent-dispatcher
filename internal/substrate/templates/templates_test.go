@@ -33,7 +33,7 @@ func goldenParams(t *testing.T) Params {
 	return Params{
 		Deployment: Deployment{
 			Atespace:         "krci-agents",
-			WorkerPool:       "workers",
+			WorkerSelector:   models.WorkerSelector{"workload": "workers"},
 			SecretsNamespace: "krci-agents",
 			HarnessImage:     "docker.io/epamedp/krci-agent-harness@sha256:" + strings.Repeat("1", 64),
 			GitLabURL:        gitLabURL(t, "https://gitlab.127.0.0.1.nip.io"),
@@ -180,10 +180,33 @@ func TestRenderValues(t *testing.T) {
 	assert.Equal(t, "team/other-app", env(tmpl, "PROJECT_PATH"))
 	assert.Equal(t, "s2", env(tmpl, "SESSION_ID"))
 	assert.Equal(t, "other-bot", env(tmpl, "BOT_USERNAME"))
-	assert.Equal(t, "workers", tmpl.GetWorkerSelector().GetMatchLabels()["workload"])
 	assert.Nil(t, tmpl.GetMetadata())
 	assert.Nil(t, pol.GetMetadata())
 	assert.Equal(t, []string{"gitlab.127.0.0.1.nip.io"}, pol.GetRules()[1].GetHttps().GetHostnames())
+}
+
+func TestRenderPutsEveryWorkerSelectorPairInTheMatchLabels(t *testing.T) {
+	p := goldenParams(t)
+	p.WorkerSelector = models.WorkerSelector{
+		"workload": "large", "example.com/sandbox-class": "gvisor", "tier": "a\"\n  injected: true",
+	}
+
+	tmpl, _, err := Render(p)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{
+		"workload": "large", "example.com/sandbox-class": "gvisor", "tier": "a\"\n  injected: true",
+	}, tmpl.GetWorkerSelector().GetMatchLabels())
+}
+
+func TestRenderWithoutWorkerSelectorHasNone(t *testing.T) {
+	p := goldenParams(t)
+	p.WorkerSelector = nil
+
+	tmpl, _, err := Render(p)
+	require.NoError(t, err)
+
+	assert.Nil(t, tmpl.GetWorkerSelector())
 }
 
 func TestRenderHasNoSecretValue(t *testing.T) {

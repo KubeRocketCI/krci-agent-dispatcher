@@ -24,10 +24,10 @@ var files embed.FS
 
 // Deployment holds the settings shared by every issue actor. Atespace is set as metadata by the adapter.
 // HarnessImage is the harness image mounted at /opt/krci-agent. TurnTimeout and HarnessPoll are rendered in whole
-// seconds.
+// seconds. WorkerSelector is rendered as the worker selector match labels; empty renders no worker selector.
 type Deployment struct {
 	Atespace         string
-	WorkerPool       string
+	WorkerSelector   models.WorkerSelector
 	SecretsNamespace string
 	HarnessImage     string
 	GitLabURL        models.GitLabURL

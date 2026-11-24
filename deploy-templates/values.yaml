@@ -51,8 +51,13 @@ substrate:
   # -- Atespace of the issue actors. Empty: the release namespace. One dispatcher per atespace: the dispatcher owns
   # every actor named `issue-<project-id>-<iid>` in it.
   atespace: ""
-  # -- Worker pool of the actor template: matched against the `workload` label of the workers, not the WorkerPool name.
-  workerPool: workers
+  # -- Worker selector of the actor template: match labels, key to value. A worker hosts agent actors only when every
+  # key equals its worker label, the `metadata.labels` of its WorkerPool; the WorkerPool name is not matched. Kubernetes
+  # label syntax; every value a non-empty string, numbers and booleans quoted (`--set-string` on the command line). Empty: `workload: workers`.
+  workerSelector: {}
+    # workload: krci-agents
+    # kubernetes.io/arch: amd64
+    # tier: "2"
   # -- Namespace in the ate-secret:// URIs of the egress policy. Empty: the release namespace.
   secretsNamespace: ""
 

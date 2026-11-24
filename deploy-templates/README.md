@@ -61,5 +61,5 @@ A Helm chart for krci-agent-dispatcher, the dispatcher for KubeRocketCI issue ag
 | substrate.tokenAudience | string | `"api.ate-system.svc"` | ServiceAccount token audience of the Substrate API. |
 | substrate.trustBundleLabels | object | `{"podcert.ate.dev/canarying":"live"}` | ClusterTrustBundle label selector. |
 | substrate.trustBundleSigner | string | `"servicedns.podcert.ate.dev/identity"` | ClusterTrustBundle signer of the Substrate API serving certificate. |
-| substrate.workerPool | string | `"workers"` | Worker pool of the actor template: matched against the `workload` label of the workers, not the WorkerPool name. |
+| substrate.workerSelector | object | `{}` | Worker selector of the actor template: match labels, key to value. A worker hosts agent actors only when every key equals its worker label, the `metadata.labels` of its WorkerPool; the WorkerPool name is not matched. Kubernetes label syntax; every value a non-empty string, numbers and booleans quoted (`--set-string` on the command line). Empty: `workload: workers`. |
 | tolerations | list | `[]` | Tolerations. |
