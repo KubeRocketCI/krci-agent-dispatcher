@@ -125,6 +125,7 @@ sequenceDiagram
 - The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and `/opt/krci-agent/krci-agent-harness` as the command. The harness image holds the binary at `/krci-agent-harness`.
 - The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, the harness poll interval, the turn limit, agent steps, the model, `HOME=/home/agent`, `AGENT_PROFILE` and the profile's env.
 - Dispatcher config: `HARNESS_IMAGE` (required, pinned by digest; the chart value `harnessImage` defaults to the last verified harness), `PROFILES_FILE` (default `/etc/krci-agent-dispatcher/profiles.yaml`), `AGENT_STEPS` (default 40), `AGENT_MODEL` (default `claude-haiku-5-5`), `HARNESS_POLL_INTERVAL` (default 15 s). `TURN_TIMEOUT` and `HARNESS_POLL_INTERVAL` are whole seconds; the dispatcher refuses to start when `TURN_TIMEOUT` is below `HARNESS_POLL_INTERVAL + 120 s`, so every rendered template passes the handshake.
+- Worker selector: `WORKER_SELECTOR` (chart value `substrate.workerSelector`, a map) holds the match labels of every actor template as `key=value` pairs, comma separated; default `workload=workers`. Every key of the worker selector must equal the worker label of that key, the `metadata.labels` of the WorkerPool; the WorkerPool name is not matched. Keys and values follow Kubernetes label syntax; a pair without a key or a value, or a key listed twice, stops the dispatcher at start.
 - A start on a done issue whose actor is transitional, by an author who can trigger, is rechecked, then recorded as error `actor busy`; a suspended, crashed or partial actor is deleted and recreated with a new session.
 - Secrets never enter the actor. The egress gateway adds the GitLab and Anthropic credentials on the way out.
 - Egress: Anthropic, the GitLab host and the profile's hosts. Nothing else.
@@ -135,7 +136,7 @@ krci-portal reads actors from the Substrate API. It never calls the dispatcher.
 
 ### Fields the portal reads
 
-krci-portal reads the actor name and five env values of the actor template (krci-portal ADR 0001):
+krci-portal reads the actor name, five env values, the worker selector and the limits of the actor template (krci-portal ADR 0001). It sends all of them to the browser:
 
 | Field | Form |
 |---|---|
@@ -145,6 +146,8 @@ krci-portal reads the actor name and five env values of the actor template (krci
 | `ISSUE_IID` | issue iid in the project, decimal |
 | `AGENT_PROFILE` | profile name |
 | `ANTHROPIC_MODEL` | model id, from `AGENT_MODEL` |
+| worker selector | match labels: every pair of `WORKER_SELECTOR` |
+| limits | CPU and memory limits of the actor |
 
 The portal matches the Codebase whose `spec.gitUrlPath` is `/` + `PROJECT_PATH`.
 

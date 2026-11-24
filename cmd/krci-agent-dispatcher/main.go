@@ -53,7 +53,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	log.Info("Starting krci-agent-dispatcher",
 		"version", info.Version, "git-commit", info.GitCommit, "git-tag", info.GitTag,
 		"build-date", info.BuildDate, "go-version", info.Go, "platform", info.Platform,
-		"atespace", cfg.Atespace, "worker-pool", cfg.WorkerPool, "gitlab", cfg.GitLabURL.String(),
+		"atespace", cfg.Atespace, "worker-selector", cfg.WorkerSelector.String(), "gitlab", cfg.GitLabURL.String(),
 		"trigger-role", cfg.TriggerMinRole.String(), "sweep-interval", cfg.SweepInterval.String(),
 		"harness-image", cfg.HarnessImage, "agent-model", cfg.AgentModel, "agent-steps", cfg.AgentSteps,
 		"profiles-file", cfg.ProfilesFile,
@@ -73,7 +73,7 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 	}
 
 	deploy := substrate.Deployment{
-		Atespace: cfg.Atespace, WorkerPool: cfg.WorkerPool, SecretsNamespace: cfg.SecretsNamespace,
+		Atespace: cfg.Atespace, WorkerSelector: cfg.WorkerSelector, SecretsNamespace: cfg.SecretsNamespace,
 		HarnessImage: cfg.HarnessImage, GitLabURL: cfg.GitLabURL, Model: cfg.AgentModel, AgentSteps: cfg.AgentSteps,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, HarnessPoll: cfg.HarnessPollInterval,
 	}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, cfg.SweepInterval)
 	assert.Equal(t, 20, cfg.TurnLimit)
 	assert.Equal(t, "krci-agents", cfg.Atespace)
-	assert.Equal(t, "workers", cfg.WorkerPool)
+	assert.Equal(t, models.WorkerSelector{"workload": "workers"}, cfg.WorkerSelector)
 	assert.Equal(t, "krci-agents", cfg.SecretsNamespace)
 	assert.Equal(t, "krci-agent", cfg.BotUsername)
 	assert.Equal(t, models.Developer, cfg.TriggerMinRole)
@@ -65,7 +66,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("GITLAB_CA_FILE", "/etc/gitlab-ca/ca.crt")
 	t.Setenv("SWEEP_INTERVAL", "0")
 	t.Setenv("PROFILES_FILE", "/etc/profiles/profiles.yaml")
-	t.Setenv("WORKER_POOL", "large")
+	t.Setenv("WORKER_SELECTOR", "workload=large,sandbox.ate.dev/class=gvisor")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -79,7 +80,57 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, "/etc/gitlab-ca/ca.crt", cfg.GitLabCAFile)
 	assert.Zero(t, cfg.SweepInterval, "0 turns the sweep off")
 	assert.Equal(t, "/etc/profiles/profiles.yaml", cfg.ProfilesFile)
-	assert.Equal(t, "large", cfg.WorkerPool)
+	assert.Equal(t, models.WorkerSelector{"workload": "large", "sandbox.ate.dev/class": "gvisor"}, cfg.WorkerSelector)
+}
+
+func TestLoadWorkerSelector(t *testing.T) {
+	for in, want := range map[string]models.WorkerSelector{
+		"workload=workers":                  {"workload": "workers"},
+		"workload=large,tier=gpu":           {"workload": "large", "tier": "gpu"},
+		" workload = large , tier = gpu ":   {"workload": "large", "tier": "gpu"},
+		"example.com/pool=a_b.c-d,size=XL1": {"example.com/pool": "a_b.c-d", "size": "XL1"},
+	} {
+		t.Run(in, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("WORKER_SELECTOR", in)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, want, cfg.WorkerSelector)
+		})
+	}
+}
+
+func TestLoadRejectsWorkerSelector(t *testing.T) {
+	for in, why := range map[string]string{
+		"workload":                            "pair 1 has no value",
+		"workload=":                           "pair 1 has no value",
+		"workload=a,tier":                     "pair 2 has no value",
+		"workload=a,tier= ":                   "pair 2 has no value",
+		"=workers":                            "pair 1 has no key",
+		"workload=a,":                         "pair 2 is empty",
+		",workload=a":                         "pair 1 is empty",
+		"workload=a,workload=b":               "pair 2 repeats a key",
+		"work load=a":                         "pair 1 has an invalid key",
+		"Example.com/pool=a":                  "pair 1 has an invalid key",
+		"/pool=a":                             "pair 1 has an invalid key",
+		"example.com/=a":                      "pair 1 has an invalid key",
+		"a/b/c=a":                             "pair 1 has an invalid key",
+		"-pool=a":                             "pair 1 has an invalid key",
+		strings.Repeat("k", 64) + "=a":        "pair 1 has an invalid key",
+		"workload=a=b":                        "pair 1 has an invalid value",
+		"workload=-a":                         "pair 1 has an invalid value",
+		"workload=" + strings.Repeat("v", 64): "pair 1 has an invalid value",
+	} {
+		t.Run(in, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("WORKER_SELECTOR", in)
+
+			_, err := Load()
+			require.ErrorContains(t, err, "WORKER_SELECTOR must be key=value pairs, comma separated: "+why)
+			assert.NotContains(t, err.Error(), in)
+		})
+	}
 }
 
 func TestLoadMissingRequired(t *testing.T) {

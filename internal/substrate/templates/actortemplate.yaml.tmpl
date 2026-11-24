@@ -1,9 +1,10 @@
 # Per-issue ActorTemplate (protojson ateapi.ActorTemplate), Go text/template.
 # Values are JSON-quoted (`json`): project path, bot name and profile entry come from event payloads and config.
 # Dispatcher, harness and agent images: docs/agent-harness.md.
+{{- with .WorkerSelector }}
 workerSelector:
-  matchLabels:
-    workload: {{ json .WorkerPool }}
+  matchLabels: {{ json . }}
+{{- end }}
 containers:
 - name: claude
   image: {{ json .Profile.Image }}

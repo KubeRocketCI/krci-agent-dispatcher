@@ -30,7 +30,7 @@ import (
 
 var deployment = substrate.Deployment{
 	Atespace:         atespace,
-	WorkerPool:       "workers",
+	WorkerSelector:   models.WorkerSelector{"workload": "workers"},
 	SecretsNamespace: "agent-secrets",
 	GitLabURL:        mustGitLabURL("https://GitLab.Example/"),
 }

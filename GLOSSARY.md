@@ -220,6 +220,10 @@ _Avoid_: API version, protocol version
 The isolated Substrate sandbox that hosts one agent and keeps its state between turns.
 _Avoid_: agent, container, pod
 
+**Actor template**:
+The fixed recipe an actor starts from: image, environment and size; the dispatcher makes one per issue.
+_Avoid_: template (alone), profile
+
 **Suspend**:
 Saving an actor to a snapshot and freeing its worker.
 _Avoid_: stop, pause
@@ -245,15 +249,23 @@ Restoring a suspended actor on a free worker.
 _Avoid_: start, wake
 
 **Worker**:
-A pre-started Substrate pod in the worker pool that can host a restored actor.
-_Avoid_: runner, slot
+A pre-started Agent Substrate pod that can host actors up to its capacity.
+_Avoid_: runner, slot, node
 
 **Worker pool**:
-The set of workers that actors run on.
+A set of workers of one size and sandbox class, kept at a desired number of replicas.
 _Avoid_: pool (alone), node pool
 
+**Worker labels**:
+The labels of a worker pool: the `metadata.labels` of its WorkerPool, which Agent Substrate copies to each of its workers.
+_Avoid_: pool labels, node labels, tags
+
+**Worker selector**:
+The labels of an actor template that a worker must have to host an actor of that template: every key must equal the worker label of that key. No worker selector: every worker matches. The dispatcher sets it from `WORKER_SELECTOR` on every actor template.
+_Avoid_: node selector, pool selector, affinity
+
 **No room**:
-The condition where no worker in the worker pool can host the actor, so an activation does not start.
+The condition where no worker that the worker selector matches can host the actor, so an activation does not start.
 _Avoid_: capacity error, busy pool
 
 ## Dispatcher

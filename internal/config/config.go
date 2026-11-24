@@ -26,7 +26,7 @@ type Config struct {
 	ATETokenFile     string
 	ATECAFile        string
 	Atespace         string
-	WorkerPool       string
+	WorkerSelector   models.WorkerSelector
 	SecretsNamespace string
 	ProfilesFile     string
 	HarnessImage     string
@@ -86,6 +86,15 @@ func Load() (*Config, error) {
 		return r
 	}
 
+	workerSelector := func(name, def string) models.WorkerSelector {
+		s, err := models.ParseWorkerSelector(orDefault(name, def))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s %w", name, err))
+		}
+
+		return s
+	}
+
 	gitLabURL := func(name string) models.GitLabURL {
 		v := required(name)
 		if v == "" {
@@ -113,7 +122,7 @@ func Load() (*Config, error) {
 		ATETokenFile:     orDefault("ATE_TOKEN_FILE", "/var/run/ate/token"),
 		ATECAFile:        orDefault("ATE_CA_FILE", "/var/run/ate/ca.crt"),
 		Atespace:         required("ATESPACE"),
-		WorkerPool:       orDefault("WORKER_POOL", "workers"),
+		WorkerSelector:   workerSelector("WORKER_SELECTOR", "workload=workers"),
 		SecretsNamespace: orDefault("SECRETS_NAMESPACE", "krci-agents"),
 		ProfilesFile:     orDefault("PROFILES_FILE", "/etc/krci-agent-dispatcher/profiles.yaml"),
 		HarnessImage:     required("HARNESS_IMAGE"),
