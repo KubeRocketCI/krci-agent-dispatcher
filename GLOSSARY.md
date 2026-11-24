@@ -53,7 +53,7 @@ The publish step that asks whether the issue branch has commits no remote branch
 _Avoid_: diff check, changes
 
 **Issue branch**:
-The branch the agent works on for one issue.
+The branch the agent works on for one issue; the source branch of its merge request.
 _Avoid_: agent branch, feature branch
 
 **Stop**:
@@ -187,8 +187,12 @@ What an agent image provides for the harness: `claude`, `git` and `sh` on `PATH`
 _Avoid_: image contract, harness contract
 
 **Agent profile**:
-The description of one kind of agent: image, egress and env in its profile entry; setup, verify and prompt in the profile file of the agent image.
-_Avoid_: flavour, template (for this)
+The description of one kind of agent: image, egress and env in its profile entry; setup, verify and prompt in the profile file of the agent image. The dispatcher copies the profile entry into the actor template and the egress policy at actor create; an actor keeps the profile it was created with.
+_Avoid_: actor profile, flavour, template (for this)
+
+**Agent model**:
+The Claude model an agent runs with: the dispatcher's `AGENT_MODEL`, copied into the actor template at actor create; an actor keeps the model it was created with.
+_Avoid_: profile model, LLM, model (alone)
 
 **Profiles file**:
 The dispatcher's `profiles.yaml`: profile entries, the project mapping and the default profile; read at each actor create.
@@ -223,6 +227,14 @@ _Avoid_: agent, container, pod
 **Actor template**:
 The fixed recipe an actor starts from: image, environment and size; the dispatcher makes one per issue.
 _Avoid_: template (alone), profile
+
+**Egress policy**:
+The rules of one actor for its outbound traffic: HTTPS rules, on which the egress gateway can add credentials, and TLS passthrough rules, which allow a host and port only. Every other host is denied. An actor has at most one.
+_Avoid_: allowlist, firewall, guardrails, network policy
+
+**Egress gateway**:
+The Agent Substrate component that all outbound traffic of an actor passes through; it applies the egress policy of the actor.
+_Avoid_: proxy, PEP, firewall
 
 **Suspend**:
 Saving an actor to a snapshot and freeing its worker.
