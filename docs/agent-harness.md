@@ -136,7 +136,7 @@ krci-portal reads actors from the Substrate API. It never calls the dispatcher.
 
 ### Fields the portal reads
 
-krci-portal reads the actor name, five env values, the worker selector and the limits of the actor template (krci-portal ADR 0001). It sends all of them to the browser:
+krci-portal reads the actor name, six env values, the image of the first container, the worker selector, the limits and the preferred snapshot fidelity of the actor template, and the rules of the egress policy named `default` (krci-portal ADR 0001). It sends all of them to the browser:
 
 | Field | Form |
 |---|---|
@@ -146,15 +146,24 @@ krci-portal reads the actor name, five env values, the worker selector and the l
 | `ISSUE_IID` | issue iid in the project, decimal |
 | `AGENT_PROFILE` | profile name |
 | `ANTHROPIC_MODEL` | model id, from `AGENT_MODEL` |
+| `TURN_LIMIT` | turn limit, decimal, from the dispatcher config `TURN_LIMIT` |
+| image | image of the first container, `claude`. The profile entry's `image`, `<repo>[:<tag>]@sha256:<digest>` |
 | worker selector | match labels: every pair of `WORKER_SELECTOR` |
 | limits | CPU and memory limits of the actor |
+| preferred snapshot fidelity | `snapshotConfig.preferredFidelity`, `SNAPSHOT_FIDELITY_MEMORY` |
+| egress policy `default` | one entry for each rule: rule kind (HTTPS or TLS passthrough), hosts, ports (TLS passthrough only, `443`), and the header name and prefix of each credential header (HTTPS only; prefix only on `Authorization`, `Basic `) |
 
 The portal matches the Codebase whose `spec.gitUrlPath` is `/` + `PROJECT_PATH`.
+
+The portal derives the issue branch as `agent/issue-<iid>`, where `<iid>` is `ISSUE_IID`. It reads the issue branch from no field.
+
+The portal sends no credential URI (`ate-secret://…`) of the egress policy to the browser. It sends no env value that is not in this list.
 
 Rules:
 
 - A rename, removal or change of form of any of them needs a change in krci-portal.
-- An actor without the five env values shows no issue in the portal.
+- A change of the issue branch name needs a change in krci-portal.
+- An actor without `PROJECT_PATH`, `PROJECT_ID` or `ISSUE_IID` is not an agent in the portal: it shows no issue and has no Agent detail.
 - A field the portal starts to read is added here and to krci-portal ADR 0001.
 
 ## Harness
