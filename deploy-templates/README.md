@@ -89,8 +89,9 @@ The Substrate install provides:
 | ingress.className | string | `"nginx"` | Ingress class. |
 | ingress.enabled | bool | `true` | Expose POST /hook through an Ingress with a cert-manager Certificate. |
 | ingress.host | string | `""` | Hook host name. Required when ingress.enabled. |
+| ingress.tls.enabled | bool | `true` | TLS on the Ingress: a cert-manager Certificate and the Ingress `tls` block. false: neither; TLS ends in front of the ingress controller, for example a load balancer. |
 | ingress.tls.issuerRef.kind | string | `"ClusterIssuer"` | cert-manager issuer kind (Issuer or ClusterIssuer). |
-| ingress.tls.issuerRef.name | string | `""` | cert-manager issuer name. Required when ingress.enabled. |
+| ingress.tls.issuerRef.name | string | `""` | cert-manager issuer name. Required when ingress.enabled and ingress.tls.enabled. |
 | ingress.tls.secretName | string | `"krci-agent-dispatcher-tls"` | Secret of the Ingress certificate. |
 | nameOverride | string | `""` | Overrides the chart name. |
 | nodeSelector | object | `{}` | Node selector. |
