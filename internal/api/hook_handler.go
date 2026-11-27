@@ -31,7 +31,7 @@ type RequestHandler interface {
 	Handle(r intake.Request)
 }
 
-// RouterConfig configures NewRouter. HookToken is required.
+// RouterConfig configures NewRouter. HookToken is required. Bot is the bot user, the user of the GitLab token.
 type RouterConfig struct {
 	HookToken string
 	Bot       string

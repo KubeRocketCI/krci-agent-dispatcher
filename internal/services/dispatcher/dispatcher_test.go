@@ -122,15 +122,25 @@ func newEnvOver(t *testing.T, mod func(*dispatcher.Config), gl func(*gitlabtest.
 	e.pr.Set(goProfiles)
 
 	cfg := dispatcher.Config{
-		Bot: bot, TurnLimit: 5,
+		TurnLimit:   5,
 		TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-1" },
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
 	}
 	mod(&cfg)
-	e.d = dispatcher.New(gl(e.gl), e.sb, e.pr, e.clk, cfg)
+	e.d = e.newDispatcher(gl(e.gl), cfg)
 
 	return e
+}
+
+// newDispatcher returns the dispatcher over gl and the fakes of e.
+func (e *env) newDispatcher(gl dispatcher.GitLab, cfg dispatcher.Config) *dispatcher.Dispatcher {
+	e.t.Helper()
+
+	d, err := dispatcher.New(e.t.Context(), gl, e.sb, e.pr, e.clk, cfg)
+	require.NoError(e.t, err)
+
+	return d
 }
 
 // run starts Run and stops it at the end of the test.
@@ -626,8 +636,8 @@ func TestRecoveryContinuesReEnableCutAfterResume(t *testing.T) {
 	require.Equal(t, session0, e.session(key), "the cut leaves the old session in the status note")
 	require.Equal(t, 1, e.sb.Count("resume", actor))
 
-	e.d = dispatcher.New(e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
-		Bot: bot, TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
+	e.d = e.newDispatcher(e.gl, dispatcher.Config{
+		TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-2" },
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
 	})
@@ -701,8 +711,8 @@ func TestRestartAfterReEnableStalledByWriteOutageResumesNoIdleActor(t *testing.T
 	resumes := e.sb.Count("resume", actor)
 
 	e.cancel()
-	e.d = dispatcher.New(e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
-		Bot: bot, TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
+	e.d = e.newDispatcher(e.gl, dispatcher.Config{
+		TurnLimit: 5, TurnTimeout: 15 * time.Minute, PollInterval: 10 * time.Second,
 		NewSessionID: func() string { return "session-2" },
 		Logger:       slog.New(slog.NewTextHandler(e.logs, nil)),
 	})

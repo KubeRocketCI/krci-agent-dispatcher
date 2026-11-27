@@ -202,7 +202,7 @@ func (d *Dispatcher) createActor(ctx context.Context, log *slog.Logger, c *curre
 
 	spec := models.ActorSpec{
 		ProjectID: c.key.ProjectID, ProjectPath: c.view.Issue.ProjectPath, IID: c.key.IID, SessionID: session,
-		BotUsername: d.cfg.Bot, Profile: profile,
+		BotUsername: d.bot, Profile: profile,
 	}
 
 	if err := d.retry(ctx, func() error { return d.sb.Create(ctx, name, spec) }); err != nil {

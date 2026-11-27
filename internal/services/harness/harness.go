@@ -12,8 +12,16 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/turn"
 )
 
-// postTimeout bounds one reply post.
+// postTimeout bounds one reply post and one read of the token user.
 const postTimeout = 30 * time.Second
+
+const (
+	// identityTimeout bounds the retries of the token user read at start.
+	identityTimeout = 5 * time.Minute
+	// identityFirstWait is the first pause between two reads of the token user; it doubles up to identityMaxWait.
+	identityFirstWait = 2 * time.Second
+	identityMaxWait   = 30 * time.Second
+)
 
 // Getenv reads one env item; an unset item is empty.
 type Getenv func(key string) string
@@ -41,6 +49,8 @@ type Harness struct {
 	saved     bool
 	// corrupt is set once a corrupt state is logged, until a load succeeds.
 	corrupt bool
+	// stopped is set when a reply was posted by another user than the bot user; no turn starts after it.
+	stopped error
 }
 
 // New returns the harness for the result of Handshake.
@@ -53,18 +63,68 @@ func New(cfg Config, p Ports) *Harness {
 	return &Harness{cfg: cfg, p: p, log: log}
 }
 
-// Run polls until ctx ends: a Poll, then a sleep of the poll interval. It returns the error of ctx.
+// Run runs CheckIdentity, then polls until ctx ends: a Poll, then a sleep of the poll interval. It returns the error
+// of ctx, the error of CheckIdentity, or a *HandshakeError when a posted reply has another author than the bot user.
 func (h *Harness) Run(ctx context.Context) error {
-	for {
+	err := h.CheckIdentity(ctx)
+
+	for err == nil {
 		h.Poll(ctx)
 
-		if err := h.p.Clock.Sleep(ctx, h.cfg.Poll); err != nil {
-			return err
+		if err = h.stopped; err == nil {
+			err = h.p.Clock.Sleep(ctx, h.cfg.Poll)
+		}
+	}
+
+	return err
+}
+
+// CheckIdentity reads the token user and compares it with the bot user, BOT_USERNAME. Each read is bounded by
+// postTimeout. A failed read is retried with backoff for identityTimeout; models.ErrNoIdentity, models.ErrUnauthorized,
+// models.ErrForbidden and models.ErrIdentityChanged are not retried. It returns a *HandshakeError when the token user
+// cannot be read or is another user, and the error of ctx when ctx ends first.
+func (h *Harness) CheckIdentity(ctx context.Context) error {
+	deadline := h.p.Clock.Now().Add(identityTimeout)
+
+	for wait := identityFirstWait; ; wait = min(2*wait, identityMaxWait) {
+		user, err := h.currentUser(ctx)
+
+		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case err == nil && user == h.cfg.Bot:
+			return nil
+		case err == nil:
+			return &HandshakeError{Item: botItem, Reason: "is not the user of the GitLab token"}
+		case permanentIdentityError(err) || h.p.Clock.Now().Add(wait).After(deadline):
+			return &HandshakeError{Item: botItem, Reason: "cannot be checked: the GitLab token user cannot be read",
+				Cause: err}
+		}
+
+		h.log.Warn("Cannot read the GitLab token user; retrying", "error", err, "in", wait.String())
+
+		if serr := h.p.Clock.Sleep(ctx, wait); serr != nil {
+			return serr
 		}
 	}
 }
 
-// Poll is one poll: it posts or drops a pending reply, else runs the next turn.
+// currentUser is one read of the token user, bounded by postTimeout.
+func (h *Harness) currentUser(ctx context.Context) (string, error) {
+	cctx, cancel := h.p.Clock.WithDeadline(ctx, h.p.Clock.Now().Add(postTimeout))
+	defer cancel()
+
+	return h.p.GitLab.CurrentUser(cctx)
+}
+
+// permanentIdentityError reports whether a token user read failed for a reason a retry does not change.
+func permanentIdentityError(err error) bool {
+	return errors.Is(err, models.ErrNoIdentity) || errors.Is(err, models.ErrUnauthorized) ||
+		errors.Is(err, models.ErrForbidden) || errors.Is(err, models.ErrIdentityChanged)
+}
+
+// Poll is one poll: it posts or drops a pending reply, else runs the next turn. After a reply of another author than
+// the bot user it runs no turn.
 func (h *Harness) Poll(ctx context.Context) {
 	start := h.p.Clock.Now()
 
@@ -111,11 +171,12 @@ func (h *Harness) Poll(ctx context.Context) {
 	h.deliver(ctx)
 }
 
-// startable returns the next turn when it can start: it has a comment to cover and is within the turn limit.
+// startable returns the next turn when it can start: it has a comment to cover, is within the turn limit and no
+// reply of another author than the bot user was posted.
 func (h *Harness) startable(hist turn.History) (turn.Turn, bool) {
 	next := hist.Next()
 
-	return next, next.Ready && !hist.AtLimit(h.cfg.TurnLimit)
+	return next, next.Ready && !hist.AtLimit(h.cfg.TurnLimit) && h.stopped == nil
 }
 
 // history reads the issue notes: in full on the first poll and while a reply is pending, else with Refresh. A
@@ -203,23 +264,29 @@ func (h *Harness) deliver(ctx context.Context) {
 		h.saved = true
 	}
 
-	if err := h.post(ctx, h.pending.Body); err != nil {
+	author, err := h.post(ctx, h.pending.Body)
+	if err != nil {
 		h.log.Warn("Cannot post the reply; retrying on the next poll", "turn", h.pending.Turn, "error", err)
 
 		return
 	}
 
 	h.clearPending()
+
+	if author != h.cfg.Bot {
+		h.stopped = &HandshakeError{Item: botItem, Reason: "is not the author of the posted reply"}
+		h.log.Error("Reply posted by another user than the bot user; no more turns", "author", author)
+	}
 }
 
-// post is bounded by postTimeout, independent of the watchdog context.
-func (h *Harness) post(ctx context.Context, body string) error {
+// post is bounded by postTimeout, independent of the watchdog context. It returns the author of the posted note.
+func (h *Harness) post(ctx context.Context, body string) (string, error) {
 	pctx, cancel := h.p.Clock.WithDeadline(ctx, h.p.Clock.Now().Add(postTimeout))
 	defer cancel()
 
-	_, err := h.p.GitLab.PostReply(pctx, h.cfg.Key, body)
+	n, err := h.p.GitLab.PostReply(pctx, h.cfg.Key, body)
 
-	return err
+	return n.Author, err
 }
 
 // clearPending forgets the pending reply in memory and in the store. A failed store write leaves the stored reply

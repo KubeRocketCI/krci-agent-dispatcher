@@ -42,6 +42,15 @@ eso.secretPath.actor        {"gitlab-token": "<token>", "anthropic-api-key": "<a
 
 ESO makes `basic` from `gitlab-token` of the actor scope and sets the label. Objects: one SecretStore (`<fullname>`), ExternalSecrets `<fullname>`, `gitlab`, `anthropic`, and for `aws` and `vault` the ServiceAccount `externalsecrets-<fullname>-<provider>`. AWS: the IAM role of `eso.aws.roleArn` trusts this ServiceAccount (IRSA) and allows `ssm:GetParameter` on the two parameters (`kms:Decrypt` of their key for a SecureString).
 
+## Bot user
+
+The bot user is the user of the dispatcher's GitLab token. No value sets it.
+
+- The dispatcher reads it with `GET /api/v4/user` at start, before it serves hooks. A failed read is retried with backoff; the startup probe allows 5 min. A rejected token (401, 403) or an empty username stops the dispatcher at once, exit 1.
+- The actor's GitLab token belongs to the same user. The harness checks this at start and after each reply; a mismatch ends the harness, exit 78, and the dispatcher records `actor crashed`.
+- The dispatcher's token changed to another user's: the dispatcher exits 1 at its next GitLab call and starts again as the new user. Change both tokens together.
+- A project access token serves one project, a group access token the projects of one group. Its username is generated, `project_<id>_bot_<hash>` or `group_<id>_bot_<hash>`, and differs from its display name.
+
 ## Substrate requirements
 
 The Substrate install provides:
@@ -58,7 +67,6 @@ The Substrate install provides:
 | affinity | object | `{}` | Affinity. |
 | config.agentModel | string | `"claude-haiku-5-5"` | Claude model of the agent runs. |
 | config.agentSteps | int | `40` | Agent steps per turn: the Claude Code `--max-turns` of one agent run. |
-| config.botUsername | string | `"krci-agent"` | Bot user: ignored note author, marker author. |
 | config.harnessPollInterval | string | `"15s"` | Note poll interval of the harness in each actor, whole seconds. turnTimeout must be at least this plus 2m. |
 | config.pollInterval | string | `"10s"` | Marker poll interval. |
 | config.sweepInterval | string | `"5m"` | Time between sweeps over actors without an issue lane. 0 turns the sweep off. |

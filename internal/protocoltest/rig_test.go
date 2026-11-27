@@ -66,9 +66,16 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 
+	return newEnvFor(t, bot)
+}
+
+// newEnvFor is newEnv over a GitLab whose token user is user.
+func newEnvFor(t *testing.T, user string) *env {
+	t.Helper()
+
 	e := &env{
 		t:     t,
-		gl:    gitlabtest.NewFake(bot),
+		gl:    gitlabtest.NewFake(user),
 		sb:    substratetest.NewFake("krci-agents"),
 		pr:    profilestest.NewFake(templates.Deployment{}),
 		clk:   systemtest.NewClock(time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)),
@@ -85,17 +92,17 @@ func newEnv(t *testing.T) *env {
 
 	var err error
 
-	e.rest, err = gitlab.NewREST(srv.URL, token, "", bot, models.Developer,
-		gitlab.WithLogger(slog.New(slog.DiscardHandler)))
+	e.rest, err = gitlab.NewREST(srv.URL, token, "", models.Developer, gitlab.WithLogger(slog.New(slog.DiscardHandler)))
 	require.NoError(t, err)
 
 	var sessions int
 
-	e.d = dispatcher.New(e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
-		Bot: bot, TurnLimit: 5, TurnTimeout: turnTimeout, PollInterval: poll,
+	e.d, err = dispatcher.New(t.Context(), e.gl, e.sb, e.pr, e.clk, dispatcher.Config{
+		TurnLimit: 5, TurnTimeout: turnTimeout, PollInterval: poll,
 		NewSessionID: func() string { sessions++; return fmt.Sprintf("session-%d", sessions) },
 		Logger:       slog.New(slog.DiscardHandler),
 	})
+	require.NoError(t, err)
 
 	e.sb.OnResume(func(name string) { e.boot(name) })
 	e.clk.SetOnSleep(e.onSleep)
@@ -138,6 +145,7 @@ func (e *env) boot(name string) {
 		GitLab: e.rest, Agent: e.agent, Workspace: e.ws, Clock: e.clk, State: e.store,
 		Log: slog.New(slog.DiscardHandler),
 	})
+	require.NoError(e.t, e.h.CheckIdentity(context.Background()))
 }
 
 // onSleep gives the harness one poll after each dispatcher poll while the actor runs.

@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -75,6 +76,9 @@ func run(args []string, sys selftest.System, stdout, stderr io.Writer) int {
 // placeholderToken is sent as PRIVATE-TOKEN; the egress gateway replaces it with the bot user's token.
 const placeholderToken = "placeholder"
 
+// gitlabCAFile is a PEM CA bundle the GitLab client adds to the system roots; empty in the released binary.
+var gitlabCAFile string
+
 // stateDirName is the harness state directory under $HOME.
 const stateDirName = ".krci-agent"
 
@@ -91,7 +95,7 @@ func runTurnLoop(sys selftest.System, stderr io.Writer) int {
 		return exitConfig
 	}
 
-	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), placeholderToken, "", cfg.Bot, models.Developer,
+	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), placeholderToken, gitlabCAFile, models.Developer,
 		gitlab.WithLogger(log))
 	if err != nil {
 		log.Error("cannot build the GitLab client", "error", err)
@@ -140,7 +144,16 @@ func runTurnLoop(sys selftest.System, stderr io.Writer) int {
 
 	log.Info("Harness started", "issue", cfg.Key.IID, "project", cfg.Key.ProjectID, "session", cfg.Session)
 
-	_ = h.Run(ctx)
+	var he *harness.HandshakeError
+	if err := h.Run(ctx); errors.As(err, &he) {
+		if he.Cause != nil {
+			log.Error("handshake failed", "error", err, "cause", he.Cause)
+		} else {
+			log.Error("handshake failed", "error", err)
+		}
+
+		return exitConfig
+	}
 
 	log.Info("Harness stopped")
 

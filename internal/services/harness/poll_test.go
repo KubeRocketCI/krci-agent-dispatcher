@@ -107,9 +107,16 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 
+	return newRigFor(t, bot)
+}
+
+// newRigFor is newRig over a GitLab whose token user is user; BOT_USERNAME stays bot.
+func newRigFor(t *testing.T, user string) *rig {
+	t.Helper()
+
 	r := &rig{
 		t:     t,
-		gl:    gitlabtest.NewFake(bot),
+		gl:    gitlabtest.NewFake(user),
 		clk:   systemtest.NewClock(time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)),
 		store: statetest.NewFake(),
 		agent: &harnesstest.Agent{},

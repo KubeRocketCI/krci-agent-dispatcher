@@ -43,8 +43,26 @@ type replyPort interface {
 
 var stopped = models.NewNote{Body: models.StoppedMRText + "\n" + models.StoppedMRMarker, Marker: models.StoppedMRMarker}
 
-// subjects returns each adapter under test with trigger role trigger, built over the fake's state.
+// subjects returns each adapter under test with trigger role trigger, built over the fake's state, after its first
+// CurrentUser.
 func subjects(trigger models.Role) map[string]func(t *testing.T, f *gitlabtest.Fake) replyPort {
+	out := map[string]func(t *testing.T, f *gitlabtest.Fake) replyPort{}
+
+	for name, build := range newSubjects(trigger) {
+		out[name] = func(t *testing.T, f *gitlabtest.Fake) replyPort {
+			p := build(t, f)
+			_, err := p.CurrentUser(context.Background())
+			require.NoError(t, err)
+
+			return p
+		}
+	}
+
+	return out
+}
+
+// newSubjects returns each adapter under test with trigger role trigger, built over the fake's state.
+func newSubjects(trigger models.Role) map[string]func(t *testing.T, f *gitlabtest.Fake) replyPort {
 	return map[string]func(t *testing.T, f *gitlabtest.Fake) replyPort{
 		"fake": func(_ *testing.T, f *gitlabtest.Fake) replyPort {
 			f.SetTriggerRole(trigger)
@@ -55,7 +73,7 @@ func subjects(trigger models.Role) map[string]func(t *testing.T, f *gitlabtest.F
 			srv := httptest.NewServer(f.Handler(token))
 			t.Cleanup(srv.Close)
 
-			c, err := gitlab.NewREST(srv.URL, token, "", bot, trigger, gitlab.WithLogger(slog.New(slog.DiscardHandler)))
+			c, err := gitlab.NewREST(srv.URL, token, "", trigger, gitlab.WithLogger(slog.New(slog.DiscardHandler)))
 			require.NoError(t, err)
 
 			return c
@@ -438,7 +456,7 @@ func TestContractTriggerRole(t *testing.T) {
 
 func TestNewRESTRejectsNonTriggerRole(t *testing.T) {
 	for _, r := range []models.Role{0, models.Guest, models.Reporter, 25, 60} {
-		_, err := gitlab.NewREST("https://gitlab.example", token, "", bot, r)
+		_, err := gitlab.NewREST("https://gitlab.example", token, "", r)
 		require.Error(t, err)
 	}
 }
@@ -894,4 +912,103 @@ func EnsureMergeRequestForbidden(t *testing.T, f *gitlabtest.Fake, p replyPort) 
 	require.ErrorIs(t, err, models.ErrForbidden)
 	assert.NotContains(t, err.Error(), token)
 	assert.Empty(t, f.MergeRequests(key.ProjectID))
+}
+
+// tokenUser is the user of a GitLab project access token: a generated username, not its display name.
+const tokenUser = "project_1_bot_x"
+
+func TestContractIdentity(t *testing.T) {
+	cases := map[string]func(t *testing.T, f *gitlabtest.Fake, p replyPort){
+		"CurrentUserIsTheTokenUser":       CurrentUserIsTheTokenUser,
+		"CurrentUserFails":                CurrentUserFails,
+		"CurrentUserOfAnotherUserChanged": CurrentUserOfAnotherUserIsIdentityChanged,
+		"TokenUserNotesAreBotNotes":       TokenUserNotesAreBotNotes,
+		"PostReplyAuthorIsTheTokenUser":   PostReplyAuthorIsTheTokenUser,
+	}
+
+	for subject, build := range newSubjects(models.Developer) {
+		for name, run := range cases {
+			t.Run(subject+"/"+name, func(t *testing.T) {
+				f := gitlabtest.NewFake(tokenUser)
+				f.AddIssue(key, "krci/test-go-app", models.IssueOpened, agentLabels.Trigger())
+				run(t, f, build(t, f))
+			})
+		}
+	}
+}
+
+func CurrentUserIsTheTokenUser(t *testing.T, _ *gitlabtest.Fake, p replyPort) {
+	user, err := p.CurrentUser(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, tokenUser, user)
+}
+
+func CurrentUserFails(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	f.FailCurrentUser(errors.New("gitlab unavailable"))
+
+	_, err := p.CurrentUser(context.Background())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, models.ErrIdentityChanged)
+	assert.NotContains(t, err.Error(), token)
+
+	user, err := p.CurrentUser(context.Background())
+	require.NoError(t, err, "a failed read is retried")
+	assert.Equal(t, tokenUser, user)
+}
+
+func CurrentUserOfAnotherUserIsIdentityChanged(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	_, err := p.CurrentUser(context.Background())
+	require.NoError(t, err)
+
+	f.SetTokenUser("project_2_bot_y")
+
+	_, err = p.CurrentUser(context.Background())
+	require.ErrorIs(t, err, models.ErrIdentityChanged)
+	assert.Contains(t, err.Error(), tokenUser)
+	assert.Contains(t, err.Error(), "project_2_bot_y")
+	assert.NotContains(t, err.Error(), token)
+}
+
+// The notes of the token user are the bot user's: the status note, the markers; another user's are comments.
+func TokenUserNotesAreBotNotes(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	ctx := context.Background()
+
+	_, err := p.CurrentUser(ctx)
+	require.NoError(t, err)
+
+	f.AddNote(key, models.Note{Author: "krci-agent", Body: models.StatusBody(models.Record{State: models.Error},
+		models.StatusView{Session: "s1"})})
+	f.AddNote(key, models.Note{Author: tokenUser, Body: models.StatusBody(models.Record{State: models.Waiting},
+		models.StatusView{Session: "s1"})})
+
+	v, err := p.Load(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, models.Record{State: models.Waiting}, v.Record)
+
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Working}}))
+	assert.Equal(t, []string{"edit-status"}, f.Ops(), "the status note of the token user is edited")
+
+	marker := "<!-- krci-agent-test -->"
+	f.AddNote(key, models.Note{Author: tokenUser, Body: "x\n" + marker})
+	require.NoError(t, p.Write(ctx, key, nil, models.Writes{Notes: []models.NewNote{{Body: "y\n" + marker,
+		Marker: marker}}}))
+	assert.Equal(t, []string{"edit-status"}, f.Ops(), "a marker of the token user is on the issue")
+}
+
+// PostReply returns the author GitLab names, also after the token user changed under the adapter.
+func PostReplyAuthorIsTheTokenUser(t *testing.T, f *gitlabtest.Fake, p replyPort) {
+	ctx := context.Background()
+
+	_, err := p.CurrentUser(ctx)
+	require.NoError(t, err)
+
+	n, err := p.PostReply(ctx, key, "one")
+	require.NoError(t, err)
+	assert.Equal(t, tokenUser, n.Author)
+
+	f.SetTokenUser("project_2_bot_y")
+
+	n, err = p.PostReply(ctx, key, "two")
+	require.NoError(t, err)
+	assert.Equal(t, "project_2_bot_y", n.Author)
 }

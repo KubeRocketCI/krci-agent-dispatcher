@@ -59,9 +59,13 @@ type MergeRequest struct {
 // Fake is an in-memory GitLab: projects, issues, notes, merge requests, project members. A project exists once
 // an issue of it was added; deleting the issue keeps the project. Each added or edited issue note gets a later
 // UpdatedAt than the one before. The trigger role is models.Developer unless set. Safe for concurrent use.
+//
+// The bot user is the token user NewFake gets; SetTokenUser changes the token user, not the bot user.
 type Fake struct {
 	mu            sync.Mutex
 	bot           string
+	author        string
+	userErr       []error
 	labels        models.AgentLabels
 	projects      map[int64]bool
 	defBranch     map[int64]string
@@ -91,10 +95,12 @@ type Fake struct {
 	onLoad        func(key models.IssueKey)
 }
 
-// NewFake returns an empty fake; notes written through the port are authored by bot.
-func NewFake(bot string) *Fake {
+// NewFake returns an empty fake whose token user and bot user is user; notes written through the port or the
+// Handler are authored by the token user.
+func NewFake(user string) *Fake {
 	return &Fake{
-		bot:       bot,
+		bot:       user,
+		author:    user,
 		projects:  map[int64]bool{},
 		defBranch: map[int64]string{},
 		forbidden: map[int64]bool{},
@@ -106,6 +112,40 @@ func NewFake(bot string) *Fake {
 		nextID:    100,
 		clock:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
+}
+
+// SetTokenUser makes user the token user: CurrentUser and GET /user name it, and it authors the notes written
+// after the call.
+func (f *Fake) SetTokenUser(user string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.author = user
+}
+
+// FailCurrentUser makes the next CurrentUser calls and GET /user requests return errs, one per call.
+func (f *Fake) FailCurrentUser(errs ...error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.userErr = append(f.userErr, errs...)
+}
+
+// CurrentUser implements the GitLab port: the token user. A token user other than the bot user is
+// models.ErrIdentityChanged.
+func (f *Fake) CurrentUser(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := popErr(&f.userErr); err != nil {
+		return "", err
+	}
+
+	if f.author != f.bot {
+		return "", fmt.Errorf("token user %s, bot user %s: %w", f.author, f.bot, models.ErrIdentityChanged)
+	}
+
+	return f.author, nil
 }
 
 // AddIssue adds an issue.
@@ -623,7 +663,7 @@ func (f *Fake) Write(_ context.Context, key models.IssueKey, known *models.Issue
 	return nil
 }
 
-// PostReply posts body as a note of the bot user and returns it.
+// PostReply posts body as a note of the token user and returns it.
 func (f *Fake) PostReply(_ context.Context, key models.IssueKey, body string) (models.Note, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -714,7 +754,7 @@ func (f *Fake) NoteMergeRequest(_ context.Context, projectID int64, sourceBranch
 			continue
 		}
 
-		f.addMRNoteLocked(k, models.Note{Body: n.Body, Author: f.bot})
+		f.addMRNoteLocked(k, models.Note{Body: n.Body, Author: f.author})
 	}
 
 	return nil
@@ -846,7 +886,7 @@ func (f *Fake) createNoteLocked(key models.IssueKey, body string) models.Note {
 	}
 
 	f.ops = append(f.ops, op)
-	n := models.Note{Body: body, Author: f.bot}
+	n := models.Note{Body: body, Author: f.author}
 	n.ID = f.addNoteLocked(key, n)
 
 	return n
@@ -894,6 +934,7 @@ func (f *Fake) Handler(token string) http.Handler {
 	handle("POST /api/v4/projects/{pid}/merge_requests", f.postMR)
 	handle("GET /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.listMRNotes))
 	handle("POST /api/v4/projects/{pid}/merge_requests/{mrid}/notes", f.withMR(f.postMRNote))
+	mux.HandleFunc("GET /api/v4/user", f.getUser)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("PRIVATE-TOKEN") != token {
@@ -903,6 +944,20 @@ func (f *Fake) Handler(token string) http.Handler {
 
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// getUser answers the token user; its display name is not its username.
+func (f *Fake) getUser(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	user, err := f.author, popErr(&f.userErr)
+	f.mu.Unlock()
+
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"id": 1, "username": user, "name": "krci-agent", "bot": true})
 }
 
 // withProject answers 403 for a project set with SetForbidden.
@@ -1220,7 +1275,7 @@ func (f *Fake) postMRNote(w http.ResponseWriter, r *http.Request, k mrKey) {
 	}
 
 	f.mu.Lock()
-	n := models.Note{Body: req.Body, Author: f.bot}
+	n := models.Note{Body: req.Body, Author: f.author}
 	n.ID = f.addMRNoteLocked(k, n)
 	f.mu.Unlock()
 

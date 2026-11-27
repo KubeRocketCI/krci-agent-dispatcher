@@ -3,6 +3,7 @@ package gitlab_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,35 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
+
+const userPath = "/api/v4/user"
+
+// identified returns a REST adapter with trigger role developer after its first CurrentUser.
+func identified(t *testing.T, baseURL, tok, caFile string, opts ...gitlab.Option) *gitlab.REST {
+	t.Helper()
+
+	c, err := gitlab.NewREST(baseURL, tok, caFile, models.Developer, opts...)
+	require.NoError(t, err)
+
+	_, err = c.CurrentUser(context.Background())
+	require.NoError(t, err)
+
+	return c
+}
+
+// withUser answers GET /api/v4/user with user and passes every other request to h.
+func withUser(user string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == userPath {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"username": user})
+
+			return
+		}
+
+		h(w, r)
+	}
+}
 
 func TestTokenHeaderNotInURL(t *testing.T) {
 	f := gitlabtest.NewFake(bot)
@@ -41,11 +71,10 @@ func TestTokenHeaderNotInURL(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
-	require.NoError(t, err)
+	c := identified(t, srv.URL, token, "")
 
 	ctx := context.Background()
-	_, err = c.Load(ctx, key)
+	_, err := c.Load(ctx, key)
 	require.NoError(t, err)
 	require.NoError(t, c.Write(ctx, key, nil, models.Writes{Record: &models.Record{State: models.Waiting},
 		Label: models.Waiting, Notes: []models.NewNote{{Body: "hi"}}}))
@@ -62,15 +91,14 @@ func TestTokenHeaderNotInURL(t *testing.T) {
 }
 
 func TestRESTErrorHasNoToken(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(withUser(bot, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
-	require.NoError(t, err)
+	c := identified(t, srv.URL, token, "")
 
-	_, err = c.Load(context.Background(), key)
+	_, err := c.Load(context.Background(), key)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, models.ErrNotFound)
 	assert.NotContains(t, err.Error(), token)
@@ -80,6 +108,82 @@ func TestRESTErrorHasNoToken(t *testing.T) {
 	assert.NotContains(t, err.Error(), token)
 }
 
+func TestCurrentUserErrorHasNoToken(t *testing.T) {
+	for name, h := range map[string]http.HandlerFunc{
+		"unauthorized": func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, `{"message":"401 Unauthorized"}`, http.StatusUnauthorized)
+		},
+		"no username": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id": 1}`))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(h)
+			t.Cleanup(srv.Close)
+
+			c, err := gitlab.NewREST(srv.URL, token, "", models.Developer)
+			require.NoError(t, err)
+
+			_, err = c.CurrentUser(context.Background())
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), token)
+		})
+	}
+}
+
+func TestCurrentUserRejectedToken(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		want   error
+	}{
+		"401": {http.StatusUnauthorized, models.ErrUnauthorized},
+		"403": {http.StatusForbidden, models.ErrForbidden},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+			}))
+			t.Cleanup(srv.Close)
+
+			c, err := gitlab.NewREST(srv.URL, token, "", models.Developer)
+			require.NoError(t, err)
+
+			_, err = c.CurrentUser(context.Background())
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+// Every call before the first CurrentUser fails and sends nothing.
+func TestRESTCallsBeforeCurrentUserFail(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		reqs int
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		reqs++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := gitlab.NewREST(srv.URL, token, "", models.Developer)
+	require.NoError(t, err)
+
+	_, err = c.Load(context.Background(), key)
+	require.ErrorIs(t, err, models.ErrNoIdentity)
+
+	_, err = c.PostReply(context.Background(), key, "hi")
+	require.ErrorIs(t, err, models.ErrNoIdentity)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Zero(t, reqs)
+}
+
 func TestRESTTrustsCAFile(t *testing.T) {
 	f := gitlabtest.NewFake(bot)
 	f.AddIssue(key, "krci/test-go-app", models.IssueOpened)
@@ -87,17 +191,16 @@ func TestRESTTrustsCAFile(t *testing.T) {
 	srv := httptest.NewTLSServer(f.Handler(token))
 	t.Cleanup(srv.Close)
 
-	untrusted, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
+	untrusted, err := gitlab.NewREST(srv.URL, token, "", models.Developer)
 	require.NoError(t, err)
-	_, err = untrusted.Load(context.Background(), key)
+	_, err = untrusted.CurrentUser(context.Background())
 	require.Error(t, err)
 
 	caFile := filepath.Join(t.TempDir(), "ca.crt")
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
 	require.NoError(t, os.WriteFile(caFile, pemBytes, 0o600))
 
-	trusted, err := gitlab.NewREST(srv.URL, token, caFile, bot, models.Developer)
-	require.NoError(t, err)
+	trusted := identified(t, srv.URL, token, caFile)
 	_, err = trusted.Load(context.Background(), key)
 	require.NoError(t, err)
 }
@@ -105,53 +208,173 @@ func TestRESTTrustsCAFile(t *testing.T) {
 func TestRESTBadCAFile(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := gitlab.NewREST("https://gitlab.example", token, filepath.Join(dir, "missing.crt"), bot, models.Developer)
+	_, err := gitlab.NewREST("https://gitlab.example", token, filepath.Join(dir, "missing.crt"), models.Developer)
 	require.Error(t, err)
 
 	bad := filepath.Join(dir, "bad.crt")
 	require.NoError(t, os.WriteFile(bad, []byte("not a pem"), 0o600))
-	_, err = gitlab.NewREST("https://gitlab.example", token, bad, bot, models.Developer)
+	_, err = gitlab.NewREST("https://gitlab.example", token, bad, models.Developer)
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), token))
 }
 
-func TestTokenFileReadPerRequest(t *testing.T) {
-	var (
-		mu   sync.Mutex
-		seen []string
-	)
+// tokenServer maps each token to its user on GET /user and answers [] to every other request. It records
+// "<path> <token>" of every request.
+type tokenServer struct {
+	users map[string]string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		seen = append(seen, r.Header.Get("PRIVATE-TOKEN"))
-		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
+	mu   sync.Mutex
+	seen []string
+}
+
+func (s *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tok := r.Header.Get("PRIVATE-TOKEN")
+
+	s.mu.Lock()
+	s.seen = append(s.seen, strings.TrimPrefix(r.URL.Path, "/api/v4")+" "+tok)
+	s.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.URL.Path != userPath {
 		_, _ = w.Write([]byte(`[]`))
-	}))
+
+		return
+	}
+
+	user, ok := s.users[tok]
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"401 Unauthorized"}`))
+
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]string{"username": user})
+}
+
+// requests returns the recorded requests and forgets them.
+func (s *tokenServer) requests() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := s.seen
+	s.seen = nil
+
+	return out
+}
+
+// tokenFileREST returns a REST adapter that reads its token from a file holding first, after its first CurrentUser,
+// and the function that writes the file.
+func tokenFileREST(t *testing.T, s *tokenServer, first string, opts ...gitlab.Option) (*gitlab.REST, func(string)) {
+	t.Helper()
+
+	srv := httptest.NewServer(s)
 	t.Cleanup(srv.Close)
 
 	file := filepath.Join(t.TempDir(), "token")
-	require.NoError(t, os.WriteFile(file, []byte("glpat-one\n"), 0o600))
+	write := func(tok string) { require.NoError(t, os.WriteFile(file, []byte(tok+"\n"), 0o600)) }
+	write(first)
 
-	c, err := gitlab.NewREST(srv.URL, "", "", bot, models.Developer, gitlab.WithTokenFile(file))
+	c := identified(t, srv.URL, "", "", append([]gitlab.Option{gitlab.WithTokenFile(file)}, opts...)...)
+
+	return c, write
+}
+
+func TestTokenFileReadPerRequest(t *testing.T) {
+	s := &tokenServer{users: map[string]string{"glpat-one": bot, "glpat-two": bot}}
+	c, write := tokenFileREST(t, s, "glpat-one")
+	ctx := context.Background()
+
+	_, err := c.CanTrigger(ctx, 12, "dev")
+	require.NoError(t, err)
+	write("glpat-two")
+
+	_, err = c.CanTrigger(ctx, 12, "dev")
 	require.NoError(t, err)
 
-	_, err = c.CanTrigger(context.Background(), 12, "dev")
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(file, []byte("glpat-two"), 0o600))
-
-	_, err = c.CanTrigger(context.Background(), 12, "dev")
+	_, err = c.CanTrigger(ctx, 12, "dev")
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"glpat-one", "glpat-two"}, seen)
+	assert.Equal(t, []string{
+		"/user glpat-one", "/projects/12/members/all glpat-one",
+		"/user glpat-two", "/projects/12/members/all glpat-two",
+		"/projects/12/members/all glpat-two",
+	}, s.requests(), "a new token of the same user is read once with GET /user")
 
-	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	write("")
 
-	_, err = c.CanTrigger(context.Background(), 12, "dev")
+	_, err = c.CanTrigger(ctx, 12, "dev")
 	require.Error(t, err, "an empty token file is an error")
 }
 
-// countingREST returns a REST adapter over f and the log of the requests it sent, as "<method> <path>".
+// A token file that names another user fails the request before it is sent, and every later call; the identity
+// change is reported once.
+func TestTokenFileOfAnotherUserFailsClosed(t *testing.T) {
+	s := &tokenServer{users: map[string]string{"glpat-one": "project_1_bot_x", "glpat-two": "project_2_bot_y"}}
+
+	var changes []error
+
+	c, write := tokenFileREST(t, s, "glpat-one", gitlab.WithIdentityChange(func(err error) {
+		changes = append(changes, err)
+	}))
+	ctx := context.Background()
+
+	s.requests()
+
+	write("glpat-two")
+
+	_, err := c.Load(ctx, key)
+	require.ErrorIs(t, err, models.ErrIdentityChanged)
+	assert.Contains(t, err.Error(), "project_1_bot_x")
+	assert.Contains(t, err.Error(), "project_2_bot_y")
+	assert.NotContains(t, err.Error(), "glpat-")
+	assert.Equal(t, []string{"/user glpat-two"}, s.requests(), "no request of the other user but GET /user")
+
+	write("glpat-one")
+
+	_, err = c.Load(ctx, key)
+	require.ErrorIs(t, err, models.ErrIdentityChanged, "the change stays")
+
+	_, err = c.PostReply(ctx, key, "hi")
+	require.ErrorIs(t, err, models.ErrIdentityChanged)
+
+	_, err = c.CurrentUser(ctx)
+	require.ErrorIs(t, err, models.ErrIdentityChanged)
+	assert.Empty(t, s.requests())
+
+	require.Len(t, changes, 1)
+	require.ErrorIs(t, changes[0], models.ErrIdentityChanged)
+}
+
+// A new token whose user cannot be read fails the request; the next request reads it again.
+func TestTokenFileWithUnreadableUserFailsTheRequest(t *testing.T) {
+	s := &tokenServer{users: map[string]string{"glpat-one": bot}}
+	c, write := tokenFileREST(t, s, "glpat-one")
+	ctx := context.Background()
+
+	s.requests()
+
+	write("glpat-revoked")
+
+	_, err := c.CanTrigger(ctx, 12, "dev")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, models.ErrIdentityChanged)
+	assert.NotContains(t, err.Error(), "glpat-")
+
+	_, err = c.CanTrigger(ctx, 12, "dev")
+	require.Error(t, err)
+	assert.Equal(t, []string{"/user glpat-revoked", "/user glpat-revoked"}, s.requests())
+
+	write("glpat-one")
+
+	_, err = c.CanTrigger(ctx, 12, "dev")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/projects/12/members/all glpat-one"}, s.requests(), "a verified token is not read again")
+}
+
+// countingREST returns a REST adapter over f and the log of the requests it sent after its first CurrentUser, as
+// "<method> <path>".
 func countingREST(t *testing.T, f *gitlabtest.Fake) (*gitlab.REST, func() []string) {
 	t.Helper()
 
@@ -169,10 +392,9 @@ func countingREST(t *testing.T, f *gitlabtest.Fake) (*gitlab.REST, func() []stri
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
-	require.NoError(t, err)
+	c := identified(t, srv.URL, token, "")
 
-	return c, func() []string {
+	requests := func() []string {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -181,6 +403,9 @@ func countingREST(t *testing.T, f *gitlabtest.Fake) (*gitlab.REST, func() []stri
 
 		return out
 	}
+	requests()
+
+	return c, requests
 }
 
 func longIssue(t *testing.T) *gitlabtest.Fake {
@@ -241,18 +466,16 @@ func TestWriteWithKnownViewReadsNoNotes(t *testing.T) {
 }
 
 func TestRESTForbidden(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(withUser(bot, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"message":"403 Forbidden"}`, http.StatusForbidden)
 	}))
 	t.Cleanup(srv.Close)
 
 	var logs bytes.Buffer
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer,
-		gitlab.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
-	require.NoError(t, err)
+	c := identified(t, srv.URL, token, "", gitlab.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 
-	err = c.CheckProject(context.Background(), 12)
+	err := c.CheckProject(context.Background(), 12)
 	require.ErrorIs(t, err, models.ErrForbidden)
 	assert.NotContains(t, err.Error(), token)
 
@@ -280,8 +503,7 @@ func TestEnsureMergeRequestOpenedMeanwhile(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := gitlab.NewREST(srv.URL, token, "", bot, models.Developer)
-	require.NoError(t, err)
+	c := identified(t, srv.URL, token, "")
 
 	require.NoError(t, c.EnsureMergeRequest(context.Background(), key.ProjectID, models.NewMergeRequest{
 		Source: "agent/issue-7", Target: "main", Title: "t",

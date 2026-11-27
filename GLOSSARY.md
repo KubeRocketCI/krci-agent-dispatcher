@@ -103,7 +103,7 @@ Whether the GitLab issue is open or closed.
 _Avoid_: state (alone)
 
 **Bot user**:
-The GitLab user that the dispatcher and the agent act as.
+The GitLab user that the dispatcher and the agent act as: the user of the dispatcher's GitLab token, read from GitLab at start. A project or group access token has a generated username that differs from its display name.
 _Avoid_: agent (for the user), service account
 
 **Comment**:
@@ -163,7 +163,7 @@ The rules the dispatcher and the harness share: turn marker, comment, turn histo
 _Avoid_: agent contract, protocol (alone)
 
 **Handshake**:
-The harness's check at start of its env, the contract version, the watchdog limit, then the profile file; a failed handshake ends the harness before any turn.
+The harness's check at start of its env, the contract version, the watchdog limit, the profile file, then the bot user; a failed handshake ends the harness before any turn.
 _Avoid_: preflight, init
 
 **Turn loop**:

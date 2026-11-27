@@ -4,6 +4,8 @@ package dispatcher
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -34,7 +36,6 @@ const (
 
 // Config holds the dispatcher settings.
 type Config struct {
-	Bot           string
 	Labels        models.AgentLabels
 	TriggerRole   models.Role
 	TurnLimit     int
@@ -52,6 +53,7 @@ type Dispatcher struct {
 	pr     Profiles
 	clk    Clock
 	cfg    Config
+	bot    string
 	limits decide.Limits
 	log    *slog.Logger
 
@@ -66,25 +68,23 @@ type Dispatcher struct {
 	wg       sync.WaitGroup
 }
 
-// New returns a dispatcher. Requests wait until Run starts.
-func New(gl GitLab, sb Substrate, pr Profiles, clk Clock, cfg Config) *Dispatcher {
-	if cfg.NewSessionID == nil {
-		cfg.NewSessionID = uuid.NewString
-	}
+// New reads the bot user with gl.CurrentUser and returns a dispatcher that acts as it. A failed read is retried with
+// backoff until ctx ends; an empty username, models.ErrNoIdentity, models.ErrUnauthorized, models.ErrForbidden and
+// models.ErrIdentityChanged are an error at once. When ctx ends first, the error wraps the error of ctx. Requests
+// wait until Run starts.
+func New(ctx context.Context, gl GitLab, sb Substrate, pr Profiles, clk Clock, cfg Config) (*Dispatcher, error) {
+	cfg = cfg.withDefaults()
 
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
-	}
-
-	if cfg.TriggerRole == 0 {
-		cfg.TriggerRole = models.Developer
+	bot, err := botUser(ctx, gl, clk, cfg.Logger)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Dispatcher{
-		gl: gl, sb: sb, pr: pr, clk: clk, cfg: cfg, log: cfg.Logger,
+		gl: gl, sb: sb, pr: pr, clk: clk, cfg: cfg, bot: bot, log: cfg.Logger,
 		limits: decide.Limits{
 			TurnLimit:   cfg.TurnLimit,
-			Bot:         cfg.Bot,
+			Bot:         bot,
 			Labels:      cfg.Labels,
 			TriggerRole: cfg.TriggerRole,
 			TurnTimeout: cfg.TurnTimeout,
@@ -92,8 +92,60 @@ func New(gl GitLab, sb Substrate, pr Profiles, clk Clock, cfg Config) *Dispatche
 		lanes:      map[models.IssueKey]*lane{},
 		settling:   map[models.IssueKey]bool{},
 		recovering: make(chan struct{}, RecoveryConcurrency),
+	}, nil
+}
+
+// botUser reads the bot user with the retries of New; an empty username is models.ErrNoIdentity.
+func botUser(ctx context.Context, gl GitLab, clk Clock, log *slog.Logger) (string, error) {
+	for wait := retryFirstWait; ; wait = min(2*wait, backoffMax) {
+		bot, err := gl.CurrentUser(ctx)
+		if err == nil && bot == "" {
+			err = models.ErrNoIdentity
+		}
+
+		switch {
+		case err == nil:
+			return bot, nil
+		case ctx.Err() != nil:
+			return "", fmt.Errorf("read the bot user, the user of the GitLab token: %w", ctx.Err())
+		case permanentIdentityError(err):
+			return "", fmt.Errorf("read the bot user, the user of the GitLab token: %w", err)
+		}
+
+		log.Error("Cannot read the bot user, the user of the GitLab token; retrying", "error", err, "in", wait.String())
+
+		if serr := clk.Sleep(ctx, wait); serr != nil {
+			return "", fmt.Errorf("read the bot user, the user of the GitLab token: %w", serr)
+		}
 	}
 }
+
+// permanentIdentityError reports whether a bot user read failed for a reason a retry does not change.
+func permanentIdentityError(err error) bool {
+	return errors.Is(err, models.ErrNoIdentity) || errors.Is(err, models.ErrUnauthorized) ||
+		errors.Is(err, models.ErrForbidden) || errors.Is(err, models.ErrIdentityChanged)
+}
+
+// withDefaults returns c with the defaults of its unset fields: a UUID session id, slog.Default(), the trigger role
+// developer.
+func (c Config) withDefaults() Config {
+	if c.NewSessionID == nil {
+		c.NewSessionID = uuid.NewString
+	}
+
+	if c.Logger == nil {
+		c.Logger = slog.Default()
+	}
+
+	if c.TriggerRole == 0 {
+		c.TriggerRole = models.Developer
+	}
+
+	return c
+}
+
+// Bot returns the bot user read by New.
+func (d *Dispatcher) Bot() string { return d.bot }
 
 // Handle queues r on its issue lane and returns at once. Ignore requests are dropped.
 func (d *Dispatcher) Handle(r intake.Request) {

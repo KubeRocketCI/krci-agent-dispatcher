@@ -110,8 +110,6 @@ config:
   sweepInterval: 5m
   # -- Turn limit per issue.
   turnLimit: 20
-  # -- Bot user: ignored note author, marker author.
-  botUsername: krci-agent
   # -- Trigger role: lowest GitLab project role that can start the agent and write trigger comments: developer, maintainer or owner.
   triggerMinRole: developer
 
