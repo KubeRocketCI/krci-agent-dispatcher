@@ -125,12 +125,15 @@ ingress:
   # -- Extra Ingress annotations.
   annotations: {}
   tls:
+    # -- TLS on the Ingress: a cert-manager Certificate and the Ingress `tls` block. false: neither; TLS ends in
+    # front of the ingress controller, for example a load balancer.
+    enabled: true
     # -- Secret of the Ingress certificate.
     secretName: krci-agent-dispatcher-tls
     issuerRef:
       # -- cert-manager issuer kind (Issuer or ClusterIssuer).
       kind: ClusterIssuer
-      # -- cert-manager issuer name. Required when ingress.enabled.
+      # -- cert-manager issuer name. Required when ingress.enabled and ingress.tls.enabled.
       name: ""
 
 serviceAccount:

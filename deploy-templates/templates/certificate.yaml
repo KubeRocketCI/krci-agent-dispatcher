@@ -1,4 +1,4 @@
-{{- if .Values.ingress.enabled }}
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -11,6 +11,6 @@ spec:
     - {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
   issuerRef:
     kind: {{ .Values.ingress.tls.issuerRef.kind }}
-    name: {{ required "ingress.tls.issuerRef.name is required when ingress.enabled" .Values.ingress.tls.issuerRef.name }}
+    name: {{ required "ingress.tls.issuerRef.name is required when ingress.enabled and ingress.tls.enabled" .Values.ingress.tls.issuerRef.name }}
     group: cert-manager.io
 {{- end }}
