@@ -59,8 +59,8 @@ spec:
             - name: HOOK_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.hook }}
-                  key: token
+                  name: {{ include "krci-agent-dispatcher.secret.dispatcher" . }}
+                  key: hook-token
             - name: BOT_USERNAME
               value: {{ .Values.config.botUsername | quote }}
             - name: TRIGGER_MIN_ROLE
@@ -85,7 +85,7 @@ spec:
               value: {{ join "," $pairs | quote }}
             {{- end }}
             - name: SECRETS_NAMESPACE
-              value: {{ default .Release.Namespace .Values.substrate.secretsNamespace | quote }}
+              value: {{ .Release.Namespace | quote }}
             - name: PROFILES_FILE
               value: /etc/krci-agent-dispatcher/profiles.yaml
             - name: HARNESS_IMAGE
@@ -153,9 +153,9 @@ spec:
                   path: token
         - name: gitlab-token
           secret:
-            secretName: {{ .Values.secrets.gitlab }}
+            secretName: {{ include "krci-agent-dispatcher.secret.dispatcher" . }}
             items:
-              - key: token
+              - key: gitlab-token
                 path: token
         - name: profiles
           configMap:

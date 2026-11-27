@@ -7,7 +7,8 @@
 # token = the dispatcher hook token. Hooks with another URL are never changed.
 # confidential_issues_events and confidential_note_events stay off: confidential issues are not supported.
 # Env: GITLAB_URL (required), GITLAB_CA_FILE (optional PEM), GITLAB_RESOLVE (optional curl --resolve host:port:addr), GITSERVER_SECRET (default krci/ci-gitlab, key token;
-# a Maintainer token: krci-agent cannot manage hooks), HOOK_SECRET (default krci-agents/hook, key token).
+# a Maintainer token: krci-agent cannot manage hooks), HOOK_SECRET (default krci-agents/krci-agent-dispatcher, the
+# dispatcher credentials, key hook-token).
 # Tokens stay in non-exported variables; curl gets them from a process substitution or stdin, never argv.
 set -uo pipefail
 
@@ -15,7 +16,7 @@ GITLAB_URL="${GITLAB_URL:-}"
 GITLAB_CA_FILE="${GITLAB_CA_FILE:-}"
 GITLAB_RESOLVE="${GITLAB_RESOLVE:-}"
 GITSERVER_SECRET="${GITSERVER_SECRET:-krci/ci-gitlab}"
-HOOK_SECRET="${HOOK_SECRET:-krci-agents/hook}"
+HOOK_SECRET="${HOOK_SECRET:-krci-agents/krci-agent-dispatcher}"
 
 usage() { echo "usage: register-hook.sh add|remove|list <project-path> <hook-url>" >&2; exit 2; }
 
@@ -24,9 +25,10 @@ case "${cmd}" in add|remove|list) ;; *) usage ;; esac
 [ -n "${project}" ] && [ -n "${url}" ] || usage
 [ -n "${GITLAB_URL}" ] || { echo "FAIL register-hook GITLAB_URL is required" >&2; exit 2; }
 
-secret_token() { kubectl -n "${1%%/*}" get secret "${1#*/}" -o json 2>/dev/null | jq -r '.data.token // empty | @base64d'; }
+# secret_token <namespace>/<name> <key>: the decoded value of the key.
+secret_token() { kubectl -n "${1%%/*}" get secret "${1#*/}" -o json 2>/dev/null | jq -r --arg k "$2" '.data[$k] // empty | @base64d'; }
 
-GS_TOKEN="$(secret_token "${GITSERVER_SECRET}")"
+GS_TOKEN="$(secret_token "${GITSERVER_SECRET}" token)"
 [ -n "${GS_TOKEN}" ] || { echo "FAIL register-hook no token in Secret ${GITSERVER_SECRET}" >&2; exit 1; }
 
 # api <METHOD> <path> [body on stdin]: prints the body, then the HTTP code on the last line.
@@ -71,7 +73,7 @@ case "${cmd}" in
     echo "PASS register-hook removed hook ${hid} from ${project}"
     ;;
   add)
-    HOOK_TOKEN="$(secret_token "${HOOK_SECRET}")"
+    HOOK_TOKEN="$(secret_token "${HOOK_SECRET}" hook-token)"
     [ -n "${HOOK_TOKEN}" ] || { echo "FAIL register-hook no token in Secret ${HOOK_SECRET}" >&2; exit 1; }
     body() {
       jq -n --arg u "${url}" --rawfile t <(printf '%s' "${HOOK_TOKEN}") '{
