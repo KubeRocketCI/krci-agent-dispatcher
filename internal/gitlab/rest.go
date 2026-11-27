@@ -4,6 +4,7 @@ package gitlab
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -28,14 +30,28 @@ const (
 	requestTimeout = 30 * time.Second
 )
 
-// REST talks to the GitLab REST API v4 with a personal access token sent in the PRIVATE-TOKEN header.
+// REST talks to the GitLab REST API v4 with a token sent in the PRIVATE-TOKEN header.
+//
+// The bot user is the user of the token, read by the first successful CurrentUser; every other call before it fails
+// with models.ErrNoIdentity. A token that differs from the last verified one is verified with GET /user before the
+// request is sent: a failed read fails the request, another user fails it and every later call with
+// models.ErrIdentityChanged.
 type REST struct {
-	client  *resty.Client
-	bot     string
-	trigger models.Role
-	labels  models.AgentLabels
-	log     *slog.Logger
+	client   *resty.Client
+	token    func() (string, error)
+	trigger  models.Role
+	labels   models.AgentLabels
+	log      *slog.Logger
+	onChange func(error)
+
+	mu       sync.Mutex
+	bot      string
+	verified [sha256.Size]byte
+	changed  error
 }
+
+// probeKey marks the context of a GET /user request; its PRIVATE-TOKEN is set by the caller.
+type probeKey struct{}
 
 // Option configures NewREST.
 type Option func(*REST)
@@ -44,22 +60,26 @@ type Option func(*REST)
 // It replaces the token argument of NewREST.
 func WithTokenFile(path string) Option {
 	return func(c *REST) {
-		c.client.OnBeforeRequest(func(_ *resty.Client, r *resty.Request) error {
+		c.token = func() (string, error) {
 			b, err := os.ReadFile(path)
 			if err != nil {
-				return fmt.Errorf("read GitLab token file: %w", err)
+				return "", fmt.Errorf("read GitLab token file: %w", err)
 			}
 
 			tok := strings.TrimSpace(string(b))
 			if tok == "" {
-				return errors.New("gitLab token file is empty")
+				return "", errors.New("gitLab token file is empty")
 			}
 
-			r.SetHeader("PRIVATE-TOKEN", tok)
-
-			return nil
-		})
+			return tok, nil
+		}
 	}
+}
+
+// WithIdentityChange sets fn, called once with the models.ErrIdentityChanged error when a token belongs to another
+// user than the bot user. fn runs with the adapter locked and must not call it.
+func WithIdentityChange(fn func(error)) Option {
+	return func(c *REST) { c.onChange = fn }
 }
 
 // WithAgentLabels sets the agent label names; the default is the zero AgentLabels.
@@ -73,9 +93,8 @@ func WithLogger(log *slog.Logger) Option {
 }
 
 // NewREST returns a REST adapter for baseURL. caFile, when set, adds a PEM CA bundle to the system roots.
-// bot is the token's user: the author of the status note and of the notes it writes. trigger is the trigger role:
-// developer, maintainer or owner.
-func NewREST(baseURL, token, caFile, bot string, trigger models.Role, opts ...Option) (*REST, error) {
+// trigger is the trigger role: developer, maintainer or owner.
+func NewREST(baseURL, token, caFile string, trigger models.Role, opts ...Option) (*REST, error) {
 	if !trigger.IsTrigger() {
 		return nil, fmt.Errorf("trigger role %s is not developer, maintainer or owner", trigger)
 	}
@@ -85,14 +104,15 @@ func NewREST(baseURL, token, caFile, bot string, trigger models.Role, opts ...Op
 		SetHeader("Accept", "application/json").
 		SetTimeout(requestTimeout)
 
-	if token != "" {
-		client.SetHeader("PRIVATE-TOKEN", token)
+	c := &REST{
+		client: client, trigger: trigger, log: slog.Default(),
+		token: func() (string, error) { return token, nil },
 	}
-
-	c := &REST{client: client, bot: bot, trigger: trigger, log: slog.Default()}
 	for _, o := range opts {
 		o(c)
 	}
+
+	client.OnBeforeRequest(c.beforeRequest)
 
 	if caFile != "" {
 		pem, err := os.ReadFile(caFile)
@@ -113,6 +133,125 @@ func NewREST(baseURL, token, caFile, bot string, trigger models.Role, opts ...Op
 	}
 
 	return c, nil
+}
+
+// CurrentUser returns the username of the token's user (GET /user). The first user read is the bot user of the
+// adapter. A token user other than the bot user is models.ErrIdentityChanged, for this call and every later call.
+// Errors: models.ErrNoIdentity when GitLab names no user; models.ErrUnauthorized (401); models.ErrForbidden (403);
+// any other failure as a failed call.
+func (c *REST) CurrentUser(ctx context.Context) (string, error) {
+	tok, err := c.token()
+	if err != nil {
+		return "", err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.changed != nil {
+		return "", c.changed
+	}
+
+	user, err := c.whoami(ctx, tok)
+	if err != nil {
+		return "", err
+	}
+
+	if err := c.pinLocked(user, tok); err != nil {
+		return "", err
+	}
+
+	return user, nil
+}
+
+// beforeRequest sets the token of every request but GET /user and verifies its user first when it changed.
+func (c *REST) beforeRequest(_ *resty.Client, r *resty.Request) error {
+	if r.Context().Value(probeKey{}) != nil {
+		return nil
+	}
+
+	tok, err := c.token()
+	if err != nil {
+		return err
+	}
+
+	if tok != "" {
+		r.SetHeader("PRIVATE-TOKEN", tok)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch {
+	case c.changed != nil:
+		return c.changed
+	case c.bot == "":
+		return fmt.Errorf("gitlab: %w: the token user is not read", models.ErrNoIdentity)
+	case sha256.Sum256([]byte(tok)) == c.verified:
+		return nil
+	}
+
+	user, err := c.whoami(r.Context(), tok)
+	if err != nil {
+		return err
+	}
+
+	return c.pinLocked(user, tok)
+}
+
+// whoami reads the username of the user of tok.
+func (c *REST) whoami(ctx context.Context, tok string) (string, error) {
+	var u struct {
+		Username string `json:"username"`
+	}
+
+	const path = "/user"
+
+	req := c.client.R().SetContext(context.WithValue(ctx, probeKey{}, true)).SetResult(&u)
+	if tok != "" {
+		req.SetHeader("PRIVATE-TOKEN", tok)
+	}
+
+	resp, err := req.Get(path)
+	if err := check(resp, err, http.MethodGet, path); err != nil {
+		return "", err
+	}
+
+	if u.Username == "" {
+		return "", fmt.Errorf("gitlab GET %s: %w: no username", path, models.ErrNoIdentity)
+	}
+
+	return u.Username, nil
+}
+
+// pinLocked takes user as the bot user when none is set and marks tok verified; another user than the bot user
+// sets the identity change.
+func (c *REST) pinLocked(user, tok string) error {
+	switch {
+	case c.bot == "":
+		c.bot = user
+	case user != c.bot:
+		c.changed = fmt.Errorf("gitlab: %w: the token user is %s, the bot user in use is %s",
+			models.ErrIdentityChanged, user, c.bot)
+
+		if c.onChange != nil {
+			c.onChange(c.changed)
+		}
+
+		return c.changed
+	}
+
+	c.verified = sha256.Sum256([]byte(tok))
+
+	return nil
+}
+
+// identity returns the bot user.
+func (c *REST) identity() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.bot
 }
 
 type apiIssue struct {
@@ -161,6 +300,8 @@ func check(resp *resty.Response, err error, method, path string) error {
 		return fmt.Errorf("gitlab %s %s: %w", method, path, models.ErrNotFound)
 	case resp.StatusCode() == http.StatusForbidden:
 		return fmt.Errorf("gitlab %s %s: %w", method, path, models.ErrForbidden)
+	case resp.StatusCode() == http.StatusUnauthorized:
+		return fmt.Errorf("gitlab %s %s: status %s: %w", method, path, resp.Status(), models.ErrUnauthorized)
 	case !resp.IsSuccess():
 		return fmt.Errorf("gitlab %s %s: status %s", method, path, resp.Status())
 	}
@@ -180,7 +321,7 @@ func (c *REST) Load(ctx context.Context, key models.IssueKey) (models.IssueView,
 		return models.IssueView{}, err
 	}
 
-	return models.NewIssueView(is, notes, c.bot), nil
+	return models.NewIssueView(is, notes, c.identity()), nil
 }
 
 // Refresh reads the issue again and the notes created or edited since prev was read, newest first until a note
@@ -198,7 +339,7 @@ func (c *REST) Refresh(ctx context.Context, prev models.IssueView) (models.Issue
 		return models.IssueView{}, err
 	}
 
-	return models.NewIssueView(is, models.MergeNotes(prev.Notes, changed), c.bot), nil
+	return models.NewIssueView(is, models.MergeNotes(prev.Notes, changed), c.identity()), nil
 }
 
 func (c *REST) issue(ctx context.Context, key models.IssueKey) (models.Issue, error) {
@@ -338,7 +479,7 @@ func (c *REST) Write(ctx context.Context, key models.IssueKey, known *models.Iss
 	}
 
 	for _, n := range w.Notes {
-		if n.Marker != "" && models.HasMarker(notes, c.bot, n.Marker) {
+		if n.Marker != "" && models.HasMarker(notes, c.identity(), n.Marker) {
 			continue
 		}
 
@@ -358,7 +499,7 @@ func (c *REST) Write(ctx context.Context, key models.IssueKey, known *models.Iss
 func (c *REST) writeStatus(ctx context.Context, key models.IssueKey, notes []models.Note, stale bool, r models.Record,
 	next *models.StatusView,
 ) ([]models.Note, error) {
-	prev, ok := models.StatusNote(notes, c.bot)
+	prev, ok := models.StatusNote(notes, c.identity())
 
 	if !ok && stale {
 		var err error
@@ -366,7 +507,7 @@ func (c *REST) writeStatus(ctx context.Context, key models.IssueKey, notes []mod
 			return nil, err
 		}
 
-		prev, ok = models.StatusNote(notes, c.bot)
+		prev, ok = models.StatusNote(notes, c.identity())
 		stale = false
 	}
 
@@ -407,11 +548,15 @@ func (c *REST) postNote(ctx context.Context, key models.IssueKey, body string) (
 		return models.Note{}, err
 	}
 
-	return models.Note{ID: n.ID, Body: body, Author: c.bot}, nil
+	posted := n.note()
+	posted.Body = body
+
+	return posted, nil
 }
 
-// PostReply posts body as a new note on the issue and returns it. Errors: models.ErrNotFound (404),
-// models.ErrForbidden (403), any other failure as a failed call. The note may be saved when the call fails.
+// PostReply posts body as a new note on the issue and returns it with the author GitLab returns. Errors:
+// models.ErrNotFound (404), models.ErrForbidden (403), any other failure as a failed call. The note may be saved
+// when the call fails.
 func (c *REST) PostReply(ctx context.Context, key models.IssueKey, body string) (models.Note, error) {
 	return c.postNote(ctx, key, body)
 }
@@ -495,7 +640,7 @@ func (c *REST) NoteMergeRequest(ctx context.Context, projectID int64, sourceBran
 			return err
 		}
 
-		if n.Marker != "" && models.HasMarker(notes, c.bot, n.Marker) {
+		if n.Marker != "" && models.HasMarker(notes, c.identity(), n.Marker) {
 			continue
 		}
 

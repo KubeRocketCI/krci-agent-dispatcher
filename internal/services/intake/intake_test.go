@@ -279,3 +279,45 @@ func TestParseNoteLabelFilter(t *testing.T) {
 		assert.Equal(t, c.want, noteKind(t, c.labels), name)
 	}
 }
+
+// The bot user is the token user of a project access token: username project_1_bot_x, display name krci-agent.
+func TestParseWithTheTokenUserAsBotUser(t *testing.T) {
+	const tokenUser = "project_1_bot_x"
+
+	waiting := []string{label, agentLabels.State(models.Waiting)}
+	note := func(username string) string {
+		return `{"user": {"name": "krci-agent", "username": "` + username + `"}, "project": {"id": 12},
+			"object_attributes": {"noteable_type": "Issue"},
+			"issue": {"iid": 7, "labels": [{"title": "krci-agent"}, {"title": "krci::agent::waiting"}]}}`
+	}
+	issue := func(username, action string, previous, current []string) string {
+		body, err := json.Marshal(map[string]any{
+			"user":              map[string]string{"name": "krci-agent", "username": username},
+			"project":           map[string]int{"id": 12},
+			"object_attributes": map[string]any{"iid": 7, "action": action},
+			"labels":            labelList(current),
+			"changes": map[string]any{
+				"labels": map[string]any{"previous": labelList(previous), "current": labelList(current)},
+			},
+		})
+		require.NoError(t, err)
+
+		return string(body)
+	}
+
+	for name, c := range map[string]struct {
+		event, body string
+		want        Kind
+	}{
+		"note of the token user":          {NoteHook, note(tokenUser), Ignore},
+		"note of a person named the bot":  {NoteHook, note("krci-agent"), Activate},
+		"state label set by token user":   {IssueHook, issue(tokenUser, "update", waiting, []string{label}), Ignore},
+		"close by the token user":         {IssueHook, issue(tokenUser, "close", waiting, waiting), Stop},
+		"trigger label removed by it":     {IssueHook, issue(tokenUser, "update", waiting, []string{}), Stop},
+		"trigger label added by a person": {IssueHook, issue("dev1", "update", []string{}, []string{label}), Start},
+	} {
+		r, err := Parse(c.event, []byte(c.body), tokenUser, agentLabels)
+		require.NoError(t, err, name)
+		assert.Equal(t, c.want, r.Kind, name)
+	}
+}

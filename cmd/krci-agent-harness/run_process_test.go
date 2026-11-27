@@ -3,8 +3,15 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -12,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/gitlab/gitlabtest"
 )
 
 func validEnv() map[string]string {
@@ -107,11 +116,67 @@ func TestProcessRunRefusesAWatchdogLimitBelowOneMinute(t *testing.T) {
 	assert.Contains(t, logLine(t, stderr)["error"], "watchdog limit")
 }
 
-// After the handshake the harness polls until SIGTERM, then exits 0. GITLAB_URL names a host that does not resolve:
-// every poll fails and is retried.
-func TestProcessRunPollsUntilTerminated(t *testing.T) {
+// gitlabEnv returns validEnv for a GitLab whose token user is user, served over TLS by the GitLab fake, with the
+// CA file of the server in processCA. The fake has no issue: every poll fails and is retried.
+func gitlabEnv(t *testing.T, user string) map[string]string {
+	t.Helper()
+
+	return tlsEnv(t, gitlabtest.NewFake(user).Handler(placeholderToken))
+}
+
+// tlsEnv returns validEnv for a GitLab served by h over TLS, with the CA file of the server in processCA.
+func tlsEnv(t *testing.T, h http.Handler) map[string]string {
+	t.Helper()
+
+	srv := httptest.NewTLSServer(h)
+	t.Cleanup(srv.Close)
+
+	ca := filepath.Join(t.TempDir(), "ca.crt")
+	require.NoError(t, os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}),
+		0o600))
+
 	env := validEnv()
-	env["GITLAB_URL"], env["HOME"] = "https://gitlab.invalid", t.TempDir()
+	env["GITLAB_URL"], env["HOME"], env[processCA] = srv.URL, t.TempDir(), ca
+
+	return env
+}
+
+// lastLogLine returns the last line of stderr as a JSON object without its time.
+func lastLogLine(t *testing.T, stderr string) map[string]any {
+	t.Helper()
+
+	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+
+	return logLine(t, lines[len(lines)-1])
+}
+
+// runProcessFor is runProcess bounded by 20 s: a harness that does not exit by then is killed and fails the test.
+func runProcessFor(t *testing.T, env map[string]string) (int, string) {
+	t.Helper()
+
+	var stderr bytes.Buffer
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, os.Args[0])
+	cmd.Env = []string{processEnv + "=main", processArgs + "=run", "GOCOVERDIR=" + t.TempDir()}
+
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	require.NoError(t, ctx.Err(), "the harness did not exit; stderr %q", stderr.String())
+
+	return exitCode(t, err), stderr.String()
+}
+
+// After the handshake the harness polls until SIGTERM, then exits 0.
+func TestProcessRunPollsUntilTerminated(t *testing.T) {
+	env := gitlabEnv(t, "krci-agent")
 
 	cmd := harnessProcess(t, "main", "run")
 	cmd.Env = []string{processEnv + "=main", processArgs + "=run", "GOCOVERDIR=" + t.TempDir()}
@@ -124,13 +189,13 @@ func TestProcessRunPollsUntilTerminated(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
 
-	started := make(chan struct{})
+	polling := make(chan struct{})
 
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
-			if strings.Contains(sc.Text(), `"msg":"Harness started"`) {
-				close(started)
+			if strings.Contains(sc.Text(), `"msg":"Cannot read the issue notes"`) {
+				close(polling)
 
 				break
 			}
@@ -140,15 +205,43 @@ func TestProcessRunPollsUntilTerminated(t *testing.T) {
 	}()
 
 	select {
-	case <-started:
+	case <-polling:
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
 
-		t.Fatal("no start log line")
+		t.Fatal("no poll log line")
 	}
 
 	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
 	assert.Equal(t, 0, exitCode(t, cmd.Wait()))
+}
+
+// A token user other than BOT_USERNAME is a handshake failure: exit 78 before any turn.
+func TestProcessRunExitsConfigWhenTheTokenUserIsNotTheBotUser(t *testing.T) {
+	code, stderr := runProcessFor(t, gitlabEnv(t, "project_1_bot_x"))
+
+	assert.Equal(t, 78, code)
+
+	rec := lastLogLine(t, stderr)
+	assert.Equal(t, "handshake failed", rec["msg"])
+	assert.Equal(t, "BOT_USERNAME: is not the user of the GitLab token", rec["error"])
+	assert.NotContains(t, stderr, "Turn started")
+	assert.NotContains(t, stderr, placeholderToken)
+}
+
+// A token that GitLab rejects is a handshake failure: exit 78 before any turn, no retry; the log adds the cause.
+func TestProcessRunExitsConfigWhenTheTokenIsRejected(t *testing.T) {
+	code, stderr := runProcessFor(t, tlsEnv(t, gitlabtest.NewFake("krci-agent").Handler("another-token")))
+
+	assert.Equal(t, 78, code)
+
+	rec := lastLogLine(t, stderr)
+	assert.Equal(t, "handshake failed", rec["msg"])
+	assert.Contains(t, rec["error"], "BOT_USERNAME")
+	assert.Contains(t, rec["cause"], "/user")
+	assert.Contains(t, rec["cause"], "unauthorized")
+	assert.NotContains(t, stderr, "retrying")
+	assert.NotContains(t, stderr, "Turn started")
 }
 
 func TestProcessRunWithoutHomeExitsConfig(t *testing.T) {

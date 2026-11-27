@@ -12,6 +12,8 @@ import (
 
 const (
 	maxSeconds = math.MaxInt64 / int64(time.Second)
+	// botItem is the env item of the bot user.
+	botItem = "BOT_USERNAME"
 )
 
 // Config is the handshake result.
@@ -30,13 +32,17 @@ type Config struct {
 	Watchdog    time.Duration
 }
 
-// HandshakeError names the env item the handshake refused and why; it never holds the item's value.
+// HandshakeError names the env item the handshake refused and why; it never holds the item's value. Cause is the
+// failed GitLab call of a bot user check, not part of Error.
 type HandshakeError struct {
 	Item   string
 	Reason string
+	Cause  error
 }
 
 func (e *HandshakeError) Error() string { return e.Item + ": " + e.Reason }
+
+func (e *HandshakeError) Unwrap() error { return e.Cause }
 
 // reader reads env items; the first refused item stays and later reads return zero values.
 type reader struct {
@@ -114,7 +120,7 @@ func Handshake(getenv Getenv) (Config, error) {
 	c := Config{
 		GitLabURL:   r.gitlabURL("GITLAB_URL"),
 		ProjectPath: r.nonEmpty("PROJECT_PATH"),
-		Bot:         r.nonEmpty("BOT_USERNAME"),
+		Bot:         r.nonEmpty(botItem),
 		Session:     r.session("SESSION_ID"),
 		Model:       r.nonEmpty("ANTHROPIC_MODEL"),
 		Home:        r.nonEmpty("HOME"),

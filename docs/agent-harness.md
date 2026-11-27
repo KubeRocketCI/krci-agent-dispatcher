@@ -123,7 +123,9 @@ sequenceDiagram
 ## Dispatcher → harness
 
 - The actor runs the agent image of the project's profile, with the harness mounted read-only at `/opt/krci-agent` and `/opt/krci-agent/krci-agent-harness` as the command. The harness image holds the binary at `/krci-agent-harness`.
-- The actor template sets the issue, the bot user, a new session, the contract version, the turn timeout, the harness poll interval, the turn limit, agent steps, the model, `HOME=/home/agent`, `AGENT_PROFILE` and the profile's env.
+- The actor template sets the issue, the bot user (`BOT_USERNAME`), a new session, the contract version, the turn timeout, the harness poll interval, the turn limit, agent steps, the model, `HOME=/home/agent`, `AGENT_PROFILE` and the profile's env.
+- Bot user: the user of the dispatcher's GitLab token; no setting names it. The dispatcher reads it with `GET /api/v4/user` at start, before the restart recovery and the hook server. A failed read is retried with backoff (1 s, doubled up to 1 min) until it succeeds or the dispatcher stops; a signal meanwhile is a clean stop, exit 0. A rejected token (401, 403) or an empty username stops the dispatcher at once, exit 1, with no actor created; the error holds no token. The chart's startup probe allows 5 min for the read. The bot user's notes are never comments: intake, the turn history, the status note and the marker checks all use it.
+- Token change: the token file is read on each request. A token not yet verified is read with `GET /api/v4/user` before the request is sent. A failed read fails that request. Another user than the bot user fails that request and every later GitLab call, and the dispatcher exits 1 with an error that names both users; the pod restarts as the new user. No request but `GET /api/v4/user` is sent with the other user's token.
 - Dispatcher config: `HARNESS_IMAGE` (required, pinned by digest; the chart value `harnessImage` defaults to the last verified harness), `PROFILES_FILE` (default `/etc/krci-agent-dispatcher/profiles.yaml`), `AGENT_STEPS` (default 40), `AGENT_MODEL` (default `claude-haiku-5-5`), `HARNESS_POLL_INTERVAL` (default 15 s). `TURN_TIMEOUT` and `HARNESS_POLL_INTERVAL` are whole seconds; the dispatcher refuses to start when `TURN_TIMEOUT` is below `HARNESS_POLL_INTERVAL + 120 s`, so every rendered template passes the handshake.
 - Worker selector: `WORKER_SELECTOR` (chart value `substrate.workerSelector`, a map) holds the match labels of every actor template as `key=value` pairs, comma separated; default `workload=workers`. Every key of the worker selector must equal the worker label of that key, the `metadata.labels` of the WorkerPool; the WorkerPool name is not matched. Keys and values follow Kubernetes label syntax; a pair without a key or a value, or a key listed twice, stops the dispatcher at start.
 - A start on a done issue whose actor is transitional, by an author who can trigger, is rechecked, then recorded as error `actor busy`; a suspended, crashed or partial actor is deleted and recreated with a new session.
@@ -168,8 +170,9 @@ Rules:
 
 ## Harness
 
-- Handshake at start: env, contract version, watchdog limit, then the profile file. On failure it logs one line and exits 78; the dispatcher records `actor crashed`.
+- Handshake at start: env, contract version, watchdog limit, the profile file, then the bot user: `GET /api/v4/user` through the egress gateway names `BOT_USERNAME`. On failure it logs one line, `handshake failed`, and exits 78; the dispatcher records `actor crashed`. A failed bot user read is retried with backoff (2 s, doubled up to 30 s) for 5 min, each retry logged; a rejected token (401, 403) or an empty username is not retried. A failed bot user read adds its cause to the line.
 - Turn loop: poll the notes, take the next turn from the turn history, run it, reply. Every turn ends in a reply, also when it fails.
+- Reply author: the author GitLab returns for a posted reply is `BOT_USERNAME`. Another author ends the turn loop after that reply: logged with the author, then `handshake failed`, exit 78.
 - Watchdog: `turn timeout − poll interval − 60 s` per turn; it covers clone or fetch, setup, the agent run, verify and publish. A cut turn replies with exit 124.
 - Publish: the issue branch `agent/issue-<iid>` and its merge request to the project's default branch, only after `verify` passes. The push is never forced. The merge request is `Draft: Resolve "<issue title>"` with `Closes #<iid>`; an issue title that does not fit GitLab's 255 characters is cut and ends with `…`. An open merge request of the issue branch is left as it is.
 - New-commits check, after the agent run: new commits are commits on the issue branch that no remote branch has. It fails on another branch and on changed tracked files; untracked files that `.gitignore` does not exclude fail it only when there are new commits, and the logged error names the first 5 paths.
@@ -180,7 +183,7 @@ Rules:
 
 `run` takes no arguments; no argument is usage, exit 64. It reads the env contract and the profile file, then runs the turn loop until SIGTERM or SIGINT, exit 0.
 
-Logs are JSON lines on stderr; the output of git, setup and verify and the stderr of Claude Code are logged line by line, at most 64 KiB per record. Each turn logs `Turn started` with `turn`. After prepare, `Agent run started` with `turn` and `new_session` (`true`: the agent run starts the session, `--session-id`; `false`: it continues it, `--resume`). At the end, `Turn done` with `turn` for exit 0, else `Turn failed`. A turn cut by the harness stop logs no end line. A failed turn is logged with its phase, exit code and error; the reply names only the phase and the exit code. Exit codes: 0 terminated, 78 handshake failure, 70 GitLab client or agent not built.
+Logs are JSON lines on stderr; the output of git, setup and verify and the stderr of Claude Code are logged line by line, at most 64 KiB per record. Each turn logs `Turn started` with `turn`. After prepare, `Agent run started` with `turn` and `new_session` (`true`: the agent run starts the session, `--session-id`; `false`: it continues it, `--resume`). At the end, `Turn done` with `turn` for exit 0, else `Turn failed`. A turn cut by the harness stop logs no end line. A failed turn is logged with its phase, exit code and error; the reply names only the phase and the exit code. Exit codes: 0 terminated, 78 handshake failure or a reply of another author, 70 GitLab client or agent not built.
 
 Workspace: the checkout is `/work/<last element of PROJECT_PATH>`, cloned from `<GITLAB_URL>/<PROJECT_PATH>.git`. A clone checks out the remote issue branch when it exists, else creates it from the default branch, then runs `setup`. Before a fetch the checkout is tidied: an unfinished rebase, merge, cherry-pick or revert is aborted, changed tracked files go into a stash entry, and a checkout on another branch or a detached HEAD is switched back to the issue branch. Untracked files stay. A fetch brings the issue branch up to the remote one: fast-forward, else a rebase of the local commits. A rebase that conflicts is aborted; the local commits are kept on the local branch `agent/issue-<iid>-unpushed-<n>`, and the issue branch is reset to the remote one. The prompt names each aborted operation, the stash entry's commit id, the set-aside branch and, after the fetch, the untracked paths that `.gitignore` does not exclude, an untracked directory as one path, at most 5 by name. Every git, setup and verify process runs in its own process group: TERM when the watchdog context ends, KILL 5 s later; processes left in the group after the command exits are killed.
 
@@ -200,7 +203,7 @@ State directory: `$HOME/.krci-agent/state.json`, written atomically. `HOME` unse
 | `PROJECT_ID` | integer > 0 |
 | `ISSUE_IID` | integer > 0 |
 | `PROJECT_PATH` | non-empty |
-| `BOT_USERNAME` | non-empty |
+| `BOT_USERNAME` | non-empty; the user of the GitLab token |
 | `SESSION_ID` | `[0-9A-Za-z-]+` |
 | `AGENT_CONTRACT_VERSION` | `1` |
 | `TURN_TIMEOUT_SECONDS` | integer > 0, at most 9223372036 |
@@ -270,7 +273,7 @@ The last line of every reply:
 - Any other done issue with an actor (a label-only done, the actor's own session, an actor without a session) is a done set by a person: a running actor is stopped, any other is left as it is.
 - Re-enable creates the actor with a new session: turn 1 over every comment, the turn limit counted again. Old notes stay.
 - The turn limit counts `n` of the current session.
-- The dispatcher reads markers only from the bot user's notes.
+- The dispatcher and the harness read markers only from the bot user's notes. A note of the bot user is never a comment.
 - Every `<!-- krci-agent-` in the agent's reply (turn, status, start-refused, stopped markers) is written as `&lt;!-- krci-agent-` and does not parse.
 
 ## Agent image

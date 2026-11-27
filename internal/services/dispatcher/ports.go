@@ -9,6 +9,8 @@ import (
 
 // GitLab is the dispatcher's view of the Git provider.
 //
+// CurrentUser returns the username of the token's user: the bot user. Its notes are never comments.
+//
 // Refresh returns prev with the issue fields read again and the notes created or edited since prev was read; a
 // note deleted since then stays.
 //
@@ -19,12 +21,16 @@ import (
 // project whose members are not shown to the bot user mean false.
 //
 // Errors:
+//   - Every call: models.ErrIdentityChanged when the token belongs to another user than the bot user.
+//   - CurrentUser: models.ErrNoIdentity when the Git provider names no user; models.ErrUnauthorized when it does
+//     not accept the token; models.ErrForbidden when it refuses the token.
 //   - Load, Refresh, Write: models.ErrNotFound when the issue or its project does not exist;
 //     models.ErrForbidden when the Git provider refuses the bot user's token.
 //   - NoteMergeRequest, CheckProject: models.ErrNotFound when the project does not exist; models.ErrForbidden
 //     when the Git provider refuses the bot user's token.
 //   - Any other error is a failed call; the dispatcher retries it.
 type GitLab interface {
+	CurrentUser(ctx context.Context) (string, error)
 	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
 	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
 	Write(ctx context.Context, key models.IssueKey, known *models.IssueView, w models.Writes) error

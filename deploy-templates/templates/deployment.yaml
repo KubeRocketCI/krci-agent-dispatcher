@@ -61,8 +61,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "krci-agent-dispatcher.secret.dispatcher" . }}
                   key: hook-token
-            - name: BOT_USERNAME
-              value: {{ .Values.config.botUsername | quote }}
             - name: TRIGGER_MIN_ROLE
               value: {{ .Values.config.triggerMinRole | quote }}
             - name: ATE_API_ADDR
@@ -104,6 +102,13 @@ spec:
               value: {{ .Values.config.sweepInterval | quote }}
             - name: TURN_LIMIT
               value: {{ .Values.config.turnLimit | quote }}
+          # Covers the bot user read at start: retried with backoff for up to 5 min before the restart.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /healthz

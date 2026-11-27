@@ -88,7 +88,7 @@ func logDecision(ctx context.Context, log *slog.Logger, o observation, dec decid
 func (d *Dispatcher) triggerAfterLast(ctx context.Context, log *slog.Logger, view models.IssueView,
 	actor models.ActorView,
 ) bool {
-	history := turn.NewHistory(view.Notes, d.cfg.Bot, turn.Session(actor, view.Status))
+	history := turn.NewHistory(view.Notes, d.bot, turn.Session(actor, view.Status))
 
 	for _, author := range history.Next().Authors() {
 		ok, err := d.canTrigger(ctx, log, view.Issue.Key.ProjectID, author)

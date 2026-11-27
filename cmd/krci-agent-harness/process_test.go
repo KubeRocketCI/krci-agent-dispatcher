@@ -9,15 +9,18 @@ import (
 	"testing"
 )
 
-// The test binary re-runs itself as the harness process when processEnv is set.
+// The test binary re-runs itself as the harness process when processEnv is set; processCA names the CA file of
+// its GitLab client.
 const (
 	processEnv  = "KRCI_HARNESS_TEST_PROCESS"
 	processArgs = "KRCI_HARNESS_TEST_ARGS"
+	processCA   = "KRCI_HARNESS_TEST_CA"
 )
 
 func TestMain(m *testing.M) {
 	switch os.Getenv(processEnv) {
 	case "main":
+		gitlabCAFile = os.Getenv(processCA)
 		os.Args = append([]string{"krci-agent-harness"}, strings.Fields(os.Getenv(processArgs))...)
 
 		main()

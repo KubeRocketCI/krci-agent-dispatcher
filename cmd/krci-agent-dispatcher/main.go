@@ -61,13 +61,22 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 
 	var labels models.AgentLabels
 
-	glOpts := []gitlab.Option{gitlab.WithLogger(log), gitlab.WithAgentLabels(labels)}
+	sigCtx, stop := signal.NotifyContext(context.Background(),
+		syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
+
+	ctx, cancel := context.WithCancelCause(sigCtx)
+	defer cancel(nil)
+
+	glOpts := []gitlab.Option{
+		gitlab.WithLogger(log), gitlab.WithAgentLabels(labels), gitlab.WithIdentityChange(cancel),
+	}
 	if cfg.GitLabTokenFile != "" {
 		glOpts = append(glOpts, gitlab.WithTokenFile(cfg.GitLabTokenFile))
 	}
 
-	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), cfg.GitLabToken, cfg.GitLabCAFile, cfg.BotUsername,
-		cfg.TriggerMinRole, glOpts...)
+	gl, err := gitlab.NewREST(cfg.GitLabURL.String(), cfg.GitLabToken, cfg.GitLabCAFile, cfg.TriggerMinRole,
+		glOpts...)
 	if err != nil {
 		return err
 	}
@@ -87,21 +96,28 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 
 	pr := profiles.NewFile(cfg.ProfilesFile, deploy)
 
-	d := dispatcher.New(gl, sb, pr, system.Clock{}, dispatcher.Config{
-		Bot: cfg.BotUsername, Labels: labels, TriggerRole: cfg.TriggerMinRole,
+	d, err := dispatcher.New(ctx, gl, sb, pr, system.Clock{}, dispatcher.Config{
+		Labels: labels, TriggerRole: cfg.TriggerMinRole,
 		TurnLimit: cfg.TurnLimit, TurnTimeout: cfg.TurnTimeout, PollInterval: cfg.PollInterval,
 		SweepInterval: cfg.SweepInterval,
 		Logger:        log,
 	})
+	if err != nil {
+		if sigCtx.Err() != nil {
+			log.Info("Stopped before the bot user was read")
 
-	ctx, stop := signal.NotifyContext(context.Background(),
-		syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer stop()
+			return nil
+		}
+
+		return err
+	}
+
+	log.Info("Bot user read from the GitLab token", "bot-user", d.Bot())
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: api.NewRouter(d, api.RouterConfig{
-			HookToken: cfg.HookToken, Bot: cfg.BotUsername, Labels: labels, Logger: httpLogger,
+			HookToken: cfg.HookToken, Bot: d.Bot(), Labels: labels, Logger: httpLogger,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -112,10 +128,14 @@ func run(log *slog.Logger, httpLogger *httplog.Logger) error {
 
 	serveErr := serve(ctx, server)
 
-	stop()
+	cancel(nil)
 
 	if err := <-runDone; err != nil {
 		return err
+	}
+
+	if cause := context.Cause(ctx); errors.Is(cause, models.ErrIdentityChanged) {
+		return cause
 	}
 
 	return serveErr

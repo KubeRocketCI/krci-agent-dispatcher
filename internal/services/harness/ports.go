@@ -7,14 +7,18 @@ import (
 	"github.com/KubeRocketCI/krci-agent-dispatcher/internal/models"
 )
 
-// GitLab is the harness's view of the Git provider. Load, Refresh and PostReply act on the issue key; the rules of
-// the dispatcher's GitLab port apply: Refresh keeps a note deleted since the last read, Load does not. DefaultBranch
-// and EnsureMergeRequest get the watchdog context, as for Agent. EnsureMergeRequest opens the merge request of
-// mr.Source in the project, or leaves an open one of that source branch as it is.
+// GitLab is the harness's view of the Git provider. CurrentUser returns the username of the token's user. Load,
+// Refresh and PostReply act on the issue key; the rules of the dispatcher's GitLab port apply: Refresh keeps a note
+// deleted since the last read, Load does not. PostReply returns the note with the author the Git provider names.
+// DefaultBranch and EnsureMergeRequest get the watchdog context, as for Agent. EnsureMergeRequest opens the merge
+// request of mr.Source in the project, or leaves an open one of that source branch as it is.
 //
 // Errors: models.ErrNotFound when the issue or its project does not exist; models.ErrForbidden when the Git
-// provider refuses the token. Any other error is a failed call; the harness retries it on the next poll.
+// provider refuses the token; models.ErrUnauthorized when it does not accept the token; CurrentUser:
+// models.ErrNoIdentity when it names no user. Any other error is a failed call; the harness retries it on the next
+// poll.
 type GitLab interface {
+	CurrentUser(ctx context.Context) (string, error)
 	Load(ctx context.Context, key models.IssueKey) (models.IssueView, error)
 	Refresh(ctx context.Context, prev models.IssueView) (models.IssueView, error)
 	PostReply(ctx context.Context, key models.IssueKey, body string) (models.Note, error)
