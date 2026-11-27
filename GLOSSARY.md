@@ -236,6 +236,22 @@ _Avoid_: allowlist, firewall, guardrails, network policy
 The Agent Substrate component that all outbound traffic of an actor passes through; it applies the egress policy of the actor.
 _Avoid_: proxy, PEP, firewall
 
+**Dispatcher credentials**:
+The GitLab token and the hook secret token that only the dispatcher reads.
+_Avoid_: dispatcher secret, app secret
+
+**Actor credentials**:
+The credentials that the egress gateway adds to the outbound requests of an actor; no actor reads them.
+_Avoid_: agent secrets, egress secrets
+
+**Credential scope**:
+One group of credentials for one consumer, the dispatcher or the actors; the same value can be in both scopes.
+_Avoid_: secret group, consumer group
+
+**Credential grant**:
+The Substrate permission that lets the egress gateway of an atespace read the actor credentials, and no other Secret.
+_Avoid_: namespace policy (for this), secret access
+
 **Suspend**:
 Saving an actor to a snapshot and freeing its worker.
 _Avoid_: stop, pause

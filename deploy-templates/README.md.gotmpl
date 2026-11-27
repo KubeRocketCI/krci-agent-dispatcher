@@ -14,4 +14,39 @@
 
 {{ template "chart.requirementsSection" . }}
 
+## Secrets
+
+All Secrets are in the release namespace. Two credential scopes; no Secret is in both.
+
+| Scope | Secret | Key | Content | Read by |
+|---|---|---|---|---|
+| Dispatcher credentials | `<fullname>` | `gitlab-token` | GitLab token of the dispatcher's bot user | dispatcher |
+| | | `hook-token` | GitLab hook secret token | dispatcher |
+| Actor credentials | `gitlab` | `token` | GitLab token of the agent's bot user | egress gateway (`PRIVATE-TOKEN`) |
+| | | `basic` | base64 of `oauth2:<token>` | egress gateway (`Authorization: Basic`, git over HTTPS) |
+| | `anthropic` | `api-key` | Anthropic API key | egress gateway (`x-api-key`) |
+
+- Actor credentials: names fixed by the egress policy; label `app.edp.epam.com/actor-credential: "true"`. No pod mounts them.
+- One bot user: the two GitLab tokens are equal.
+
+`eso.enabled: false`: create the three Secrets by hand, the actor credentials with the label.
+
+`eso.enabled: true`: ESO creates the three Secrets from one provider secret per scope, a JSON object each:
+
+```text
+eso.secretPath.dispatcher   {"gitlab-token": "<token>", "hook-token": "<hook secret token>"}
+eso.secretPath.actor        {"gitlab-token": "<token>", "anthropic-api-key": "<api key>"}
+```
+
+ESO makes `basic` from `gitlab-token` of the actor scope and sets the label. Objects: one SecretStore (`<fullname>`), ExternalSecrets `<fullname>`, `gitlab`, `anthropic`, and for `aws` and `vault` the ServiceAccount `externalsecrets-<fullname>-<provider>`. AWS: the IAM role of `eso.aws.roleArn` trusts this ServiceAccount (IRSA) and allows `ssm:GetParameter` on the two parameters (`kms:Decrypt` of their key for a SecureString).
+
+## Substrate requirements
+
+The Substrate install provides:
+
+- The Substrate API at `substrate.addr`, its serving certificate in a ClusterTrustBundle of `substrate.trustBundleSigner` with `substrate.trustBundleLabels`, and network access to it from the release namespace.
+- The atespace `substrate.atespace` (empty: the release namespace), with access policy role `editor` for the ServiceAccount `<fullname>` of the release namespace.
+- Workers with the worker labels of `substrate.workerSelector`.
+- A credential grant: the egress gateway of the atespace reads the Secrets of the release namespace with label `app.edp.epam.com/actor-credential: "true"`, and no other Secret.
+
 {{ template "chart.valuesSection" . }}

@@ -63,6 +63,26 @@ Image reference: repository@digest, else repository:tag, else repository:appVers
 {{- end }}
 
 {{/*
+Dispatcher credentials: the Secret only the dispatcher reads, keys gitlab-token and hook-token.
+*/}}
+{{- define "krci-agent-dispatcher.secret.dispatcher" -}}
+{{- include "krci-agent-dispatcher.fullname" . }}
+{{- end }}
+
+{{/*
+Actor credentials: the Secrets only the egress gateway reads. Names fixed by internal/substrate/templates/egresspolicy.yaml.tmpl.
+*/}}
+{{- define "krci-agent-dispatcher.secret.gitlab" -}}gitlab{{- end }}
+{{- define "krci-agent-dispatcher.secret.anthropic" -}}anthropic{{- end }}
+
+{{/*
+Label of every actor credential: the secretSelector of the Substrate namespace policy grant of the atespace.
+*/}}
+{{- define "krci-agent-dispatcher.actorCredentialLabels" -}}
+app.edp.epam.com/actor-credential: "true"
+{{- end }}
+
+{{/*
 Image pinned by digest, <repo>[:<tag>]@sha256:<digest>, from the value named by the argument, for example harnessImage.
 */}}
 {{- define "krci-agent-dispatcher.pinnedImage" -}}

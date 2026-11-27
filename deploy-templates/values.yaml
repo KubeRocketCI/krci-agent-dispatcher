@@ -32,11 +32,46 @@ gitlab:
   # -- ConfigMap with key ca.crt: extra CA bundle for GitLab TLS. Empty: system roots.
   caConfigMap: ""
 
-secrets:
-  # -- Secret with key token: GitLab token of the bot user, mounted as a file and read on each request.
-  gitlab: gitlab
-  # -- Secret with key token: GitLab hook secret token.
-  hook: hook
+# Secrets (chart README, section Secrets), all in the release namespace. Dispatcher credentials: `<fullname>` (keys
+# gitlab-token, hook-token). Actor credentials: `gitlab` (keys token, basic) and `anthropic` (key api-key), label
+# `app.edp.epam.com/actor-credential: "true"`.
+eso:
+  # -- Create the dispatcher and actor credentials with the External Secrets Operator (ESO): one SecretStore, one
+  # ExternalSecret per Secret. false: create the Secrets by hand.
+  enabled: false
+  # -- SecretStore provider: `aws` (Parameter Store), `generic` or `vault`.
+  provider: "aws"
+  # -- API version of the SecretStore and ExternalSecret objects. ESO 0.16 and 2.x serve `external-secrets.io/v1`.
+  apiVersion: "external-secrets.io/v1"
+  # One provider secret per credential scope, a JSON object each. One bot user: the two `gitlab-token` values are
+  # equal. Vault: each path starts with `secret/`.
+  secretPath:
+    # -- Dispatcher scope: `gitlab-token` (GitLab token of the dispatcher's bot user), `hook-token` (GitLab hook
+    # secret token).
+    dispatcher: "/infra/core/addons/krci-agent-dispatcher/dispatcher"
+    # -- Actor scope: `gitlab-token` (GitLab token of the agent's bot user), `anthropic-api-key` (Anthropic API key).
+    actor: "/infra/core/addons/krci-agent-dispatcher/actor"
+  # Vault configuration (if provider is `vault`).
+  vault:
+    # -- Vault server URL.
+    server: "http://vault.vault:8200"
+    # -- Mount path of the Kubernetes auth method.
+    mountPath: "core"
+    # -- Vault role of the Kubernetes auth method.
+    role: krci-agent-dispatcher
+  # AWS configuration (if provider is `aws`).
+  aws:
+    # -- AWS region.
+    region: "eu-central-1"
+    # -- IAM role of the ESO ServiceAccount `externalsecrets-<fullname>-aws` (IRSA): ssm:GetParameter on the two
+    # eso.secretPath parameters, kms:Decrypt of their key for a SecureString.
+    roleArn: "arn:aws:iam::012345678910:role/AWSIRSA_Shared_ExternalSecretOperatorAccess"
+  generic:
+    secretStore:
+      # -- SecretStore `spec.provider` (if provider is `generic`). Required.
+      providerConfig: {}
+      #  gcpsm:
+      #    projectID: "alphabet-123"
 
 substrate:
   # -- Substrate API address.
@@ -58,8 +93,6 @@ substrate:
     # workload: krci-agents
     # kubernetes.io/arch: amd64
     # tier: "2"
-  # -- Namespace in the ate-secret:// URIs of the egress policy. Empty: the release namespace.
-  secretsNamespace: ""
 
 config:
   # -- Dispatcher wait for one turn's marker, whole seconds. The harness cuts a turn at turnTimeout minus
